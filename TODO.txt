@@ -1,0 +1,4 @@
+// extract ref and mutant sequences from reads supporting a given variant
+// extract sets of independent plausible template coordinates
+// fold them across a range of possible template lengths e.g. 200, 300, 400, 500, 600, 700, 800.
+	// per distribution range of templates (which we can empirically learn since that data is stored by NPG (andy))
