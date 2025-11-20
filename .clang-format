@@ -2,34 +2,45 @@
 BasedOnStyle: LLVM
 
 IndentWidth: 4
-UseTab: Never
-
-# arguments/parameters → readable vertical stacking
 ColumnLimit: 70
+
+# readable vertical stacking
 BinPackParameters: AlwaysOnePerLine
+BinPackArguments: false
+PackConstructorInitializers: NextLineOnly
+
+AllowAllArgumentsOnNextLine: false
+AllowAllParametersOfDeclarationOnNextLine: false
+
 BreakAfterReturnType: Automatic
+BreakConstructorInitializers: BeforeColon
+BreakBeforeBinaryOperators: NonAssignment
+
+PenaltyExcessCharacter: 5  # generous
+PenaltyBreakBeforeFirstCallParameter: 0
+PenaltyBreakAssignment: 100
+
+# alignments
+AlignOperands: Align
+AlignAfterOpenBracket: BlockIndent
+AlignConsecutiveAssignments: Consecutive
+AlignConsecutiveDeclarations: Consecutive
+AlignTrailingComments:
+  Kind: Always
+  OverEmptyLines: 0
+DerivePointerAlignment: false
+PointerAlignment: Right
+ReferenceAlignment: Right
+
+# spaces before ()
 SpaceBeforeParens: Custom
 SpaceBeforeParensOptions:
   AfterControlStatements: true
   AfterFunctionDefinitionName: true
   BeforeNonEmptyParentheses: true
-IndentWrappedFunctionNames: true 
-BreakConstructorInitializers: BeforeColon
-PackConstructorInitializers: NextLineOnly
-
-DerivePointerAlignment: false
-PointerAlignment: Right
-ReferenceAlignment: Right
-
-# reduce visual noise
-IncludeBlocks: Preserve
-AlignConsecutiveAssignments: Consecutive
-AlignOperands: AlignAfterOperator
-AlignTrailingComments:
-  Kind: Always
-  OverEmptyLines: 0
 
 # misc
+IncludeBlocks: Preserve
 IndentCaseLabels: true
 KeepEmptyLinesAtTheStartOfBlocks: true
 MaxEmptyLinesToKeep: 2
