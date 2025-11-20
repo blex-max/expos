@@ -2,6 +2,7 @@
 BasedOnStyle: LLVM
 
 IndentWidth: 4
+UseTab: Never
 ColumnLimit: 70
 
 # readable vertical stacking
@@ -17,7 +18,7 @@ BreakConstructorInitializers: BeforeColon
 BreakBeforeBinaryOperators: NonAssignment
 
 PenaltyExcessCharacter: 5  # generous
-PenaltyBreakBeforeFirstCallParameter: 0
+PenaltyBreakBeforeFirstCallParameter: 0  # parens are *the* place to break around
 PenaltyBreakAssignment: 100
 
 # alignments
