@@ -17,15 +17,18 @@ BreakAfterReturnType: Automatic
 BreakConstructorInitializers: BeforeColon
 BreakBeforeBinaryOperators: NonAssignment
 
-PenaltyExcessCharacter: 5  # generous
+PenaltyExcessCharacter: 5  # lenient
 PenaltyBreakBeforeFirstCallParameter: 0  # parens are *the* place to break around
-PenaltyBreakAssignment: 100
+PenaltyBreakAssignment: 1000  # assignments are not
+PenaltyBreakBeforeMemberAccess: 1000 # ditto
+PenaltyReturnTypeOnItsOwnLine: 0
+PenaltyBreakComment: 0 # trial
 
 # alignments
 AlignOperands: Align
 AlignAfterOpenBracket: BlockIndent
-AlignConsecutiveAssignments: Consecutive
-AlignConsecutiveDeclarations: Consecutive
+AlignConsecutiveAssignments: AcrossComments
+AlignConsecutiveDeclarations: AcrossComments
 AlignTrailingComments:
   Kind: Always
   OverEmptyLines: 0
@@ -45,5 +48,5 @@ IncludeBlocks: Preserve
 IndentCaseLabels: true
 KeepEmptyLinesAtTheStartOfBlocks: true
 MaxEmptyLinesToKeep: 2
-ReflowComments: IndentOnly
-
+ReflowComments: IndentOnly  # I'll break
+SpacesBeforeTrailingComments: 5

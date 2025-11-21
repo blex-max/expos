@@ -43,27 +43,27 @@ inline bool evaluate_support (
 
             qpos  = static_cast<size_t> (pl->qpos);
             qbase = seq_nt16_str[bam_get_seq (pl->b)[qpos]];
-            if (qbase != alt[0]) // compare to first character of mutation
-                return false; // all mutation types must conform
-            if (VCF_SNP)      // only relevant condition for SNP
+            if (qbase != alt[0])     // compare to first character of mutation
+                return false;     // all mutation types must conform
+            if (mtype == VCF_SNP)     // only relevant condition for SNP
                 return true;
 
             vdiff = static_cast<int> (alt.length())
-                    - static_cast<int> (ref.length()); // negative for del, pos for ins
+                    - static_cast<int> (ref.length());     // negative for del, pos for ins
             indel_lmatch = (vdiff == pl->indel);
 
             // needs verification
             if ((mtype & (VCF_INS | VCF_DEL)) && !indel_lmatch)
                 return false;
             if (mtype == VCF_DEL)
-                return indel_lmatch; // i.e. true due to the previous conditional
+                return indel_lmatch;     // i.e. true due to the previous conditional
 
             // needs verification
             if (mtype == VCF_INS) {
                 kstring_t ins;
                 ks_initialize (&ins);
                 auto rc = bam_plp_insertion (pl, &ins, NULL);
-                if (rc != vdiff) { // failure or wrong length
+                if (rc != vdiff) {     // failure or wrong length
                     ks_free (&ins);
                     return false;
                 }
@@ -75,7 +75,6 @@ inline bool evaluate_support (
             }
 
             // only mnv remains
-            mnv; // must be a MNV
             for (size_t i = 0; i < alt.length(); ++i) {
                 mnv.push_back (seq_nt16_str[bam_get_seq (pl->b)[qpos + i]]);
             }
