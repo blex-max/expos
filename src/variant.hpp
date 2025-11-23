@@ -1,6 +1,8 @@
 #pragma once
 
 #include <cstring>
+#include <format>
+#include <iostream>
 #include <stdexcept>
 #include <string>
 
@@ -9,6 +11,18 @@
 #include <htslib/sam.h>
 #include <htslib/vcf.h>
 
+
+// TODO
+enum support_flag : uint8_t {
+
+};
+
+struct support_eval_s {
+    bool         s;
+    support_flag f;
+};
+
+// NOTE I like the idea of passing in a struct to be filled out
 
 // in caller, to assess type
 // bcf_has_variant_types (b, VCF_DEL | VCF_INS | VCF_SNP | VCF_MNP, bcf_variant_match::bcf_match_overlap)
@@ -20,16 +34,13 @@ inline bool evaluate_support (
     const bcf1_t        *b,
     int                  mtype
 ) {
+    assert (b->n_allele == 2);
 
     // TODO (ask samteam/read source)
     // if (!b->unpacked)
 
-    // if (b->n_allele != 1)
-    //     throw std::runtime_error ("unnormalised vcf");
-
-    std::string ref, alt, mnv;
+    std::string ref, alt, mnv, qbase;
     size_t      qpos;
-    char        qbase;
     int         vdiff;
     bool        indel_lmatch;
 
@@ -41,9 +52,11 @@ inline bool evaluate_support (
             ref = b->d.allele[0];
             alt = b->d.allele[1];
 
-            qpos  = static_cast<size_t> (pl->qpos);
-            qbase = seq_nt16_str[bam_get_seq (pl->b)[qpos]];
-            if (qbase != alt[0])     // compare to first character of mutation
+            qpos = static_cast<size_t> (pl->qpos);
+            qbase = seq_nt16_str[bam_seqi (bam_get_seq (pl->b), qpos)];
+            // std::cout << std::format ("ref {}, alt {}, query {}", ref, alt, qbase)
+                      // << std::endl;
+            if (qbase != alt.substr (0, 1))     // compare to first character of mutation
                 return false;     // all mutation types must conform
             if (mtype == VCF_SNP)     // only relevant condition for SNP
                 return true;
@@ -76,14 +89,21 @@ inline bool evaluate_support (
 
             // only mnv remains
             for (size_t i = 0; i < alt.length(); ++i) {
-                mnv.push_back (seq_nt16_str[bam_get_seq (pl->b)[qpos + i]]);
+                mnv.push_back (
+                    seq_nt16_str[bam_seqi (bam_get_seq (pl->b), qpos + i)]
+                );
             }
 
             return (mnv == alt);
         default:
             throw std::runtime_error (
-                "type does not match one and only one of VCF_DEL, "
-                "VCF_INS, VCF_SNP, VCF_MNP"
+                std::format (
+                    "type {} of variant {} does not match one and "
+                    "only one of VCF_DEL, "
+                    "VCF_INS, VCF_SNP, VCF_MNP",
+                    mtype,
+                    b->d.id
+                )
             );
     }
 }

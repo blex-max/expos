@@ -9,7 +9,9 @@
 // - rightmost template end
 // across all variants tested, report to file:
 // - distribution of template start range
+// - distribution of template start MAD
 // - distribution of template size range
+// - distribution of template size MAD
 // optional reports to separate file:
 // - template details per qname
 // *If MAD ~= range, broad distribution, if range >> MAD, narrow distribution with outlier/s
@@ -35,6 +37,7 @@
 // clang-format on
 
 #include <algorithm>
+#include <cmath>
 #include <iostream>
 
 #include <cxxopts.hpp>
@@ -72,7 +75,6 @@ int main (
 
     options.parse_positional ({"vcf", "aln"});
     options.positional_help ("<VCF> <ALN>");
-    options.show_positional_help();
 
     try {
         auto result = options.parse (argc, argv);
@@ -160,9 +162,16 @@ int main (
     std::array<int64_t, 4> key_endpoints;     // leftmost start, rmost start, lmost end, rmost end
     std::optional<double> start_mad, size_mad;
     while (bcf_read (vp.get(), vph.get(), b1.get()) == 0) {
+        tstartv.clear();
+        tendv.clear();
+        tsizev.clear();
+        start_mad.reset();
+        size_mad.reset();
         // b1->errcode  // MUST CHECK BEFORE WRITE TO VCF
         var_tmpls = get_templates (ap.get(), apit.get(), b1.get());
         // if necessary, performance increase possible by calculating online during this loop
+        if (var_tmpls.empty())
+            throw std::runtime_error ("no templates?");
         for (const auto &t : var_tmpls) {
             tstartv.push_back (t.start);
             tsizev.push_back (t.len);
@@ -183,6 +192,24 @@ int main (
         key_endpoints = {*plmosts, *prmosts, *plmoste, *prmoste};
         start_mad     = mad (tstartv);
         size_mad      = mad (tsizev);
+        // placeholder
+        // NOTE multinomial distribution DOES matter because two tight clusters
+        // could mean multiple duplicate groups from templates which both have
+        // TODO clustering of template start
+        // TODO clustering of qpos of variant (ADF)
+        // (the same) issues.
+        std::cout << std::format (
+            "{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}",
+            std::to_string (b1->rid),
+            std::to_string (b1->pos),
+            std::to_string (*prmosts - *plmosts),
+            std::to_string (start_mad.value_or (NAN)),
+            std::to_string (*psize_max - *psize_min),
+            std::to_string (size_mad.value_or (NAN)),
+            std::to_string (*plmosts),
+            std::to_string (*prmoste),
+            std::to_string (var_tmpls.size())     // n supporting templates
+        ) << std::endl;
     };
 
     return 0;
