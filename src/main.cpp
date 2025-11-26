@@ -7,11 +7,6 @@
 // - rightmost template start
 // - leftmost template end
 // - rightmost template end
-// across all variants tested, report to file:
-// - distribution of template start range
-// - distribution of template start MAD
-// - distribution of template size range
-// - distribution of template size MAD
 // optional reports to separate file:
 // - template details per qname
 // *If MAD ~= range, broad distribution, if range >> MAD, narrow distribution with outlier/s
@@ -36,14 +31,34 @@
 // evaluate foldiness of recovered templates
 // clang-format on
 
+// ROUND 2
+// MAD is in fact a proxy for distance between observations, from which we can
+// draw conclusions about clustering
+// in other words artefactual-variant relevant statistics are
+// qpos clustering, via five number summary of the 1D gaps -- NOTE: 5 number summary usefulness in doubt
+// NOTE: qpos clustering is equivalent to read endpoint clustering iff read lengths are ~all the same
+// which they are for short read seq
+// template clustering, via five number summary of the template endpoint chebyshev distance MST edges
+// of these 5 number summaries, IQR is a good way of assessing clustering
+// CRITICAL NOTE:
+// -> maybe we can add a whole bunch of statistical power by comparing reference templates
+// to supporting templates (and elsewhere), having appropriately adjusted for number of samples?
+// -> my intution is, the distribution of non-supporting reads
+// should match the distribution stats of supporting reads
+// if nothing odd is going on
+// -> shannon entropy of the reference/consensus would be useful
+
+
 #include <algorithm>
 #include <cmath>
+#include <cstdint>
 #include <iostream>
 
 #include <cxxopts.hpp>
 #include <htslib/hts.h>
 #include <htslib/sam.h>
 #include <htslib/vcf.h>
+#include <limits>
 
 #include "hts_ptr_t.hpp"
 #include "pileup.hpp"
@@ -98,7 +113,7 @@ int main (
             );
         }
 
-        std::cout << "Using VCF: " << vcf_path << std::endl;
+        std::cerr << "Using VCF: " << vcf_path << std::endl;
 
         if (!fs::exists (aln_path)) {
             throw std::runtime_error (
@@ -106,7 +121,7 @@ int main (
             );
         }
 
-        std::cout << "Using aln: " << aln_path << std::endl;
+        std::cerr << "Using aln: " << aln_path << std::endl;
     } catch (const std::exception &e) {
         std::cerr << "Error parsing CLI options: " << e.what() << "\n";
         return 1;
@@ -114,7 +129,7 @@ int main (
 
     auto _ain{hts_open (aln_path.c_str(), "r")};
     if (_ain == NULL) {
-        std::cout << std::format (
+        std::cerr << std::format (
             "Could not open alignment file at {}",
             aln_path.string()
         ) << std::endl;
@@ -122,7 +137,7 @@ int main (
     }
     auto _aixin{sam_index_load (_ain, aln_path.c_str())};
     if (_aixin == NULL) {
-        std::cout << std::format (
+        std::cerr << std::format (
             "Coud not open index for alignment "
             "file. Searched for {}.bai",
             aln_path.c_str()
@@ -131,7 +146,7 @@ int main (
 
     auto _vin{hts_open (vcf_path.c_str(), "r")};
     if (_vin == NULL) {
-        std::cout << std::format (
+        std::cerr << std::format (
             "Could not open VCF file at {}",
             vcf_path.string()
         ) << std::endl;
@@ -139,7 +154,7 @@ int main (
     }
     auto _vh{bcf_hdr_read (_vin)};
     if (_vh == NULL) {
-        std::cout << std::format (
+        std::cerr << std::format (
             "Could not read header of VCF file at {}",
             vcf_path.string()
         );
@@ -154,63 +169,95 @@ int main (
     bcf1_upt b1{bcf_init(), bcf_destroy};
 
     // loop vars
-    std::vector<read_template_s> var_tmpls;
-    std::vector<int64_t> tstartv;     // for finding key endpoints,
-                                      // and stats
-    std::vector<size_t>  tsizev;      // key endpoints, and stats
-    std::vector<int64_t> tendv;       // key endpoints
-    std::array<int64_t, 4> key_endpoints;     // leftmost start, rmost start, lmost end, rmost end
-    std::optional<double> start_mad, size_mad;
+    std::vector<endpoints1D<uint64_t>> tendpoints;
+    std::optional<double>              start_mad, size_mad;
     while (bcf_read (vp.get(), vph.get(), b1.get()) == 0) {
-        tstartv.clear();
-        tendv.clear();
-        tsizev.clear();
+        tendpoints.clear();
         start_mad.reset();
         size_mad.reset();
         // b1->errcode  // MUST CHECK BEFORE WRITE TO VCF
-        var_tmpls = get_templates (ap.get(), apit.get(), b1.get());
-        // if necessary, performance increase possible by calculating online during this loop
-        if (var_tmpls.empty())
-            throw std::runtime_error ("no templates?");
-        for (const auto &t : var_tmpls) {
-            tstartv.push_back (t.start);
-            tsizev.push_back (t.len);
-            tendv.push_back (t.end);
+        auto vd = get_aln_data (ap.get(), apit.get(), b1.get());
+
+        if (vd.qpv.empty() || vd.tev.empty())
+            throw std::runtime_error ("no data?");     // TODO placeholder
+
+        // consensus region of supporting templates
+        uint64_t lmosttc = std::numeric_limits<uint64_t>::max();
+        uint64_t rmosttc = 0ULL;
+        for (const auto &te : vd.tev) {
+            if (te.min < lmosttc)
+                lmosttc = te.min;
+            if (te.max > rmosttc)
+                rmosttc = te.max;
         }
-        const auto [plmosts, prmosts] = std::minmax_element (
-            begin (tstartv),
-            end (tstartv)
-        );
-        const auto [plmoste, prmoste] = std::minmax_element (
-            begin (tendv),
-            end (tendv)
-        );
-        const auto [psize_min, psize_max] = std::minmax_element (
-            begin (tsizev),
-            end (tsizev)
-        );
-        key_endpoints = {*plmosts, *prmosts, *plmoste, *prmoste};
-        start_mad     = mad (tstartv);
-        size_mad      = mad (tsizev);
-        // placeholder
-        // NOTE multinomial distribution DOES matter because two tight clusters
-        // could mean multiple duplicate groups from templates which both have
-        // TODO clustering of template start
-        // TODO clustering of qpos of variant (ADF)
-        // (the same) issues.
+
+        std::sort (begin (vd.qpv), end (vd.qpv));     // necessary for stats tests
+        const auto qpos_mad = mad (vd.qpv).value_or (
+            NAN
+        );     // my span50 is better than mad because data is not necessarily unimodal, but it's interesting to compare
+        const auto qpos_distrib_spans =
+            std::vector<double>{0.50, 0.90}
+            | std::views::transform ([&] (double pt) {
+                  return min_span_containing (vd.qpv, pt).value_or (NAN);
+              })
+            | std::ranges::to<std::vector<uint64_t>>();
+
+        // TODO
+        // get the ordered mst tree
+        // from template endpoints
+        // then do an equivalent "min span containing"
+        // on the edge lengths
+
+        // gap-based stats
+        auto qgaps = gaps (vd.qpv);
+        auto tcdv = mst_cheb_dists (vd.tev);     // template chebyshev mst distances
+
+        std::sort (begin (qgaps), end (qgaps));
+        std::sort (begin (tcdv), end (tcdv));
+
+        const auto qgaps_tail_jump = tail_jump (qgaps).value_or (NAN);
+        const auto tcd_tail_jump   = tail_jump (tcdv).value_or (NAN);
+        const auto tcd_distrib     = summary_stats (tcdv);
+
+        // for the qpos I've got a pretty good set of descriptive statistics now
+        // but they HAVE to be compared to the null model of uniform distribution
+        // and the distribution of non-supporting/reference calls to be of value
+        // I'm hopeful that one can say something like, "at this variant
+        // the supporting qpos distribution is very non-random compared to the null model
+        // but note that so is the reference qpos distribution and so on".
+        // Also, n.b. that the original plan was just to extract templates
+        // and I've done that! I could fold some!
+        // TODO null model
+        // TODO ref data fetched from the get_aln_data func as well as supporting
+        // TODO better descriptive stats for the template distribution (see other comment)
+        // TODO eyeball comparison to hp2 -> subset a vcf to DVF and ADF marked
+        // TODO some folding of templates!
+        // TODO I may actually want to report the min/max template size
+        // as it's relevant for folding potentially
         std::cout << std::format (
-            "{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}",
+            "{}\t{}\t{}\t{}\t{}\t"
+            "{}\t{}\t{}\t{}\t{}\t"
+            "{}\t{}\t{}\t{}\t{}",
             std::to_string (b1->rid),
             std::to_string (b1->pos),
-            std::to_string (*prmosts - *plmosts),
-            std::to_string (start_mad.value_or (NAN)),
-            std::to_string (*psize_max - *psize_min),
-            std::to_string (size_mad.value_or (NAN)),
-            std::to_string (*plmosts),
-            std::to_string (*prmoste),
-            std::to_string (var_tmpls.size())     // n supporting templates
+            std::to_string (qpos_mad),     // just for comparison to my stats for now
+            std::to_string (qpos_distrib_spans[0]),     // what span contains 25,
+            std::to_string (qpos_distrib_spans[1]),     // 90, and
+            std::to_string (
+                vd.qpv.back() - vd.qpv.front()
+            ),     // 100% of supporting read coordinates
+            std::to_string (qgaps_tail_jump),
+            std::to_string (vd.qpv.size()),     // n supporting reads
+            std::to_string (tcd_distrib.q25),     // placeholder
+            std::to_string (tcd_distrib.q75),
+            std::to_string (tcd_tail_jump),
+            std::to_string (lmosttc),     // template consensus span
+            std::to_string (rmosttc),
+            std::to_string (rmosttc - lmosttc),     // span size
+            std::to_string (vd.tev.size())     // n supporting templates (qname deduplicated)
         ) << std::endl;
     };
 
+    std::cout << "complete" << std::endl;
     return 0;
 }

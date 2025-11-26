@@ -4,7 +4,6 @@
 #include <cstdint>
 #include <format>
 #include <htslib/vcf.h>
-#include <iostream>
 #include <unordered_set>
 #include <vector>
 
@@ -12,6 +11,7 @@
 #include <htslib/sam.h>
 
 #include "hts_ptr_t.hpp"
+#include "stats.hpp"
 #include "variant.hpp"
 
 // nothing but C please
@@ -49,24 +49,20 @@ inline int pileup_func (
 }
 // end nothing but C
 
-struct read_template_s {
-    std::string qname;
-    int64_t     start;
-    int64_t     end;
-    size_t      len;
-};
 
-// get estimated template coordinates for
-// all templates supporting a variant.
-// i.e. fetch pileup overlapping the variant;
-// check pileup reads support that variant;
-// then get fragment endpoints.
-inline std::vector<read_template_s> get_templates (
+// TODO
+// INCORPORATE THIS INTO MAIN
+using templ_endpoints = std::vector<endpoints1D<uint64_t>>;
+using qposv           = std::vector<uint64_t>;
+auto inline get_aln_data (
     htsFile   *aln_fh,
     hts_idx_t *aln_idx,
     bcf1_t    *v
 ) {
-    std::vector<read_template_s> tmpls;     // return
+    struct {
+        qposv qpv;     // NOTE: equivalent to analysing read endpoints
+        templ_endpoints tev;
+    } obs;
 
     // TODO enum
     auto mtype = bcf_has_variant_type (
@@ -92,11 +88,8 @@ inline std::vector<read_template_s> get_templates (
     int                             n_plp   = -1;
     const bam_pileup1_t            *plarr;
     // this
-    int64_t                         rpos;     // reference position
     std::unordered_set<std::string> qnames;
-    std::string                     mc, qname;
     std::array<int64_t, 4>          endpoints;
-    std::pair<int64_t *, int64_t *> tco;
     bam1_upt                        mateb{bam_init1(), bam_destroy1};
 
     while ((plarr = bam_plp64_auto (buf.get(), &plp_tid, &plp_pos, &n_plp))
@@ -104,40 +97,32 @@ inline std::vector<read_template_s> get_templates (
         if (n_plp < 0 || plp_tid < 0 || plp_pos < 0)
             throw std::runtime_error ("pileup failed");
 
-        if (plp_pos < v->pos || plp_pos > v->pos + v->rlen) {
-            // std::cout << "pos skip" << std::endl;
+        if (plp_pos < v->pos || plp_pos >= v->pos + v->rlen) {
             continue;     // doesn't cover variant
         }
-        // std::cout << std::format ("pos {}", plp_pos) << std::endl;
 
         for (size_t i = 0; i < static_cast<size_t> (n_plp); i++) {
-            const bam_pileup1_t *pli = plarr + i;
+            const auto pli = plarr + i;
+
+            const std::string qname{bam_get_qname (pli->b)};
             // These are error states rather than skips
             // because if either occurs then something is fundamentally wrong
             // i.e. neither can occur during correct application of this function
-            qname       = std::string (bam_get_qname (pli->b));
-            auto raw_mc = bam_aux_get (pli->b, "MC");
+            auto              raw_mc = bam_aux_get (pli->b, "MC");
             if (raw_mc == NULL)
                 throw std::runtime_error (
-                    std::format ("no MC tag for qname {}", qname)
+                    std::format ("no MC tag for read {}", qname)
                 );
             if (bam_aux_type (raw_mc) != 'Z')
                 throw std::runtime_error (
-                    std::format ("MC tag is not of type 'Z' for qname {}. Record data corrupt; type 'Z' is mandated for MC tag by SAM format spec.", qname)
+                    std::format ("MC tag is not of type 'Z' for read {}. Record data corrupt; type 'Z' is mandated for MC tag by SAM format spec.", qname)
                 );
-            mc = std::string (bam_aux2Z (raw_mc));
+            const std::string mc{bam_aux2Z (raw_mc)};
             if (bam_parse_cigar (mc.c_str(), NULL, mateb.get()) < 1) {
                 throw std::runtime_error (
-                    std::format ("unable to parse MC tag {} as cigar string for qname {}", mc, qname)
+                    std::format ("unable to parse MC tag {} as cigar string for read {}", mc, qname)
                 );
             }
-
-            // avoid reporting for the same qname more than once
-            if (qnames.find (qname) != qnames.end()) {     // qname already seen
-                // std::cout << "qname skip" << std::endl;
-                continue;
-            }
-            qnames.insert (qname);
 
             // check mate mapped to same reference
             // NOTE: this would probably need to be adjusted
@@ -153,41 +138,42 @@ inline std::vector<read_template_s> get_templates (
                 continue;
             }
 
+            const auto l0 = pli->b->core.pos;
+
+            obs.qpv.emplace_back (as_uint (pli->qpos));
+            // don't double count templates,
+            // shared between read pairs (by definition)
+            if (qnames.find (qname) != qnames.end()) {     // qname already seen
+                continue;
+            }
+            qnames.insert (qname);
+
             // TODO logging
             // std::cout << "retrieving template" << std::endl;
 
             //--- get template region ---//
-            rpos         = pli->b->core.pos;     // leftmost coord
-            endpoints[0] = rpos;
-            endpoints[1] = rpos
+            endpoints[0] = l0;
+            endpoints[1] = l0
                            + bam_cigar2rlen (
                                static_cast<int> (pli->b->core.n_cigar),
                                bam_get_cigar (pli->b)
                            );
-            rpos = pli->b->core.mpos;     // leftmost mate coord
-            endpoints[2] = rpos;
-            endpoints[3] = rpos
+            const auto ml0 = pli->b->core.mpos;     // leftmost mate coord
+            endpoints[2] = ml0;
+            endpoints[3] = ml0
                            + bam_cigar2rlen (
                                static_cast<int> (mateb->core.n_cigar),
                                bam_get_cigar (mateb)
                            );
 
-            tco = std::minmax_element (
+            const auto tco = std::minmax_element (
                 endpoints.begin(),
                 endpoints.end()
             );     // NOTE returns pair of *ptrs*
 
-            tmpls.emplace_back (
-                qname,
-                *tco.first,
-                *tco.second,
-                *tco.second - *tco.first
-            );
+            obs.tev.emplace_back (as_uint (*tco.first), as_uint (*tco.second));
         }
     }
 
-    return tmpls;
+    return obs;
 }
-
-
-// inline read_template_s get_template (const bam_pileup1_t *p) {}
