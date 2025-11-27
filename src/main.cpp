@@ -176,9 +176,13 @@ int main (
         start_mad.reset();
         size_mad.reset();
         // b1->errcode  // MUST CHECK BEFORE WRITE TO VCF
-        auto vd = get_aln_data (ap.get(), apit.get(), b1.get()).alt; // TODO USE REF
-        // ref/other data can then be used for a mann-whitney (or similar) u test between the distribution of
-        // supporting reads and other read
+        auto vd = get_aln_data (ap.get(), apit.get(), b1.get()).alt;
+        // TODO USE REF
+        // ref/other data can then be used for a comparison between descriptive stats
+        // since the null hypothesis is that all the data should come from the same spatial process
+        // if the supporting data is good. Can extend that into a "permuation based test" for something more formal
+        // TODO fetch length normalised shannon entropy of template region as another descriptive stat
+        // TODO report span stats for cheb radius of template
 
         if (vd.qpv.empty() || vd.tev.empty())
             throw std::runtime_error ("no data?");     // TODO placeholder
@@ -193,33 +197,31 @@ int main (
                 rmosttc = te.max;
         }
 
-        std::sort (begin (vd.qpv), end (vd.qpv));     // necessary for stats tests
-        // const auto qpos_mad = mad (vd.qpv).value_or (
-        //     NAN
-        // );     // my span50 is better than mad because data is not necessarily unimodal (which MAD can't capture), but it's interesting to compare
+        std::sort (begin (vd.qpv), end (vd.qpv));     // necessary for span tests
+        // my span50 is better than mad because data is not necessarily unimodal (which MAD can't capture), but it's interesting to compare TODO expand on this
         const auto qpos_distrib_spans =
             std::vector<double>{0.50, 0.90}
-            | std::views::transform ([&] (double pt) {
+            | std::views::transform ([&vd] (double pt) {
                   return min_span_containing (vd.qpv, pt).value_or (NAN);
               })
             | std::ranges::to<std::vector<uint64_t>>();
 
-        // TODO
-        // get the ordered mst tree
-        // from template endpoints
-        // then do an equivalent "min span containing"
-        // on the edge lengths
+        const auto te_distrib_spans =
+            std::vector<double>{0.50, 0.90, 1}
+            | std::views::transform ([&vd] (double pt) {
+                  // does not require sorting
+                  return min_cheb_radius_containing (vd.tev, pt).value_or (NAN);
+              })
+            | std::ranges::to<std::vector<uint64_t>>();
 
         // gap-based stats
         auto qgaps = gaps (vd.qpv);
-        auto tcdv = mst_cheb_dists (vd.tev);     // template chebyshev mst distances
-
         std::sort (begin (qgaps), end (qgaps));
-        std::sort (begin (tcdv), end (tcdv));
-
         const auto qgaps_tail_jump = tail_jump (qgaps).value_or (NAN);
-        const auto tcd_tail_jump   = tail_jump (tcdv).value_or (NAN);
-        const auto tcd_distrib     = summary_stats (tcdv);
+
+        auto tcdv = mst_cheb_dists (vd.tev);     // template chebyshev mst distances
+        std::sort (begin (tcdv), end (tcdv));
+        const auto tcd_tail_jump = tail_jump (tcdv).value_or (NAN);
 
         // for the qpos I've got a pretty good set of descriptive statistics now
         // but they HAVE to be compared to the null model of uniform distribution
@@ -230,8 +232,6 @@ int main (
         // Also, n.b. that the original plan was just to extract templates
         // and I've done that! I could fold some!
         // TODO null model
-        // TODO ref data fetched from the get_aln_data func as well as supporting
-        // TODO better descriptive stats for the template distribution (see other comment)
         // TODO eyeball comparison to hp2 -> subset a vcf to DVF and ADF marked
         // TODO some folding of templates!
         // TODO I may actually want to report the min/max template size
@@ -239,7 +239,7 @@ int main (
         std::cout << std::format (
             "{}\t{}\t{}\t{}\t{}\t"
             "{}\t{}\t{}\t{}\t{}\t"
-            "{}\t{}\t{}\t{}",
+            "{}\t{}\t{}\t{}\t{}",
             std::to_string (b1->rid),
             std::to_string (b1->pos),
             std::to_string (qpos_distrib_spans[0]),     // what span contains 25,
@@ -249,8 +249,9 @@ int main (
             ),     // 100% of supporting read coordinates
             std::to_string (qgaps_tail_jump),
             std::to_string (vd.qpv.size()),     // n supporting reads
-            std::to_string (tcd_distrib.q25),     // placeholder
-            std::to_string (tcd_distrib.q75),
+            std::to_string (te_distrib_spans[0]),     // what chebyshev radius contains 50,
+            std::to_string (te_distrib_spans[1]),     // 90, and
+            std::to_string (te_distrib_spans[2]),     // 100% of supporting template coordinates
             std::to_string (tcd_tail_jump),
             std::to_string (lmosttc),     // template consensus span
             std::to_string (rmosttc),
@@ -259,6 +260,6 @@ int main (
         ) << std::endl;
     };
 
-    std::cout << "complete" << std::endl;
+    std::cerr << "complete" << std::endl;
     return 0;
 }
