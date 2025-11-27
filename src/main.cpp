@@ -77,8 +77,8 @@ int main (
     fs::path aln_path;
 
     cxxopts::Options options (
-        "tempex",
-        "variant fragment template extraction and statistics\n"
+        "expos",
+        "variant positional data and statistics from alignment\n"
     );
 
     // clang-format off
@@ -176,7 +176,9 @@ int main (
         start_mad.reset();
         size_mad.reset();
         // b1->errcode  // MUST CHECK BEFORE WRITE TO VCF
-        auto vd = get_aln_data (ap.get(), apit.get(), b1.get());
+        auto vd = get_aln_data (ap.get(), apit.get(), b1.get()).alt; // TODO USE REF
+        // ref/other data can then be used for a mann-whitney (or similar) u test between the distribution of
+        // supporting reads and other read
 
         if (vd.qpv.empty() || vd.tev.empty())
             throw std::runtime_error ("no data?");     // TODO placeholder
@@ -192,9 +194,9 @@ int main (
         }
 
         std::sort (begin (vd.qpv), end (vd.qpv));     // necessary for stats tests
-        const auto qpos_mad = mad (vd.qpv).value_or (
-            NAN
-        );     // my span50 is better than mad because data is not necessarily unimodal, but it's interesting to compare
+        // const auto qpos_mad = mad (vd.qpv).value_or (
+        //     NAN
+        // );     // my span50 is better than mad because data is not necessarily unimodal (which MAD can't capture), but it's interesting to compare
         const auto qpos_distrib_spans =
             std::vector<double>{0.50, 0.90}
             | std::views::transform ([&] (double pt) {
@@ -233,14 +235,13 @@ int main (
         // TODO eyeball comparison to hp2 -> subset a vcf to DVF and ADF marked
         // TODO some folding of templates!
         // TODO I may actually want to report the min/max template size
-        // as it's relevant for folding potentially
+        // as it's relevant for folding potentially... potentially, but as maybe not
         std::cout << std::format (
             "{}\t{}\t{}\t{}\t{}\t"
             "{}\t{}\t{}\t{}\t{}\t"
-            "{}\t{}\t{}\t{}\t{}",
+            "{}\t{}\t{}\t{}",
             std::to_string (b1->rid),
             std::to_string (b1->pos),
-            std::to_string (qpos_mad),     // just for comparison to my stats for now
             std::to_string (qpos_distrib_spans[0]),     // what span contains 25,
             std::to_string (qpos_distrib_spans[1]),     // 90, and
             std::to_string (

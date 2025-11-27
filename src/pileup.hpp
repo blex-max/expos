@@ -49,19 +49,20 @@ inline int pileup_func (
 }
 // end nothing but C
 
-
-// TODO
-// INCORPORATE THIS INTO MAIN
-using templ_endpoints = std::vector<endpoints1D<uint64_t>>;
-using qposv           = std::vector<uint64_t>;
 auto inline get_aln_data (
     htsFile   *aln_fh,
     hts_idx_t *aln_idx,
     bcf1_t    *v
 ) {
-    struct {
+    using templ_endpoints = std::vector<endpoints1D<uint64_t>>;
+    using qposv           = std::vector<uint64_t>;
+    using qdat            = struct qdat {
         qposv qpv;     // NOTE: equivalent to analysing read endpoints
         templ_endpoints tev;
+    };
+    struct {
+        qdat alt;
+        qdat other;
     } obs;
 
     // TODO enum
@@ -138,9 +139,12 @@ auto inline get_aln_data (
                 continue;
             }
 
+            auto &bin = evaluate_support (pli, v, mtype) ? obs.alt
+                                                         : obs.other;
+
             const auto l0 = pli->b->core.pos;
 
-            obs.qpv.emplace_back (as_uint (pli->qpos));
+            bin.qpv.emplace_back (as_uint (pli->qpos));
             // don't double count templates,
             // shared between read pairs (by definition)
             if (qnames.find (qname) != qnames.end()) {     // qname already seen
@@ -171,7 +175,7 @@ auto inline get_aln_data (
                 endpoints.end()
             );     // NOTE returns pair of *ptrs*
 
-            obs.tev.emplace_back (as_uint (*tco.first), as_uint (*tco.second));
+            bin.tev.emplace_back (as_uint (*tco.first), as_uint (*tco.second));
         }
     }
 

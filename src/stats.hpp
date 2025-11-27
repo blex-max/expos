@@ -378,6 +378,49 @@ tail_jump (const std::vector<T> &obs) {
            / static_cast<double> (obs[obs.size() - 2]);
 }
 
+
+// smallest chebyshev radius
+// such that there exists some centre radius
+// contains strictly more than fraction pt of all points
+// TODO templatise
+// TODO test
+inline std::optional<uint64_t> min_cheb_radius_containing (
+    const std::vector<endpoints1D<uint64_t>> &obs,
+    double                                    pt
+) {
+    assert (pt > 0 && pt <= 1);
+
+    if (obs.size() < 2) {
+        return std::nullopt;
+    }
+
+    // what number of elements constitutes
+    // at least pt% of the obs
+    auto nel = static_cast<size_t> (
+        ceil (static_cast<double> (obs.size()) * pt)
+    );
+    if (nel <= 1) {
+        return std::nullopt;     // single element is not a statistically valid span
+    }
+
+    uint64_t mind = std::numeric_limits<uint64_t>::max();
+    for (size_t i = 0; i < obs.size(); ++i) {
+        std::vector<uint64_t> idists;
+        const auto           &q = obs[i];
+        for (size_t j = 0; j < obs.size(); ++j) {
+            if (i == j)
+                continue;
+            idists.emplace_back (ucheb (obs[j], q));
+        }
+        std::sort (begin (idists), end (idists));
+        if (idists[nel - 2] < mind) {     // -2 as we include the query point
+            mind = idists[nel - 2];
+        }
+    }
+    return mind;
+}
+
+
 // not useful since won't detect a single cluster (the data would be regular)
 // template <std::integral Int>
 // inline std::optional<double> cv_gaps (const std::vector<Int> &v) {

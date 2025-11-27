@@ -1,6 +1,6 @@
 cmake_minimum_required (VERSION 3.22)
 
-project(temp-ex
+project(expos
   LANGUAGES CXX
   VERSION 0.0.0
 )
@@ -83,19 +83,19 @@ if(MAKE_TEST)
 
   FetchContent_MakeAvailable(Catch2)
 
-  add_executable(test-tempex tests/test.cpp)
-  target_include_directories(test-tempex PRIVATE src)
-  target_link_libraries(test-tempex PRIVATE
+  add_executable(test-expos tests/test.cpp)
+  target_include_directories(test-expos PRIVATE src)
+  target_link_libraries(test-expos PRIVATE
     Catch2::Catch2WithMain
   )
 endif(MAKE_TEST)
 # //--- end testing ---//
 
-add_executable(temp-ex
+add_executable(expos
   src/main.cpp
 )
 
-target_compile_options(temp-ex PRIVATE
+target_compile_options(expos PRIVATE
     -Wall
     -Wextra
     -Wpedantic
@@ -112,19 +112,19 @@ target_compile_options(temp-ex PRIVATE
 )
 
 if(ENABLE_DEBUG_FLAGS)
-  target_compile_options(temp-ex PRIVATE
+  target_compile_options(expos PRIVATE
     -fsanitize=address,undefined
     -fno-omit-frame-pointer
     -O0 -g
   )
-  target_link_options(temp-ex PRIVATE
+  target_link_options(expos PRIVATE
     -fsanitize=address,undefined
   )
 endif()
 
-target_include_directories(temp-ex PRIVATE src)
+target_include_directories(expos PRIVATE src)
 
-target_link_libraries(temp-ex
+target_link_libraries(expos
   cxxopts::cxxopts
   ${HTSLIB_TARGET}
 )
