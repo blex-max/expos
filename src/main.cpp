@@ -171,6 +171,13 @@ int main (
     // loop vars
     std::vector<endpoints1D<uint64_t>> tendpoints;
     std::optional<double>              start_mad, size_mad;
+    // TODO add var uuid
+    // TODO add read coordinate range maybe
+    std::cout << "CHROM\tPOS\tQPOS_SPAN50\tQPOS_SPAN90\tQPOS_"
+                 "SPAN\tQPOS_TAIL_JUMP\tNREADS\tTEMPL_RAD50\tTEMPL_"
+                 "RAD90\tTEMPL_RAD100\tTEMPL_TAIL_JUMP\tTEMPL_"
+                 "LMOST\tTEMPL_RMOST\tTEMPL_SPAN\tNTEMPL"
+              << "\n";
     while (bcf_read (vp.get(), vph.get(), b1.get()) == 0) {
         tendpoints.clear();
         start_mad.reset();
@@ -242,7 +249,7 @@ int main (
             "{}\t{}\t{}\t{}\t{}",
             std::to_string (b1->rid),
             std::to_string (b1->pos),
-            std::to_string (qpos_distrib_spans[0]),     // what span contains 25,
+            std::to_string (qpos_distrib_spans[0]),     // what span contains 50,
             std::to_string (qpos_distrib_spans[1]),     // 90, and
             std::to_string (
                 vd.qpv.back() - vd.qpv.front()
@@ -257,7 +264,7 @@ int main (
             std::to_string (rmosttc),
             std::to_string (rmosttc - lmosttc),     // span size
             std::to_string (vd.tev.size())     // n supporting templates (qname deduplicated)
-        ) << std::endl;
+        ) << "\n";
     };
 
     std::cerr << "complete" << std::endl;
