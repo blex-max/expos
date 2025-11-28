@@ -5,9 +5,11 @@
 #include <concepts>
 #include <cstddef>
 #include <cstdint>
+#include <functional>
 #include <limits>
 #include <math.h>
 #include <optional>
+#include <random>
 #include <ranges>
 #include <stdexcept>
 #include <vector>
@@ -15,7 +17,9 @@
 template <std::signed_integral T>
 constexpr inline uint64_t as_uint (const T &a) {
     if (a < 0) {
-        throw std::runtime_error ("cannot convert negative value to uint");
+        throw std::runtime_error (
+            "cannot convert negative value to uint"
+        );
     }
     return static_cast<uint64_t> (a);
 }
@@ -111,7 +115,8 @@ constexpr inline std::optional<double> percentile_from_sorted (
 // precondition:
 // - vector is sorted
 template <std::unsigned_integral T>
-constexpr inline std::optional<double> mad (const std::vector<T> &obs) {
+constexpr inline std::optional<double>
+mad (const std::vector<T> &obs) {
     assert (std::is_sorted (begin (obs), end (obs)));
     if (obs.empty())
         return std::nullopt;
@@ -144,13 +149,14 @@ constexpr inline std::optional<double> mad (const std::vector<T> &obs) {
 // - unsigned only because massive opposite signed integral elements will cause overflow
 template <typename T>
     requires std::unsigned_integral<T> || std::floating_point<T>
-constexpr inline std::vector<T> gaps (const std::vector<T> &v) {
-    assert (std::is_sorted (begin (v), end (v)));
+constexpr inline std::vector<T> gaps (std::vector<T> v) {
+    std::sort (begin (v), end (v));
     if (v.empty())
         return {};
     std::vector<T> out;
     auto           prev = v[0];
-    for (const auto &e : std::ranges::subrange (begin (v) + 1, end (v))) {
+    for (const auto &e :
+         std::ranges::subrange (begin (v) + 1, end (v))) {
         assert (e >= prev);     // sorted precondition
         // BUG (and elsewhere) - massive opposite signed elements will cause overflow
         out.emplace_back (e - prev);
@@ -204,21 +210,18 @@ constexpr inline std::optional<double> max_obs_within (
            / static_cast<double> (obs.size());
 }
 
-// preconditions:
-// - vector is ascending sorted
 // Notes:
 // - unsigned only because massive opposite signed integral elements will cause overflow
 // TODO return boundaries with result
 template <typename T>
     requires std::unsigned_integral<T> || std::floating_point<T>
 constexpr inline std::optional<T> min_span_containing (
-    const std::vector<T> &obs,
-    double                pt
+    std::vector<T> obs,     // copy for sort
+    double         pt
 ) {
     // TODO consider whether these should be asserts
     // or runtime checks
     assert (pt > 0 && pt <= 1);
-    assert (std::is_sorted (begin (obs), end (obs)));
 
     if (obs.size() < 2) {
         return std::nullopt;
@@ -232,6 +235,8 @@ constexpr inline std::optional<T> min_span_containing (
     if (nel <= 1) {
         return std::nullopt;     // single element is not a statistically valid span
     }
+
+    std::sort (begin (obs), end (obs));
 
     T min_span = std::numeric_limits<T>::max();
     for (size_t i = 0; (i + nel - 1) < obs.size(); ++i) {
@@ -262,10 +267,14 @@ struct summary5_s {
 template <typename T>
     requires std::unsigned_integral<T>     // uint for percentile func
              || std::floating_point<T>
-constexpr inline summary5_s<T> summary_stats (const std::vector<T> &v) {
+constexpr inline summary5_s<T>
+summary_stats (const std::vector<T> &v) {
     assert (std::is_sorted (begin (v), end (v)));
     assert (!v.empty());
-    const auto [pvmin, pvmax] = std::minmax_element (begin (v), end (v));
+    const auto [pvmin, pvmax] = std::minmax_element (
+        begin (v),
+        end (v)
+    );
     return {
         *pvmin,
         percentile_from_sorted (v, 0.25).value(),
@@ -349,7 +358,10 @@ inline std::vector<T> constexpr mst_cheb_dists (
             begin (outside),
             [&u] (const auto &a) {
                 const auto d = ucheb (a.p, u);
-                return pwdist{a.p, std::min (a.dist, d)};     // get chebyshev distance
+                return pwdist{
+                    a.p,
+                    std::min (a.dist, d)
+                };     // get chebyshev distance
             }
         );
         sort (
@@ -363,19 +375,19 @@ inline std::vector<T> constexpr mst_cheb_dists (
     return dists;
 }
 
-// precondition:
-// - vector is ascending sorted
 template <typename T>
     requires std::unsigned_integral<T> || std::floating_point<T>
-constexpr inline std::optional<double>
-tail_jump (const std::vector<T> &obs) {
-    assert (std::is_sorted (begin (obs), end (obs)));
+constexpr inline std::optional<double> tail_jump (
+    std::vector<T> obs     // copy for sort
+) {
+    std::sort (begin (obs), end (obs));
     if (obs.size() < 2 || obs.back() == 0)
         return std::nullopt;
 
-    // BUG will fail if divisor >>>
-    return static_cast<double> (obs.back())
-           / static_cast<double> (obs[obs.size() - 2]);
+    // can overflow
+    // +1 avoids confusing values with obs of 0
+    return static_cast<double> (obs.back() + 1)
+           / static_cast<double> (obs[obs.size() - 2] + 1);
 }
 
 
@@ -413,11 +425,90 @@ inline std::optional<uint64_t> min_cheb_radius_containing (
             idists.emplace_back (ucheb (obs[j], q));
         }
         std::sort (begin (idists), end (idists));
-        if (idists[nel - 2] < mind) {     // -2 as we include the query point
+        if (idists[nel - 2]
+            < mind) {     // -2 as we include the query point
             mind = idists[nel - 2];
         }
     }
     return mind;
+}
+
+
+struct stat_eval_s {
+    std::optional<double> eff_sz = std::nullopt;
+    std::optional<double> pval   = std::nullopt;
+    // int errcode;
+};
+// are event supporting observations
+// meaningfully different than total observations
+// for a given statistic?
+// compare via simulation: if we take random samples
+// of the total observations of the same size
+// as the true event supporting sample,
+// how often do we get a lt/gt value for the
+// statistic in question (pvalue), and
+// how large is the effect size.
+template <
+    typename StatT,
+    typename ObsT>
+inline stat_eval_s sim_to_bg (
+    StatT             ev_stat,
+    size_t            n_ev_obs,
+    std::vector<ObsT> total_obs,     // intentional copy
+    std::function<StatT (const std::vector<ObsT> &)> statfn,
+    std::function<bool (StatT)>                      statcmp,
+    size_t                                           nsim = 1000,
+    size_t event_obs_ext_min                              = 5
+) {
+    stat_eval_s res;
+    if (
+        n_ev_obs < 2 || n_ev_obs < event_obs_ext_min
+        || total_obs.size()
+               < n_ev_obs
+                     * 2     // at a bare minimum, we want 2x more total samples than bg
+    ) {
+        return res;
+    }
+
+    // report effect size
+    // if eff_sz is large then we can
+    // get away with a low number of samples
+    // if not it's just noise
+    // +1 removes confusing values when 0,
+    // log makes effect size symmetric around 0
+    // log2 means -1 = half the size of background
+    // +1 = doulbe the size of background
+    res.eff_sz = log2 (
+        static_cast<double> (ev_stat + 1)
+        / static_cast<double> (statfn (total_obs) + 1)
+    );
+
+    // TODO "power analysis"
+
+
+    std::random_device rd;
+    std::mt19937       g (rd());
+
+    // TODO also compare:
+    // i) event obs to uniform model
+    // ii) background/total obs to uniform model
+    size_t sim_count = 0;
+    for (size_t i = 0; i < nsim; ++i) {
+        std::shuffle (begin (total_obs), end (total_obs), g);
+        const auto sv = statfn (
+            std::vector (
+                total_obs.begin(),
+                total_obs.begin() + n_ev_obs - 1
+            )
+        );
+        if (statcmp (sv)) {
+            ++sim_count;
+        }
+    }
+
+    res.pval = static_cast<double> (sim_count + 1)
+               / static_cast<double> (nsim + 1);
+    return res;
 }
 
 

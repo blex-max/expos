@@ -56,13 +56,13 @@ auto inline get_aln_data (
 ) {
     using templ_endpoints = std::vector<endpoints1D<uint64_t>>;
     using qposv           = std::vector<uint64_t>;
-    using qdat            = struct qdat {
+    using pdat            = struct qdat {
         qposv qpv;     // NOTE: equivalent to analysing read endpoints
         templ_endpoints tev;
     };
     struct {
-        qdat alt;
-        qdat other;
+        pdat alt;
+        pdat other;
     } obs;
 
     // TODO enum
@@ -79,8 +79,14 @@ auto inline get_aln_data (
         hts_itr_destroy
     };
     pf_capture pfc{aln_fh, iter.get()};     // not using mapq at present
-    bam_plp_upt buf{bam_plp_init (pileup_func, &pfc), bam_plp_destroy};     // initialize pileup
-    bam_plp_set_maxcnt (buf.get(), 10000);     // TODO max depth placeholder
+    bam_plp_upt buf{
+        bam_plp_init (pileup_func, &pfc),
+        bam_plp_destroy
+    };     // initialize pileup
+    bam_plp_set_maxcnt (
+        buf.get(),
+        10000
+    );     // TODO max depth placeholder
 
     // loop vars
     // htslib
@@ -93,8 +99,10 @@ auto inline get_aln_data (
     std::array<int64_t, 4>          endpoints;
     bam1_upt                        mateb{bam_init1(), bam_destroy1};
 
-    while ((plarr = bam_plp64_auto (buf.get(), &plp_tid, &plp_pos, &n_plp))
-           != 0) {
+    while (
+        (plarr = bam_plp64_auto (buf.get(), &plp_tid, &plp_pos, &n_plp))
+        != 0
+    ) {
         if (n_plp < 0 || plp_tid < 0 || plp_pos < 0)
             throw std::runtime_error ("pileup failed");
 
@@ -116,12 +124,22 @@ auto inline get_aln_data (
                 );
             if (bam_aux_type (raw_mc) != 'Z')
                 throw std::runtime_error (
-                    std::format ("MC tag is not of type 'Z' for read {}. Record data corrupt; type 'Z' is mandated for MC tag by SAM format spec.", qname)
+                    std::format (
+                        "MC tag is not of type 'Z' for read {}. "
+                        "Record data corrupt; type 'Z' is mandated "
+                        "for MC tag by SAM format spec.",
+                        qname
+                    )
                 );
             const std::string mc{bam_aux2Z (raw_mc)};
             if (bam_parse_cigar (mc.c_str(), NULL, mateb.get()) < 1) {
                 throw std::runtime_error (
-                    std::format ("unable to parse MC tag {} as cigar string for read {}", mc, qname)
+                    std::format (
+                        "unable to parse MC tag {} as cigar string "
+                        "for read {}",
+                        mc,
+                        qname
+                    )
                 );
             }
 
@@ -134,11 +152,6 @@ auto inline get_aln_data (
             }
 
             // check variant support
-            if (!evaluate_support (pli, v, mtype)) {
-                // std::cout << "support skip" << std::endl;
-                continue;
-            }
-
             auto &bin = evaluate_support (pli, v, mtype) ? obs.alt
                                                          : obs.other;
 
@@ -147,7 +160,8 @@ auto inline get_aln_data (
             bin.qpv.emplace_back (as_uint (pli->qpos));
             // don't double count templates,
             // shared between read pairs (by definition)
-            if (qnames.find (qname) != qnames.end()) {     // qname already seen
+            if (qnames.find (qname)
+                != qnames.end()) {     // qname already seen
                 continue;
             }
             qnames.insert (qname);
@@ -175,7 +189,10 @@ auto inline get_aln_data (
                 endpoints.end()
             );     // NOTE returns pair of *ptrs*
 
-            bin.tev.emplace_back (as_uint (*tco.first), as_uint (*tco.second));
+            bin.tev.emplace_back (
+                as_uint (*tco.first),
+                as_uint (*tco.second)
+            );
         }
     }
 

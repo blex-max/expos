@@ -31,26 +31,17 @@
 // evaluate foldiness of recovered templates
 // clang-format on
 
-// ROUND 2
-// MAD is in fact a proxy for distance between observations, from which we can
-// draw conclusions about clustering
-// in other words artefactual-variant relevant statistics are
-// qpos clustering, via five number summary of the 1D gaps -- NOTE: 5 number summary usefulness in doubt
 // NOTE: qpos clustering is equivalent to read endpoint clustering iff read lengths are ~all the same
 // which they are for short read seq
 // template clustering, via five number summary of the template endpoint chebyshev distance MST edges
-// of these 5 number summaries, IQR is a good way of assessing clustering
 // CRITICAL NOTE:
-// -> maybe we can add a whole bunch of statistical power by comparing reference templates
-// to supporting templates (and elsewhere), having appropriately adjusted for number of samples?
-// -> my intution is, the distribution of non-supporting reads
-// should match the distribution stats of supporting reads
+// distribution of supporting data must not be meaningfully
+// different to a random sampling of the total data
 // if nothing odd is going on
-// -> shannon entropy of the reference/consensus would be useful
+// TODO -> shannon entropy of the reference/consensus would be useful
 
 
 #include <algorithm>
-#include <cmath>
 #include <cstdint>
 #include <iostream>
 
@@ -58,11 +49,20 @@
 #include <htslib/hts.h>
 #include <htslib/sam.h>
 #include <htslib/vcf.h>
-#include <limits>
 
 #include "hts_ptr_t.hpp"
 #include "pileup.hpp"
 #include "stats.hpp"
+
+
+template <class T>
+std::string opt_to_str (
+    std::optional<T> opt,
+    std::string_view sentinel
+) {
+    return opt ? std::to_string (*opt) : std::string (sentinel);
+}
+
 
 // TODO allow exclusion of variants by filter flags
 // TODO allow user defined samflags for include/exclude
@@ -75,6 +75,7 @@ int main (
     namespace fs = std::filesystem;
     fs::path vcf_path;
     fs::path aln_path;
+    fs::path ref_path;
 
     cxxopts::Options options (
         "expos",
@@ -84,28 +85,30 @@ int main (
     // clang-format off
     options.add_options() ("h,help", "Print usage")
         ("vcf", "VCF", cxxopts::value<fs::path>())
-        ("aln", "Sample BAM", cxxopts::value<fs::path>());
-        // ("-n,--name");  // key to match sample to VCF
+        ("aln", "Sample BAM", cxxopts::value<fs::path>())
+        ("r,ref",
+         "Alignment Reference Fasta for optionally adding template shannon entropy to statistics",
+         cxxopts::value<fs::path>());
     // clang-format on
 
     options.parse_positional ({"vcf", "aln"});
     options.positional_help ("<VCF> <ALN>");
 
     try {
-        auto result = options.parse (argc, argv);
+        auto parsedargs = options.parse (argc, argv);
 
-        if (result.count ("help")) {
+        if (parsedargs.count ("help")) {
             std::cout << options.help() << std::endl;
             return 0;
         }
 
-        if (!result.count ("vcf") || !result.count ("aln"))
+        if (!parsedargs.count ("vcf") || !parsedargs.count ("aln"))
             throw std::runtime_error (
                 "All positional arguments must be provided"
             );
 
-        vcf_path = result["vcf"].as<fs::path>();
-        aln_path = result["aln"].as<fs::path>();
+        vcf_path = parsedargs["vcf"].as<fs::path>();
+        aln_path = parsedargs["aln"].as<fs::path>();
 
         if (!fs::exists (vcf_path)) {
             throw std::runtime_error (
@@ -122,8 +125,21 @@ int main (
         }
 
         std::cerr << "Using aln: " << aln_path << std::endl;
+
+        if (parsedargs.count ("ref")) {
+            ref_path = parsedargs["ref"].as<fs::path>();
+            if (!fs::exists (ref_path)) {
+                throw std::runtime_error (
+                    "Reference fasta not found: " + ref_path.string()
+                );
+            }
+            std::cerr << "Using ref: " << ref_path << std::endl;
+        }
+
+
     } catch (const std::exception &e) {
-        std::cerr << "Error parsing CLI options: " << e.what() << "\n";
+        std::cerr << "Error parsing CLI options: " << e.what()
+                  << "\n";
         return 1;
     }
 
@@ -172,9 +188,9 @@ int main (
     std::vector<endpoints1D<uint64_t>> tendpoints;
     std::optional<double>              start_mad, size_mad;
     // TODO add var uuid
-    // TODO add read coordinate range maybe
     std::cout << "CHROM\tPOS\tQPOS_SPAN50\tQPOS_SPAN90\tQPOS_"
-                 "SPAN\tQPOS_TAIL_JUMP\tNREADS\tTEMPL_RAD50\tTEMPL_"
+                 "SPAN\tQPOS_TAIL_JUMP\tSPAN50_EFF2BG\tSPAN50_"
+                 "PVAL\tNALT\tNTOTAL\tTEMPL_RAD50\tTEMPL_"
                  "RAD90\tTEMPL_RAD100\tTEMPL_TAIL_JUMP\tTEMPL_"
                  "LMOST\tTEMPL_RMOST\tTEMPL_SPAN\tNTEMPL"
               << "\n";
@@ -183,88 +199,129 @@ int main (
         start_mad.reset();
         size_mad.reset();
         // b1->errcode  // MUST CHECK BEFORE WRITE TO VCF
-        auto vd = get_aln_data (ap.get(), apit.get(), b1.get()).alt;
-        // TODO USE REF
-        // ref/other data can then be used for a comparison between descriptive stats
-        // since the null hypothesis is that all the data should come from the same spatial process
-        // if the supporting data is good. Can extend that into a "permuation based test" for something more formal
+        auto  vard = get_aln_data (ap.get(), apit.get(), b1.get());
+        auto &altd = vard.alt;
+        std::vector<uint64_t> qpos_popv;
+        qpos_popv.insert (
+            qpos_popv.end(),
+            begin (vard.alt.qpv),
+            end (vard.alt.qpv)
+        );
+        qpos_popv.insert (
+            qpos_popv.end(),
+            begin (vard.other.qpv),
+            end (vard.other.qpv)
+        );
         // TODO fetch length normalised shannon entropy of template region as another descriptive stat
-        // TODO report span stats for cheb radius of template
 
-        if (vd.qpv.empty() || vd.tev.empty())
-            throw std::runtime_error ("no data?");     // TODO placeholder
+        if (altd.qpv.empty() || altd.tev.empty())
+            throw std::runtime_error (
+                "no data?"
+            );     // TODO placeholder
 
+        // STATS ON QUERY POSITIONS
+        // total span of query position
+        const auto [qpmin, qpmax] = std::minmax_element (
+            begin (altd.qpv),
+            end (altd.qpv)
+        );
+        // TODO formalise why span50 better than MAD
+        const auto
+            qpos_distrib_spans = std::vector<double>{0.50, 0.90}
+                                 | std::views::transform (
+                                     [&altd] (double pt) {
+                                         return min_span_containing (
+                                             altd.qpv,
+                                             pt
+                                         );
+                                     }
+                                 )
+                                 | std::ranges::to<std::vector>();
+        // simulate against span50
+        stat_eval_s span50sim;
+        if (qpos_distrib_spans[0].has_value()) {
+            span50sim = sim_to_bg<uint64_t, uint64_t> (
+                qpos_distrib_spans[0].value(),     // TODO guard
+                altd.qpv.size(),
+                qpos_popv,
+                [] (const decltype (qpos_popv) &v) {
+                    const auto ret = min_span_containing (v, 0.5);
+                    if (!ret.has_value()) {
+                        throw std::runtime_error (
+                            "bad call to min_span_containing, "
+                            "program malformed"
+                        );
+                    }
+                    return ret.value();
+                },
+                [&qpos_distrib_spans] (const auto s) {
+                    return s <= qpos_distrib_spans[0];
+                }
+            );
+        }
+        // gap-based stats
+        const auto qgaps           = gaps (altd.qpv);
+        const auto qgaps_tail_jump = tail_jump (qgaps);
+
+        // STATS ON TEMPLATE ENDPOINTS
         // consensus region of supporting templates
         uint64_t lmosttc = std::numeric_limits<uint64_t>::max();
         uint64_t rmosttc = 0ULL;
-        for (const auto &te : vd.tev) {
+        for (const auto &te : altd.tev) {
             if (te.min < lmosttc)
                 lmosttc = te.min;
             if (te.max > rmosttc)
                 rmosttc = te.max;
         }
+        // TODO simulate
+        const auto
+            te_distrib_spans = std::vector<double>{0.50, 0.90, 1}
+                               | std::views::transform ([&altd] (
+                                                            double pt
+                                                        ) {
+                                     // does not require sorting
+                                     return min_cheb_radius_containing (
+                                         altd.tev,
+                                         pt
+                                     );
+                                 })
+                               | std::ranges::to<std::vector>();
 
-        std::sort (begin (vd.qpv), end (vd.qpv));     // necessary for span tests
-        // my span50 is better than mad because data is not necessarily unimodal (which MAD can't capture), but it's interesting to compare TODO expand on this
-        const auto qpos_distrib_spans =
-            std::vector<double>{0.50, 0.90}
-            | std::views::transform ([&vd] (double pt) {
-                  return min_span_containing (vd.qpv, pt).value_or (NAN);
-              })
-            | std::ranges::to<std::vector<uint64_t>>();
+        const auto tcdv = mst_cheb_dists (
+            altd.tev
+        );     // template chebyshev mst distances
+        const auto tcd_tail_jump = tail_jump (tcdv);
 
-        const auto te_distrib_spans =
-            std::vector<double>{0.50, 0.90, 1}
-            | std::views::transform ([&vd] (double pt) {
-                  // does not require sorting
-                  return min_cheb_radius_containing (vd.tev, pt).value_or (NAN);
-              })
-            | std::ranges::to<std::vector<uint64_t>>();
-
-        // gap-based stats
-        auto qgaps = gaps (vd.qpv);
-        std::sort (begin (qgaps), end (qgaps));
-        const auto qgaps_tail_jump = tail_jump (qgaps).value_or (NAN);
-
-        auto tcdv = mst_cheb_dists (vd.tev);     // template chebyshev mst distances
-        std::sort (begin (tcdv), end (tcdv));
-        const auto tcd_tail_jump = tail_jump (tcdv).value_or (NAN);
-
-        // for the qpos I've got a pretty good set of descriptive statistics now
-        // but they HAVE to be compared to the null model of uniform distribution
-        // and the distribution of non-supporting/reference calls to be of value
-        // I'm hopeful that one can say something like, "at this variant
-        // the supporting qpos distribution is very non-random compared to the null model
-        // but note that so is the reference qpos distribution and so on".
-        // Also, n.b. that the original plan was just to extract templates
-        // and I've done that! I could fold some!
-        // TODO null model
+        // got a pretty good set of descriptive statistics now
+        // TODO also compare to the null model of uniform distribution
         // TODO eyeball comparison to hp2 -> subset a vcf to DVF and ADF marked
         // TODO some folding of templates!
-        // TODO I may actually want to report the min/max template size
-        // as it's relevant for folding potentially... potentially, but as maybe not
+        // clang-format off
         std::cout << std::format (
             "{}\t{}\t{}\t{}\t{}\t"
             "{}\t{}\t{}\t{}\t{}\t"
-            "{}\t{}\t{}\t{}\t{}",
+            "{}\t{}\t{}\t{}\t{}"
+            "\t{}\t{}\t{}",
             std::to_string (b1->rid),
             std::to_string (b1->pos),
-            std::to_string (qpos_distrib_spans[0]),     // what span contains 50,
-            std::to_string (qpos_distrib_spans[1]),     // 90, and
-            std::to_string (
-                vd.qpv.back() - vd.qpv.front()
-            ),     // 100% of supporting read coordinates
-            std::to_string (qgaps_tail_jump),
-            std::to_string (vd.qpv.size()),     // n supporting reads
-            std::to_string (te_distrib_spans[0]),     // what chebyshev radius contains 50,
-            std::to_string (te_distrib_spans[1]),     // 90, and
-            std::to_string (te_distrib_spans[2]),     // 100% of supporting template coordinates
-            std::to_string (tcd_tail_jump),
+            opt_to_str (qpos_distrib_spans[0], "-"),     // what span contains 50,
+            opt_to_str (qpos_distrib_spans[1], "-"),     // 90, and
+            std::to_string (*qpmax - *qpmin),     // 100% of supporting read coordinates
+            opt_to_str (qgaps_tail_jump, "-"),
+            opt_to_str (span50sim.eff_sz, "-"),
+            opt_to_str (span50sim.pval, "-"),
+            std::to_string (altd.qpv.size()),     // n supporting reads
+            std::to_string (qpos_popv.size()),
+            opt_to_str (te_distrib_spans[0], "-"),     // what chebyshev radius contains 50,
+            opt_to_str (te_distrib_spans[1], "-"),     // 90, and
+            opt_to_str (te_distrib_spans[2], "-"),     // 100% of supporting template coordinates
+            opt_to_str (tcd_tail_jump, "-"),
             std::to_string (lmosttc),     // template consensus span
             std::to_string (rmosttc),
             std::to_string (rmosttc - lmosttc),     // span size
-            std::to_string (vd.tev.size())     // n supporting templates (qname deduplicated)
+            std::to_string (altd.tev.size())     // n supporting templates (qname deduplicated)
         ) << "\n";
+        // clang-format on
     };
 
     std::cerr << "complete" << std::endl;

@@ -17,10 +17,11 @@ BreakAfterReturnType: Automatic
 BreakConstructorInitializers: BeforeColon
 BreakBeforeBinaryOperators: NonAssignment
 
-PenaltyExcessCharacter: 5  # lenient
-PenaltyBreakBeforeFirstCallParameter: 0  # parens are *the* place to break around
-PenaltyBreakAssignment: 1000  # assignments are not
-PenaltyBreakBeforeMemberAccess: 1000 # ditto
+PenaltyExcessCharacter: 50 # lenient
+PenaltyBreakOpenParenthesis: 0  # parens are *the* place to break around
+PenaltyBreakBeforeFirstCallParameter: 0
+PenaltyBreakAssignment: 10000  # assignments are not
+PenaltyBreakBeforeMemberAccess: 100000 # ew
 PenaltyReturnTypeOnItsOwnLine: 0
 PenaltyBreakComment: 0 # trial
 
