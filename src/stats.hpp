@@ -24,124 +24,16 @@ constexpr inline uint64_t as_uint (const T &a) {
     return static_cast<uint64_t> (a);
 }
 
-template <std::signed_integral T>
-constexpr inline std::vector<uint64_t>
-as_uintv (const std::vector<T> &v) {
-    if (v.empty())
-        return {};
-
-    return v | std::views::transform ([] (const auto a) {
-               if (a < 0) {
-                   throw std::runtime_error (
-                       "cannot convert negative value to uint"
-                   );
-               }
-               return static_cast<uint64_t> (a);
-           })
-           | std::ranges::to<std::vector<uint64_t>>();
-}
-
-template <std::unsigned_integral T>
-constexpr inline std::vector<double>
-as_doublev (const std::vector<T> &v) {
-    if (v.empty())
-        return {};
-
-    constexpr auto dlim = (1ULL << 53);
-
-    return v | std::views::transform ([] (auto a) {
-               if (a > dlim) {
-                   throw std::runtime_error (
-                       "cannot safely convert to double"
-                   );
-               }
-               return static_cast<double> (a);
-           })
-           | std::ranges::to<std::vector<double>>();
-}
-
-// get deviations for each element
-// from a value
-constexpr inline std::vector<double> devs (
-    const std::vector<double> &obs,
-    double                     from
-) {
-    auto vv = obs | std::views::transform ([&from] (auto a) {
-                  return fabs (a - from);
-              });
-    return {begin (vv), end (vv)};
-}
-
-// preconditions:
-// vector is sorted
-// Notes:
-// - unsigned only because massive opposite signed integral elements will cause overflow
-template <typename T>
-    requires std::unsigned_integral<T> || std::floating_point<T>
-constexpr inline std::optional<double> percentile_from_sorted (
-    const std::vector<T> &obs,
-    double                pt
-) {
-    assert (pt > 0 && pt < 1);
-    assert (std::is_sorted (begin (obs), end (obs)));
-
-    if (obs.empty())
-        return std::nullopt;
-
-    if (obs.size() == 1)
-        return obs[0];
-
-    double pi = static_cast<double> (obs.size() - 1)
-                * pt;     // 0 indexed rank
-    auto lower   = floor (pi);
-    auto frac    = pi - lower;
-    auto upper_i = static_cast<size_t> (ceil (pi));
-    auto lower_i = static_cast<size_t> (lower);
-
-    if (lower_i == upper_i) {
-        return obs[lower_i];
-    }
-
-    // linear interpolation
-    // TODO those casts could lose precision
-    // need safe double conversion
-    return static_cast<double> (obs[lower_i])
-           + (frac
-              * (static_cast<double> (obs[upper_i])
-                 - static_cast<double> (obs[lower_i])));
-}
-
-// calculate median absolute deviation
-// precondition:
-// - vector is sorted
-template <std::unsigned_integral T>
-constexpr inline std::optional<double>
-mad (const std::vector<T> &obs) {
-    assert (std::is_sorted (begin (obs), end (obs)));
-    if (obs.empty())
-        return std::nullopt;
-    auto dv = as_doublev (obs);     // should handle any integral type
-    // std::ranges::sort (dv);        // ascending sort
-    const auto med  = percentile_from_sorted (dv, 0.5);
-    auto       devv = devs (dv, med.value());
-    std::ranges::sort (devv);
-    return percentile_from_sorted (devv, 0.5);
-}
-
 
 //--- GAP BASED STATS ---//
 // sparse integer data where the question of interest is:
 // is there tight clustering compared to what you would expect
 // from a random distribution?
 // questions to ask of the data
-// what is the largest number of observations to occur in a small (e.g 6bp) window of the range?
 // what is the shortest span of the range to contain 50%, 90% of the observations
-// - the above two are really easy to calculate with a sorted vector of observations
-// IQR of gap size
-// - all very relevant and robust to a low number of obs
-// compare all to simulation
-// also similar evaluation of qpos as well as template start/end
-// - (not size...? because size is not a number line in the same way)
+// - easy to calculate and robust to a low number of obs
+// compare to simulation
+// - (size...? size is a number line in the same way)
 
 
 // calculate gaps from ascending sorted vector
@@ -165,49 +57,19 @@ constexpr inline std::vector<T> gaps (std::vector<T> v) {
     return out;
 }
 
-// largest fraction of total observations
-// that fall within a particular window width
-// preconditions:
-// - vector is ascending sorted
-// Notes:
-// - unsigned only because massive opposite signed integral elements will cause overflow
-// TODO return boundaries with result
 template <typename T>
     requires std::unsigned_integral<T> || std::floating_point<T>
-constexpr inline std::optional<double> max_obs_within (
-    const std::vector<T> &obs,
-    T                     span
+constexpr inline std::optional<double> tail_jump (
+    std::vector<T> obs     // copy for sort
 ) {
-    assert (std::is_sorted (begin (obs), end (obs)));
-    if (obs.empty()) {
+    std::sort (begin (obs), end (obs));
+    if (obs.size() < 2 || obs.back() == 0)
         return std::nullopt;
-    }
-    if (obs.size() == 1) {
-        return 1;
-    }
 
-    size_t max_within  = 1;
-    size_t within_this = 1;
-    auto   prev        = obs[0];
-    auto   spanl       = prev;
-
-    for (const auto &e :
-         std::ranges::subrange (begin (obs) + 1, end (obs))) {
-        assert (e >= prev);     // sorted precondition
-        auto diff = e - spanl;
-        if (diff < span) {
-            ++within_this;
-        } else {
-            if (within_this > max_within) {
-                max_within = within_this;
-            }
-            within_this = 1;     // reset;
-            spanl       = e;
-        }
-    }
-
-    return static_cast<double> (max_within)
-           / static_cast<double> (obs.size());
+    // can overflow
+    // +1 avoids confusing values with obs of 0
+    return static_cast<double> (obs.back() + 1)
+           / static_cast<double> (obs[obs.size() - 2] + 1);
 }
 
 // Notes:
@@ -250,40 +112,6 @@ constexpr inline std::optional<T> min_span_containing (
 
     return min_span;
 }
-
-
-// summary stats
-// from which we may calculate IQR
-// and other measures
-template <typename T>
-    requires std::integral<T> || std::floating_point<T>
-struct summary5_s {
-    T      min;
-    double q25;
-    double q50;
-    double q75;
-    T      max;
-};
-template <typename T>
-    requires std::unsigned_integral<T>     // uint for percentile func
-             || std::floating_point<T>
-constexpr inline summary5_s<T>
-summary_stats (const std::vector<T> &v) {
-    assert (std::is_sorted (begin (v), end (v)));
-    assert (!v.empty());
-    const auto [pvmin, pvmax] = std::minmax_element (
-        begin (v),
-        end (v)
-    );
-    return {
-        *pvmin,
-        percentile_from_sorted (v, 0.25).value(),
-        percentile_from_sorted (v, 0.5).value(),
-        percentile_from_sorted (v, 0.75).value(),
-        *pvmax
-    };
-}
-
 
 // object described by two
 // coordinates on the same axis
@@ -373,21 +201,6 @@ inline std::vector<T> constexpr mst_cheb_dists (
         );
     }
     return dists;
-}
-
-template <typename T>
-    requires std::unsigned_integral<T> || std::floating_point<T>
-constexpr inline std::optional<double> tail_jump (
-    std::vector<T> obs     // copy for sort
-) {
-    std::sort (begin (obs), end (obs));
-    if (obs.size() < 2 || obs.back() == 0)
-        return std::nullopt;
-
-    // can overflow
-    // +1 avoids confusing values with obs of 0
-    return static_cast<double> (obs.back() + 1)
-           / static_cast<double> (obs[obs.size() - 2] + 1);
 }
 
 
