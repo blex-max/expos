@@ -43,6 +43,7 @@
 
 #include <algorithm>
 #include <cstdint>
+#include <format>
 #include <iostream>
 
 #include <cxxopts.hpp>
@@ -57,12 +58,21 @@
 
 template <class T>
 std::string opt_to_str (
-    std::optional<T> opt,
-    std::string_view sentinel
+    std::optional<T>               opt,
+    std::string_view               sentinel,
+    std::function<std::string (T)> conv = [] (const T &a) {
+        return std::to_string (a);
+    }
 ) {
-    return opt ? std::to_string (*opt) : std::string (sentinel);
+    return opt ? conv (*opt) : std::string (sentinel);
 }
 
+std::string rdbl2 (const double &a) {
+    return std::format ("{:.2f}", a);
+}
+std::string rdbl4 (const double &a) {
+    return std::format ("{:.4f}", a);
+}
 
 // TODO allow exclusion of variants by filter flags
 // TODO allow user defined samflags for include/exclude
@@ -79,7 +89,8 @@ int main (
 
     cxxopts::Options options (
         "expos",
-        "get positional data and statistics from alignment for VCF variants\n"
+        "get positional data and statistics from alignment for VCF "
+        "variants\n"
     );
 
     // clang-format off
@@ -185,19 +196,15 @@ int main (
     bcf1_upt b1{bcf_init(), bcf_destroy};
 
     // loop vars
-    std::vector<endpoints1D<uint64_t>> tendpoints;
-    std::optional<double>              start_mad, size_mad;
     // TODO add var uuid
     std::cout << "CHROM\tPOS\tQPOS_SPAN50\tQPOS_SPAN90\tQPOS_"
                  "SPAN\tQPOS_TAIL_JUMP\tSPAN50_EFF2BG\tSPAN50_"
                  "PVAL\tNALT\tNTOTAL\tTEMPL_RAD50\tTEMPL_"
-                 "RAD90\tTEMPL_RAD100\tTEMPL_TAIL_JUMP\tTEMPL_"
+                 "RAD90\tTEMPL_RAD100\tTEMPL_TAIL_JUMP\tRAD50_"
+                 "EFF2BG\tRAD50_PVAL\tTEMPL_"
                  "LMOST\tTEMPL_RMOST\tTEMPL_SPAN\tNTEMPL"
               << "\n";
     while (bcf_read (vp.get(), vph.get(), b1.get()) == 0) {
-        tendpoints.clear();
-        start_mad.reset();
-        size_mad.reset();
         // b1->errcode  // MUST CHECK BEFORE WRITE TO VCF
         auto  vard = get_aln_data (ap.get(), apit.get(), b1.get());
         auto &altd = vard.alt;
@@ -211,6 +218,17 @@ int main (
             qpos_popv.end(),
             begin (vard.other.qpv),
             end (vard.other.qpv)
+        );
+        std::vector<endpoints1D<uint64_t>> te_popv;
+        te_popv.insert (
+            te_popv.end(),
+            begin (vard.alt.tev),
+            end (vard.alt.tev)
+        );
+        te_popv.insert (
+            te_popv.end(),
+            begin (vard.other.tev),
+            end (vard.other.tev)
         );
         // TODO fetch length normalised shannon entropy of template region as another descriptive stat
 
@@ -227,7 +245,7 @@ int main (
         );
         // TODO formalise why span50 better than MAD
         const auto
-            qpos_distrib_spans = std::vector<double>{0.50, 0.90}
+            qpos_distrib_spans = std::vector<double>{0.5, 0.9}
                                  | std::views::transform (
                                      [&altd] (double pt) {
                                          return min_span_containing (
@@ -238,24 +256,27 @@ int main (
                                  )
                                  | std::ranges::to<std::vector>();
         // simulate against span50
+        // TODO optionally use positional data from NORMAL/BULK/SOMATIC
+        // to compare (if it's the same protocol which it probably isn't)
+        // TODO compare to uniform
         stat_eval_s span50sim;
-        if (qpos_distrib_spans[0].has_value()) {
+        if (qpos_distrib_spans[0]) {
             span50sim = sim_to_bg<uint64_t, uint64_t> (
-                qpos_distrib_spans[0].value(),     // TODO guard
+                *qpos_distrib_spans[0],
                 altd.qpv.size(),
                 qpos_popv,
                 [] (const decltype (qpos_popv) &v) {
                     const auto ret = min_span_containing (v, 0.5);
-                    if (!ret.has_value()) {
+                    if (!ret) {
                         throw std::runtime_error (
                             "bad call to min_span_containing, "
                             "program malformed"
                         );
                     }
-                    return ret.value();
+                    return *ret;
                 },
                 [&qpos_distrib_spans] (const auto s) {
-                    return s <= qpos_distrib_spans[0];
+                    return s <= *qpos_distrib_spans[0];
                 }
             );
         }
@@ -273,9 +294,8 @@ int main (
             if (te.max > rmosttc)
                 rmosttc = te.max;
         }
-        // TODO simulate
         const auto
-            te_distrib_spans = std::vector<double>{0.50, 0.90, 1}
+            te_distrib_spans = std::vector<double>{0.5, 0.9, 1}
                                | std::views::transform ([&altd] (
                                                             double pt
                                                         ) {
@@ -286,6 +306,30 @@ int main (
                                      );
                                  })
                                | std::ranges::to<std::vector>();
+        stat_eval_s rad50sim;
+        if (te_distrib_spans[0]) {
+            rad50sim = sim_to_bg<uint64_t, endpoints1D<uint64_t>> (
+                *te_distrib_spans[0],
+                altd.tev.size(),
+                te_popv,
+                [] (const decltype (te_popv) &v) {
+                    const auto ret = min_cheb_radius_containing (
+                        v,
+                        0.5
+                    );
+                    if (!ret) {
+                        throw std::runtime_error (
+                            "bad call to min_cheb_radius_containing, "
+                            "program malformed"
+                        );
+                    }
+                    return *ret;
+                },
+                [&te_distrib_spans] (const auto s) {
+                    return s <= *te_distrib_spans[0];
+                }
+            );
+        }
 
         const auto tcdv = mst_cheb_dists (
             altd.tev
@@ -301,21 +345,25 @@ int main (
             "{}\t{}\t{}\t{}\t{}\t"
             "{}\t{}\t{}\t{}\t{}\t"
             "{}\t{}\t{}\t{}\t{}"
-            "\t{}\t{}\t{}",
-            std::to_string (b1->rid),
-            std::to_string (b1->pos),
-            opt_to_str (qpos_distrib_spans[0], "-"),     // what span contains 50,
-            opt_to_str (qpos_distrib_spans[1], "-"),     // 90, and
+            "\t{}\t{}\t{}\t{}\t{}",
+            b1->rid,
+            b1->pos,
+            // TODO reorder all sizes to the end
+            // report nsupporting templates + n ref templates
+            opt_to_str (te_distrib_spans[0], "NA"),     // what span contains 50,
+            opt_to_str (qpos_distrib_spans[1], "NA"),     // 90, and
             std::to_string (*qpmax - *qpmin),     // 100% of supporting read coordinates
-            opt_to_str (qgaps_tail_jump, "-"),
-            opt_to_str (span50sim.eff_sz, "-"),
-            opt_to_str (span50sim.pval, "-"),
+            opt_to_str<double> (qgaps_tail_jump, "NA", rdbl2),
+            opt_to_str<double> (span50sim.eff_sz, "NA", rdbl2),
+            opt_to_str<double> (span50sim.pval, "NA", rdbl4),
             std::to_string (altd.qpv.size()),     // n supporting reads
             std::to_string (qpos_popv.size()),
-            opt_to_str (te_distrib_spans[0], "-"),     // what chebyshev radius contains 50,
-            opt_to_str (te_distrib_spans[1], "-"),     // 90, and
-            opt_to_str (te_distrib_spans[2], "-"),     // 100% of supporting template coordinates
-            opt_to_str (tcd_tail_jump, "-"),
+            opt_to_str (te_distrib_spans[0], "NA"),     // what chebyshev radius contains 50,
+            opt_to_str (te_distrib_spans[1], "NA"),     // 90, and
+            opt_to_str (te_distrib_spans[2], "NA"),     // 100% of supporting template coordinates
+            opt_to_str<double> (tcd_tail_jump, "NA", rdbl2),
+            opt_to_str<double> (rad50sim.eff_sz, "NA", rdbl2),
+            opt_to_str<double> (rad50sim.pval, "NA", rdbl4),
             std::to_string (lmosttc),     // template consensus span
             std::to_string (rmosttc),
             std::to_string (rmosttc - lmosttc),     // span size
