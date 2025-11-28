@@ -79,7 +79,7 @@ int main (
 
     cxxopts::Options options (
         "expos",
-        "variant positional data and statistics from alignment\n"
+        "get positional data and statistics from alignment for VCF variants\n"
     );
 
     // clang-format off
@@ -87,7 +87,7 @@ int main (
         ("vcf", "VCF", cxxopts::value<fs::path>())
         ("aln", "Sample BAM", cxxopts::value<fs::path>())
         ("r,ref",
-         "Alignment Reference Fasta for optionally adding template shannon entropy to statistics",
+         "Alignment Reference Fasta for optionally adding template shannon entropy to statistics", // TODO
          cxxopts::value<fs::path>());
     // clang-format on
 
