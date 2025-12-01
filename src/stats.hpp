@@ -327,6 +327,7 @@ inline stat_eval_s sim_to_bg (
 
 // FOR REF COMPLEXITY
 // length normalised kolgomorov complexity via lempel-ziv 76
+// TODO test
 inline double nk_lz76 (const std::string &s) {
     size_t slen = s.size();
     size_t n_phrase = 1;     // number of phrases (complexity), starts at 1 (first char is a phrase)

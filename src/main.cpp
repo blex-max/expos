@@ -1,4 +1,5 @@
 // clang-format off
+// TODO UPDATE, NOT USING MAD AND SO ON NOW
 // GET TEMPLATES AND DISTRIBUTION OF TEMPLATES SUPPORTING A VARIANT
 // for variant, report:
 // - template start total range and MAD [Median Absolute Distribution]*
@@ -13,9 +14,6 @@
 // Using MAD because it is a robust spread statistic (i.e. not sensitive to outliers)
 // and better able to deal with a low number of observations than IQR.
 // NOTE could also report number of reads, bases, a pileup events style report (but different scope)
-// NOTE (optionally) merge templates within +-n bp of eachother
-// write (merged) templates with representative qnames + distribution/s
-// into VCF
 // ---
 // The above in itself is probably an advancement in method for assessing variant
 // legitimacy for low yield seq. If theres very little template start/size
@@ -38,7 +36,6 @@
 // distribution of supporting data must not be meaningfully
 // different to a random sampling of the total data
 // if nothing odd is going on
-// TODO -> shannon entropy of the reference/consensus would be useful
 
 
 #include <algorithm>
@@ -74,10 +71,6 @@ std::string rdbl4 (const double &a) {
     return std::format ("{:.4f}", a);
 }
 
-// TODO allow exclusion of variants by filter flags
-// TODO allow user defined samflags for include/exclude
-// TODO support single ended?
-// TODO options to output to VCF and/or TSV (VCF to stdout)
 int main (
     int   argc,
     char *argv[]
@@ -89,16 +82,22 @@ int main (
 
     cxxopts::Options options (
         "expos",
-        "get positional data and statistics from alignment for VCF "
-        "variants\n"
+        "EXtract POSitional data and statistics from alignment at "
+        "VCF-specified pileups\n"
     );
 
+    // TODO allow exclusion of variants by filter flags
+    // TODO allow user defined samflags for include/exclude
+    // TODO support single ended? LATER
+    // TODO options for calculating subset of data
+    // TODO --encode-vcf <COLNAME1,2,3> && --ovcf && --otsv ("-") for stdout
+    // TODO options for more vcf data (e.g. REF,ALT) in TSV (if using expos as "genome browser by numbers")
     // clang-format off
     options.add_options() ("h,help", "Print usage")
         ("vcf", "VCF", cxxopts::value<fs::path>())
         ("aln", "Sample BAM", cxxopts::value<fs::path>())
         ("r,ref",
-         "Alignment Reference Fasta for optionally adding template shannon entropy to statistics", // TODO
+         "Alignment Reference Fasta for optionally adding template kolmogorov to statistics", // TODO
          cxxopts::value<fs::path>());
     // clang-format on
 
@@ -204,6 +203,7 @@ int main (
                  "EFF2BG\tRAD50_PVAL\tTEMPL_"
                  "LMOST\tTEMPL_RMOST\tTEMPL_SPAN\tNTEMPL"
               << "\n";
+    // TODO use kolmogorov complexity of ref
     while (bcf_read (vp.get(), vph.get(), b1.get()) == 0) {
         // b1->errcode  // MUST CHECK BEFORE WRITE TO VCF
         auto  vard = get_aln_data (ap.get(), apit.get(), b1.get());
@@ -230,7 +230,6 @@ int main (
             begin (vard.other.tev),
             end (vard.other.tev)
         );
-        // TODO fetch length normalised shannon entropy of template region as another descriptive stat
 
         if (altd.qpv.empty() || altd.tev.empty())
             throw std::runtime_error (
@@ -257,7 +256,7 @@ int main (
                                  | std::ranges::to<std::vector>();
         // simulate against span50
         // TODO optionally use positional data from NORMAL/BULK/SOMATIC
-        // to compare (if it's the same protocol which it probably isn't)
+        // to compare (if it's the same protocol which I don't know)
         // TODO compare to uniform
         stat_eval_s span50sim;
         if (qpos_distrib_spans[0]) {
