@@ -36,7 +36,8 @@
 // distribution of supporting data must not be meaningfully
 // different to a random sampling of the total data
 // if nothing odd is going on
-
+// TODO eyeball comparison to hp2 -> subset a vcf to DVF and ADF marked
+// TODO some folding of templates!
 
 #include <algorithm>
 #include <cstdint>
@@ -71,6 +72,18 @@ std::string rdbl4 (const double &a) {
     return std::format ("{:.4f}", a);
 }
 
+
+// TODO allow exclusion of variants by filter flags
+// TODO allow user defined samflags for include/exclude
+// TODO support single ended? LATER
+// TODO options for calculating subset of data
+// TODO --encode-vcf <COLNAME1,2,3> && --ovcf && --otsv ("-") for stdout
+// TODO options for more vcf data (e.g. REF,ALT) in TSV (if using expos as "genome browser by numbers")
+// TODO use kolmogorov complexity of ref
+// TODO formalise why span50 better than MAD
+// TODO optionally use positional data from NORMAL/BULK/SOMATIC
+// to as background for simulation (if it's the same protocol which I don't know - if possible great!)
+// TODO compare to uniform distribution (less valuable than background but possibly useful if e.g. not enough reads otherwise)
 int main (
     int   argc,
     char *argv[]
@@ -86,12 +99,6 @@ int main (
         "VCF-specified pileups\n"
     );
 
-    // TODO allow exclusion of variants by filter flags
-    // TODO allow user defined samflags for include/exclude
-    // TODO support single ended? LATER
-    // TODO options for calculating subset of data
-    // TODO --encode-vcf <COLNAME1,2,3> && --ovcf && --otsv ("-") for stdout
-    // TODO options for more vcf data (e.g. REF,ALT) in TSV (if using expos as "genome browser by numbers")
     // clang-format off
     options.add_options() ("h,help", "Print usage")
         ("vcf", "VCF", cxxopts::value<fs::path>())
@@ -195,7 +202,6 @@ int main (
     bcf1_upt b1{bcf_init(), bcf_destroy};
 
     // loop vars
-    // TODO add var uuid
     std::cout << "CHROM\tPOS\tQPOS_SPAN50\tQPOS_SPAN90\tQPOS_"
                  "SPAN\tQPOS_TAIL_JUMP\tSPAN50_EFF2BG\tSPAN50_"
                  "PVAL\tNALT\tNTOTAL\tTEMPL_RAD50\tTEMPL_"
@@ -203,7 +209,6 @@ int main (
                  "EFF2BG\tRAD50_PVAL\tTEMPL_"
                  "LMOST\tTEMPL_RMOST\tTEMPL_SPAN\tNTEMPL"
               << "\n";
-    // TODO use kolmogorov complexity of ref
     while (bcf_read (vp.get(), vph.get(), b1.get()) == 0) {
         // b1->errcode  // MUST CHECK BEFORE WRITE TO VCF
         auto  vard = get_aln_data (ap.get(), apit.get(), b1.get());
@@ -242,7 +247,6 @@ int main (
             begin (altd.qpv),
             end (altd.qpv)
         );
-        // TODO formalise why span50 better than MAD
         const auto
             qpos_distrib_spans = std::vector<double>{0.5, 0.9}
                                  | std::views::transform (
@@ -255,9 +259,6 @@ int main (
                                  )
                                  | std::ranges::to<std::vector>();
         // simulate against span50
-        // TODO optionally use positional data from NORMAL/BULK/SOMATIC
-        // to compare (if it's the same protocol which I don't know)
-        // TODO compare to uniform
         stat_eval_s span50sim;
         if (qpos_distrib_spans[0]) {
             span50sim = sim_to_bg<uint64_t, uint64_t> (
@@ -335,10 +336,7 @@ int main (
         );     // template chebyshev mst distances
         const auto tcd_tail_jump = tail_jump (tcdv);
 
-        // got a pretty good set of descriptive statistics now
-        // TODO also compare to the null model of uniform distribution
-        // TODO eyeball comparison to hp2 -> subset a vcf to DVF and ADF marked
-        // TODO some folding of templates!
+        // report informative set of descriptive statistics
         // clang-format off
         std::cout << std::format (
             "{}\t{}\t{}\t{}\t{}\t"
