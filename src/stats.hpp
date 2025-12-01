@@ -325,15 +325,61 @@ inline stat_eval_s sim_to_bg (
 }
 
 
-// not useful since won't detect a single cluster (the data would be regular)
-// template <std::integral Int>
-// inline std::optional<double> cv_gaps (const std::vector<Int> &v) {
-//     if (v.empty())
-//         return std::nullopt;
-//     auto dv = as_double (v);     // should handle any integral type
-//     std::ranges::sort (dv);      // ascending sort
-//     auto gv    = gaps (dv);
-//     auto gmean = mean (gv);
-//     auto gsd   = pop_stddev (gv, gmean);
-//     return coeff_var (gsd, gmean);
-// }
+// FOR REF COMPLEXITY
+// length normalised kolgomorov complexity via lempel-ziv 76
+inline double nk_lz76 (const std::string &s) {
+    size_t slen = s.size();
+    size_t n_phrase = 1;     // number of phrases (complexity), starts at 1 (first char is a phrase)
+    size_t frontier_i = 1;     // start index of current phrase in s
+    size_t memory_search_i = 0;     // index over already processed length of s
+    size_t match_len = 1;
+    size_t max_match_len = 1;     // maximum match length for phrase so far
+    bool stop = false;
+
+    if (slen < 2)
+        stop = true;
+
+    while (!stop) {
+        // compare chars
+        if (s[frontier_i + match_len - 1]
+            != s[memory_search_i + match_len - 1]) {     // mismatch
+
+            if (match_len > max_match_len) {
+                max_match_len = match_len;
+            }
+
+            ++memory_search_i;     // next memory char
+
+            if (memory_search_i == frontier_i) {     // search complete
+
+                ++n_phrase;
+                frontier_i += max_match_len;     // jump to start of next phrase
+
+                if (frontier_i + 1 > slen) {
+                    stop = true;
+                } else {
+                    // reset
+                    memory_search_i = 0;
+                    match_len       = 1;
+                    max_match_len   = 1;
+                }
+            } else {
+                // restart search for matches from next memory position (++memory_search_i)
+                match_len = 1;
+            }
+        } else {             // match
+            ++match_len;     // extend current match
+
+            if (frontier_i + match_len > slen) {     // reached end
+                ++n_phrase;
+                stop = true;
+            }
+        }
+    }
+
+    // *log2(n) == kolmogorov complexity
+    // / length normalise
+    // result is bits (entropy) per character
+    return (static_cast<double> (n_phrase) * log2 (slen))
+           / static_cast<double> (slen);
+}
