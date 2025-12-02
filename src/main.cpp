@@ -42,6 +42,7 @@
 #include <algorithm>
 #include <cstdint>
 #include <format>
+#include <htslib/faidx.h>
 #include <iostream>
 
 #include <cxxopts.hpp>
@@ -79,7 +80,6 @@ std::string rdbl4 (const double &a) {
 // TODO options for calculating subset of data
 // TODO --encode-vcf <COLNAME1,2,3> && --ovcf && --otsv ("-") for stdout
 // TODO options for more vcf data (e.g. REF,ALT) in TSV (if using expos as "genome browser by numbers")
-// TODO use kolmogorov complexity of ref
 // TODO formalise why span50 better than MAD
 // TODO optionally use positional data from NORMAL/BULK/SOMATIC
 // to as background for simulation (if it's the same protocol which I don't know - if possible great!)
@@ -193,6 +193,19 @@ int main (
         );
     }
 
+    fai_upt rp{nullptr, fai_destroy};
+    if (!ref_path.empty()) {
+        auto _fin = fai_load (ref_path.string().c_str());
+        if (_fin == NULL) {
+            std::cerr << std::format (
+                "Could not read reference fasta at {}",
+                ref_path.string()
+            );
+        } else {
+            rp.reset (_fin);
+        }
+    }
+
     htsFile_upt ap{std::move (_ain), hts_close};
     hts_idx_upt apit{std::move (_aixin), hts_idx_destroy};
 
@@ -201,18 +214,56 @@ int main (
 
     bcf1_upt b1{bcf_init(), bcf_destroy};
 
+
     // loop vars
-    std::cout << "CHROM\tPOS\tQPOS_SPAN50\tQPOS_SPAN90\tQPOS_"
-                 "SPAN\tQPOS_TAIL_JUMP\tSPAN50_EFF2BG\tSPAN50_"
-                 "PVAL\tNALT\tNTOTAL\tTEMPL_RAD50\tTEMPL_"
-                 "RAD90\tTEMPL_RAD100\tTEMPL_TAIL_JUMP\tRAD50_"
-                 "EFF2BG\tRAD50_PVAL\tTEMPL_"
-                 "LMOST\tTEMPL_RMOST\tTEMPL_SPAN\tNTEMPL"
-              << "\n";
+    std::cout
+        << "CHROM\tPOS\tQPOS_SPAN50\tQPOS_SPAN90\tQPOS_"
+           "SPAN\tQPOS_TAIL_JUMP\tQPOS_SPAN50_EFF2BG\tQPOS_SPAN50_"
+           "PVAL\tTEMPL_SPAN50\tTEMPL_"
+           "SPAN90\tTEMPL_SPAN100\tTEMPL_TAIL_JUMP\t"
+           "TEMPL_SPAN50_"
+           "EFF2BG\tTEMPL_SPAN50_PVAL\tTEMPL_"
+           "LMOST\tTEMPL_RMOST\tTEMPL_CONSENSUS_LEN\tCONSENSUS_"
+           "CMPLX\tNALT_"
+           "READS\tNTOTAL_READS\tNALT_TEMPL\tNTOTAL_TEMPL"
+        << "\n";
     while (bcf_read (vp.get(), vph.get(), b1.get()) == 0) {
-        // b1->errcode  // MUST CHECK BEFORE WRITE TO VCF
-        auto  vard = get_aln_data (ap.get(), apit.get(), b1.get());
-        auto &altd = vard.alt;
+        // NOTE b1->errcode  // MUST CHECK BEFORE WRITE TO VCF
+        if (b1->n_allele != 2) {
+            std::cerr << std::format (
+                "Variant {} has more than two (REF,ALT) alleles. "
+                "Unnormalised variant calls are not supported. "
+                "Skipping.",
+                b1->d.id
+            ) << std::endl;
+            continue;
+        }
+        auto mtype = bcf_has_variant_type (
+            b1.get(),
+            1,
+            VCF_DEL | VCF_INS | VCF_SNP | VCF_MNP
+        );
+        switch (mtype) {
+            case (VCF_DEL):
+            case (VCF_INS):
+            case (VCF_SNP):
+            case (VCF_MNP):
+                break;
+            default:
+                std::cerr << std::format (
+                    "Variant {} has an unsupported/complex mutation, "
+                    "skipping.",
+                    b1->d.id
+                ) << std::endl;
+                continue;
+        }
+        auto vard = get_aln_data (
+            ap.get(),
+            apit.get(),
+            b1.get(),
+            mtype
+        );
+        auto                 &altd = vard.alt;
         std::vector<uint64_t> qpos_popv;
         qpos_popv.insert (
             qpos_popv.end(),
@@ -224,7 +275,7 @@ int main (
             begin (vard.other.qpv),
             end (vard.other.qpv)
         );
-        std::vector<endpoints1D<uint64_t>> te_popv;
+        std::vector<line_seg<uint64_t>> te_popv;
         te_popv.insert (
             te_popv.end(),
             begin (vard.alt.tev),
@@ -236,47 +287,39 @@ int main (
             end (vard.other.tev)
         );
 
-        if (altd.qpv.empty() || altd.tev.empty())
-            throw std::runtime_error (
-                "no data?"
-            );     // TODO placeholder
+        if (altd.qpv.empty() || altd.tev.empty()) {
+            std::cerr << std::format (
+                "no supporting reads found for variant {}, "
+                "skipping.",
+                b1->d.id
+            ) << std::endl;
+            continue;
+        }
 
         // STATS ON QUERY POSITIONS
         // total span of query position
+        const auto qpos_span50 = min_span_containing (altd.qpv, 0.5);
+        const auto qpos_span90 = min_span_containing (altd.qpv, 0.9);
         const auto [qpmin, qpmax] = std::minmax_element (
             begin (altd.qpv),
             end (altd.qpv)
         );
-        const auto
-            qpos_distrib_spans = std::vector<double>{0.5, 0.9}
-                                 | std::views::transform (
-                                     [&altd] (double pt) {
-                                         return min_span_containing (
-                                             altd.qpv,
-                                             pt
-                                         );
-                                     }
-                                 )
-                                 | std::ranges::to<std::vector>();
+        const auto qpos_span = *qpmax - *qpmin;
+
         // simulate against span50
         stat_eval_s span50sim;
-        if (qpos_distrib_spans[0]) {
+        if (qpos_span50) {
             span50sim = sim_to_bg<uint64_t, uint64_t> (
-                *qpos_distrib_spans[0],
+                *qpos_span50,
                 altd.qpv.size(),
                 qpos_popv,
                 [] (const decltype (qpos_popv) &v) {
                     const auto ret = min_span_containing (v, 0.5);
-                    if (!ret) {
-                        throw std::runtime_error (
-                            "bad call to min_span_containing, "
-                            "program malformed"
-                        );
-                    }
+                    assert (ret);
                     return *ret;
                 },
-                [&qpos_distrib_spans] (const auto s) {
-                    return s <= *qpos_distrib_spans[0];
+                [&qpos_span50] (const auto s) {
+                    return s <= *qpos_span50;
                 }
             );
         }
@@ -289,52 +332,65 @@ int main (
         uint64_t lmosttc = std::numeric_limits<uint64_t>::max();
         uint64_t rmosttc = 0ULL;
         for (const auto &te : altd.tev) {
-            if (te.min < lmosttc)
-                lmosttc = te.min;
-            if (te.max > rmosttc)
-                rmosttc = te.max;
+            if (te.lmost < lmosttc)
+                lmosttc = te.lmost;
+            if (te.rmost > rmosttc)
+                rmosttc = te.rmost;
         }
-        const auto
-            te_distrib_spans = std::vector<double>{0.5, 0.9, 1}
-                               | std::views::transform ([&altd] (
-                                                            double pt
-                                                        ) {
-                                     // does not require sorting
-                                     return min_cheb_radius_containing (
-                                         altd.tev,
-                                         pt
-                                     );
-                                 })
-                               | std::ranges::to<std::vector>();
-        stat_eval_s rad50sim;
-        if (te_distrib_spans[0]) {
-            rad50sim = sim_to_bg<uint64_t, endpoints1D<uint64_t>> (
-                *te_distrib_spans[0],
+
+        const auto te_pwds = PairMatrix<uint64_t>::from_sample (
+            altd.tev,
+            ucheb<uint64_t>
+        );
+        const auto te_span50 = te_pwds.min_span_containing (0.5);
+        const auto te_span90 = te_pwds.min_span_containing (0.9);
+        const auto te_span   = te_pwds.min_span_containing (1);
+
+        // simulate against span50
+        stat_eval_s te_span50sim;
+        if (te_span50) {
+            te_span50sim = sim_to_bg<uint64_t, line_seg<uint64_t>> (
+                *te_span50,
                 altd.tev.size(),
                 te_popv,
                 [] (const decltype (te_popv) &v) {
-                    const auto ret = min_cheb_radius_containing (
+                    const auto pwds = PairMatrix<uint64_t>::from_sample (
                         v,
-                        0.5
+                        ucheb<uint64_t>
                     );
-                    if (!ret) {
-                        throw std::runtime_error (
-                            "bad call to min_cheb_radius_containing, "
-                            "program malformed"
-                        );
-                    }
+                    const auto ret = pwds.min_span_containing (0.5);
+                    assert (ret);
                     return *ret;
                 },
-                [&te_distrib_spans] (const auto s) {
-                    return s <= *te_distrib_spans[0];
-                }
+                [&te_span50] (const auto s) { return s <= *te_span50; }
             );
         }
 
-        const auto tcdv = mst_cheb_dists (
-            altd.tev
-        );     // template chebyshev mst distances
-        const auto tcd_tail_jump = tail_jump (tcdv);
+        const auto te_tail_jump = tail_jump (te_pwds.get1D());
+
+        // const auto kolmc = nk_lz76()
+        std::optional<double> kolmc;
+        if (rp) {
+            // TODO should really check if it's in bam header, and that this is the correct reference
+            auto rid_name = bcf_hdr_id2name (vph.get(), b1->rid);
+            if (rid_name == NULL) {
+                throw std::runtime_error (
+                    std::format (
+                        "Could not find rid {} in VCF header - VCF "
+                        "misformatted?",
+                        b1->rid
+                    )
+                );
+            }
+            std::string refs = fai_autofetch (
+                rp.get(),
+                rid_name,
+                lmosttc,
+                rmosttc
+            );
+            // TODO warn if all N
+            kolmc.emplace (nk_lz76 (refs));
+        }
 
         // report informative set of descriptive statistics
         // clang-format off
@@ -342,29 +398,29 @@ int main (
             "{}\t{}\t{}\t{}\t{}\t"
             "{}\t{}\t{}\t{}\t{}\t"
             "{}\t{}\t{}\t{}\t{}"
-            "\t{}\t{}\t{}\t{}\t{}",
+            "\t{}\t{}\t{}\t{}\t{}\t{}\t{}",
             b1->rid,
             b1->pos,
-            // TODO reorder all sizes to the end
-            // report nsupporting templates + n ref templates
-            opt_to_str (te_distrib_spans[0], "NA"),     // what span contains 50,
-            opt_to_str (qpos_distrib_spans[1], "NA"),     // 90, and
-            std::to_string (*qpmax - *qpmin),     // 100% of supporting read coordinates
+            opt_to_str (qpos_span50, "NA"),     // what span contains 50,
+            opt_to_str (qpos_span90, "NA"),     // 90, and
+            std::to_string (qpos_span),     // 100% of supporting read coordinates
             opt_to_str<double> (qgaps_tail_jump, "NA", rdbl2),
             opt_to_str<double> (span50sim.eff_sz, "NA", rdbl2),
             opt_to_str<double> (span50sim.pval, "NA", rdbl4),
-            std::to_string (altd.qpv.size()),     // n supporting reads
-            std::to_string (qpos_popv.size()),
-            opt_to_str (te_distrib_spans[0], "NA"),     // what chebyshev radius contains 50,
-            opt_to_str (te_distrib_spans[1], "NA"),     // 90, and
-            opt_to_str (te_distrib_spans[2], "NA"),     // 100% of supporting template coordinates
-            opt_to_str<double> (tcd_tail_jump, "NA", rdbl2),
-            opt_to_str<double> (rad50sim.eff_sz, "NA", rdbl2),
-            opt_to_str<double> (rad50sim.pval, "NA", rdbl4),
+            opt_to_str (te_span50, "NA"),     // what chebyshev radius contains 50,
+            opt_to_str (te_span90, "NA"),     // 90, and
+            opt_to_str (te_span, "NA"),     // 100% of supporting template coordinates
+            opt_to_str<double> (te_tail_jump, "NA", rdbl2),
+            opt_to_str<double> (te_span50sim.eff_sz, "NA", rdbl2),
+            opt_to_str<double> (te_span50sim.pval, "NA", rdbl4),
             std::to_string (lmosttc),     // template consensus span
             std::to_string (rmosttc),
             std::to_string (rmosttc - lmosttc),     // span size
-            std::to_string (altd.tev.size())     // n supporting templates (qname deduplicated)
+            opt_to_str<double> (kolmc, "NA", rdbl2),
+            std::to_string (altd.qpv.size()),     // n supporting reads
+            std::to_string (qpos_popv.size()),
+            std::to_string (altd.tev.size()),     // n supporting templates (qname deduplicated)
+            std::to_string (te_popv.size())
         ) << "\n";
         // clang-format on
     };

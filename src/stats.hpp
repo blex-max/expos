@@ -59,26 +59,36 @@ constexpr inline std::vector<T> gaps (std::vector<T> v) {
 
 template <typename T>
     requires std::unsigned_integral<T> || std::floating_point<T>
-constexpr inline std::optional<double> tail_jump (
-    std::vector<T> obs     // copy for sort
-) {
-    std::sort (begin (obs), end (obs));
-    if (obs.size() < 2 || obs.back() == 0)
+constexpr inline std::optional<double>
+tail_jump (const std::vector<T> &obs) {
+    if (obs.size() < 2)
         return std::nullopt;
+
+    T max1 = std::numeric_limits<T>::lowest();
+    T max2 = std::numeric_limits<T>::lowest();
+
+    for (const auto &x : obs) {
+        if (x > max1) {
+            max2 = max1;
+            max1 = x;
+        } else if (x > max2) {
+            max2 = x;
+        }
+    }
 
     // can overflow
     // +1 avoids confusing values with obs of 0
-    return static_cast<double> (obs.back() + 1)
-           / static_cast<double> (obs[obs.size() - 2] + 1);
+    return static_cast<double> (max1 + 1)
+           / static_cast<double> (max2 + 1);
 }
 
 // Notes:
 // - unsigned only because massive opposite signed integral elements will cause overflow
 // TODO return boundaries with result
 template <typename T>
-    requires std::unsigned_integral<T> || std::floating_point<T>
+    requires std::unsigned_integral<T>
 constexpr inline std::optional<T> min_span_containing (
-    std::vector<T> obs,     // copy for sort
+    std::vector<T> obs,     // copy for sort, TODO remove
     double         pt
 ) {
     // TODO consider whether these should be asserts
@@ -117,134 +127,160 @@ constexpr inline std::optional<T> min_span_containing (
 // coordinates on the same axis
 template <typename T>
     requires std::unsigned_integral<T>
-struct endpoints1D {
-    T min;
-    T max;
+struct line_seg {
+    T lmost;
+    T rmost;
 
-    endpoints1D() = delete;
-    endpoints1D (
+    line_seg() = delete;
+    line_seg (
         T a,
         T b
     ) {
-        min = a > b ? b : a;
-        max = a > b ? a : b;
+        lmost = a > b ? b : a;
+        rmost = a > b ? a : b;
     }
 
-    T diff () const { return max - min; }
+    T diff () const { return rmost - lmost; }
 };
 
 // chebyshev distance
 template <typename T>
     requires std::unsigned_integral<T>
 constexpr inline T ucheb (
-    const endpoints1D<T> &a,
-    const endpoints1D<T> &b
+    const line_seg<T> &a,
+    const line_seg<T> &b
 ) {
-    endpoints1D upper_pair{a.max, b.max};
-    endpoints1D lower_pair{a.min, b.min};
+    line_seg upper_pair{a.rmost, b.rmost};
+    line_seg lower_pair{a.lmost, b.lmost};
     return std::max<T> (upper_pair.diff(), lower_pair.diff());
 }
 
-// for endpoints on a number line
-// get the chebyshev distances between connected
-// vertices on the mst, discarding the graph itself
-// note:
-// - implementation suboptimal, but fine for expected n
+// 2D matrix
+// via vector
+// rows are contiguous
 template <typename T>
-    requires std::unsigned_integral<T>
-inline std::vector<T> constexpr mst_cheb_dists (
-    std::vector<endpoints1D<T>> &obs
-) {
-    using pwdist = struct {
-        endpoints1D<T> p;
-        uint64_t       dist;
-    };
-    using neighbours = std::vector<pwdist>;
-    neighbours outside;
-    std::transform (
-        begin (obs),
-        end (obs),
-        std::back_inserter (outside),
-        [] (const auto &a) {
-            return pwdist{a, std::numeric_limits<T>::max()};
-        }
-    );
-    std::vector<endpoints1D<T>> in_tree;
-    std::vector<T>              dists;     // n-1 gaps
-    while (!outside.empty()) {
-        const auto &nn = outside.back();
-        if (!in_tree.empty())
-            dists.emplace_back (nn.dist);
-        in_tree.emplace_back (nn.p);
-        const auto &u = in_tree.back();
-        outside.pop_back();     // avoid self-self
+    requires std::integral<T> || std::floating_point<T>
+class PairMatrix {
+  private:
+    std::vector<T> mat;
+    const size_t   dim_;
 
-        // no-ops once empty
-        std::transform (
-            begin (outside),
-            end (outside),
-            begin (outside),
-            [&u] (const auto &a) {
-                const auto d = ucheb (a.p, u);
-                return pwdist{
-                    a.p,
-                    std::min (a.dist, d)
-                };     // get chebyshev distance
+    PairMatrix (
+        std::vector<T> v,
+        size_t         dim
+    )
+        : mat (v),
+          dim_ (dim) {
+        assert (dim > 1);
+        assert ((v.size() % dim) == 0);
+    }
+
+  public:
+    PairMatrix() = delete;
+
+    auto dim () const noexcept { return dim_; }
+    auto size () const noexcept { return mat.size(); }
+
+    auto get (
+        size_t i,
+        size_t j
+    ) const {
+        assert (i < dim_);
+        assert (j < dim_);
+        assert (!mat.empty());
+        return mat[(i * dim_) + j];
+    }
+
+    const auto &get1D () const noexcept { return mat; }
+    auto        copy1D () const noexcept { return mat; }
+
+    // assumes symmetric distance
+    // clang-format off
+    template <typename U, typename F>
+        requires std::invocable<F &, const U &, const U &>
+                 && std::same_as<std::invoke_result_t<F &,const U &,const U &>, T>
+    // clang-format on
+    static PairMatrix<T> from_sample (
+        const std::vector<U> &obs,
+        F                   &&sym_pairfn
+    ) {
+        const auto     dim = obs.size();
+        const auto     nel = dim * dim;
+        std::vector<T> in (nel);     // nel-long vector
+        for (size_t i = 0; i < dim; ++i) {
+            for (size_t j = 0; j < (i + 1); ++j) {
+                const auto val    = sym_pairfn (obs[i], obs[j]);
+                in[(i * dim) + j] = val;
+                if (j != i)
+                    in[(j * dim) + i] = val;
             }
+        }
+        return {in, dim};
+    }
+
+    // span of smallest cluster of points that
+    // contains strictly more than fraction pt of all points
+    std::optional<T> min_span_containing (double pt) const {
+        assert (pt > 0 && pt <= 1);
+        const auto nobs = dim();
+
+        // what number of elements constitutes
+        // at least pt% of the obs
+        auto ptel = static_cast<size_t> (
+            ceil (static_cast<double> (nobs) * pt)
         );
-        sort (
-            begin (outside),
-            end (outside),
-            [] (const auto &a, const auto &b) {
-                return a.dist > b.dist;     // smallest to back
+        if (ptel < 2) {
+            return std::nullopt;     // single element is not a statistically valid span
+        }
+
+        // find tightest cluster
+        struct {
+            size_t              query_i;
+            std::vector<size_t> member_j;
+            T                   rad = std::numeric_limits<T>::max();
+        } min_clust;
+        std::vector<size_t> rowj (nobs);
+        std::iota (begin (rowj), end (rowj), 0);
+        for (size_t row = 0; row < nobs; ++row) {
+            std::nth_element (
+                begin (rowj),
+                begin (rowj) + (ptel - 1),     // sort up to i
+                end (rowj),
+                [&row, this] (const auto &a, const auto &b) {
+                    return get (row, a)
+                           < get (row, b);     // ascending sort
+                }
+            );
+            const auto pt_dist = get (row, rowj[ptel - 1]);
+            if (pt_dist < min_clust.rad) {
+                min_clust.query_i  = row;
+                min_clust.member_j = std::vector (
+                    begin (rowj),
+                    begin (rowj) + ptel
+                );
+                min_clust.rad = pt_dist;
             }
-        );
-    }
-    return dists;
-}
-
-
-// smallest chebyshev radius
-// such that there exists some centre radius
-// contains strictly more than fraction pt of all points
-// TODO templatise
-// TODO test
-inline std::optional<uint64_t> min_cheb_radius_containing (
-    const std::vector<endpoints1D<uint64_t>> &obs,
-    double                                    pt
-) {
-    assert (pt > 0 && pt <= 1);
-
-    if (obs.size() < 2) {
-        return std::nullopt;
-    }
-
-    // what number of elements constitutes
-    // at least pt% of the obs
-    auto nel = static_cast<size_t> (
-        ceil (static_cast<double> (obs.size()) * pt)
-    );
-    if (nel <= 1) {
-        return std::nullopt;     // single element is not a statistically valid span
-    }
-
-    uint64_t mind = std::numeric_limits<uint64_t>::max();
-    for (size_t i = 0; i < obs.size(); ++i) {
-        std::vector<uint64_t> idists;
-        const auto           &q = obs[i];
-        for (size_t j = 0; j < obs.size(); ++j) {
-            if (i == j)
-                continue;
-            idists.emplace_back (ucheb (obs[j], q));
         }
-        std::sort (begin (idists), end (idists));
-        if (idists[nel - 2]
-            < mind) {     // -2 as we include the query point
-            mind = idists[nel - 2];
+
+        T span = min_clust.rad;
+        // find largest p2p distance
+        // within tightest cluster
+        for (size_t i = 0; i < ptel; ++i) {
+            for (size_t j = 0; j < ptel; ++j) {
+                if (i == j)
+                    continue;
+                const auto ijd = get (
+                    min_clust.member_j[i],
+                    min_clust.member_j[j]
+                );
+                if (ijd > span) {
+                    span = ijd;
+                }
+            }
         }
+        return span;
     }
-    return mind;
-}
+};
 
 
 struct stat_eval_s {
@@ -261,13 +297,14 @@ struct stat_eval_s {
 // how often do we get a lt/gt value for the
 // statistic in question (pvalue), and
 // how large is the effect size.
+// TODO templatise better
 template <
     typename StatT,
     typename ObsT>
 inline stat_eval_s sim_to_bg (
     StatT             ev_stat,
     size_t            n_ev_obs,
-    std::vector<ObsT> total_obs,     // intentional copy
+    std::vector<ObsT> total_obs,     // intentional copy, TODO remove
     std::function<StatT (const std::vector<ObsT> &)> statfn,
     std::function<bool (StatT)>                      statcmp,
     size_t                                           nsim = 1000,
@@ -297,7 +334,6 @@ inline stat_eval_s sim_to_bg (
     );
 
     // TODO "power analysis"
-
 
     std::random_device rd;
     std::mt19937       g (rd());

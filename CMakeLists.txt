@@ -11,7 +11,8 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 option(ENABLE_DEBUG_FLAGS "Enable extra debug compile options" ON)
-option(MAKE_TEST "Compile and run tests binary" ON)
+option(MAKE_TEST "Compile tests binary" ON)
+option(MAKE_EXE "Compile exe")
 
 # user paths to htslib if needed
 set(HTSLIB_INCLUDE_DIR "" CACHE PATH "Path to directory that contains htslib/hts.h")
@@ -84,6 +85,32 @@ if(MAKE_TEST)
   FetchContent_MakeAvailable(Catch2)
 
   add_executable(test-expos tests/test.cpp)
+  target_compile_options(test-expos PRIVATE
+      -Wall
+      -Wextra
+      -Wpedantic
+      -Wshadow
+      -Wconversion
+      -Wsign-conversion
+      -Wfloat-equal
+      -Wnon-virtual-dtor
+      -Wold-style-cast
+      -Woverloaded-virtual
+      -Wnull-dereference
+      -Wdouble-promotion
+      -Wformat=2
+  )
+
+  if(ENABLE_DEBUG_FLAGS)
+    target_compile_options(test-expos PRIVATE
+      -fsanitize=address,undefined
+      -fno-omit-frame-pointer
+      -O0 -g
+    )
+    target_link_options(test-expos PRIVATE
+      -fsanitize=address,undefined
+    )
+  endif()
   target_include_directories(test-expos PRIVATE src)
   target_link_libraries(test-expos PRIVATE
     Catch2::Catch2WithMain
@@ -91,40 +118,42 @@ if(MAKE_TEST)
 endif(MAKE_TEST)
 # //--- end testing ---//
 
-add_executable(expos
-  src/main.cpp
-)
 
-target_compile_options(expos PRIVATE
-    -Wall
-    -Wextra
-    -Wpedantic
-    -Wshadow
-    -Wconversion
-    -Wsign-conversion
-    -Wfloat-equal
-    -Wnon-virtual-dtor
-    -Wold-style-cast
-    -Woverloaded-virtual
-    -Wnull-dereference
-    -Wdouble-promotion
-    -Wformat=2
-)
-
-if(ENABLE_DEBUG_FLAGS)
+if(MAKE_EXE)
+  add_executable(expos
+    src/main.cpp
+  )
   target_compile_options(expos PRIVATE
-    -fsanitize=address,undefined
-    -fno-omit-frame-pointer
-    -O0 -g
+      -Wall
+      -Wextra
+      -Wpedantic
+      -Wshadow
+      -Wconversion
+      -Wsign-conversion
+      -Wfloat-equal
+      -Wnon-virtual-dtor
+      -Wold-style-cast
+      -Woverloaded-virtual
+      -Wnull-dereference
+      -Wdouble-promotion
+      -Wformat=2
   )
-  target_link_options(expos PRIVATE
-    -fsanitize=address,undefined
+
+  if(ENABLE_DEBUG_FLAGS)
+    target_compile_options(expos PRIVATE
+      -fsanitize=address,undefined
+      -fno-omit-frame-pointer
+      -O0 -g
+    )
+    target_link_options(expos PRIVATE
+      -fsanitize=address,undefined
+    )
+  endif()
+
+  target_include_directories(expos PRIVATE src)
+
+  target_link_libraries(expos
+    cxxopts::cxxopts
+    ${HTSLIB_TARGET}
   )
-endif()
-
-target_include_directories(expos PRIVATE src)
-
-target_link_libraries(expos
-  cxxopts::cxxopts
-  ${HTSLIB_TARGET}
-)
+endif(MAKE_EXE)

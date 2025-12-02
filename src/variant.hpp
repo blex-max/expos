@@ -2,7 +2,6 @@
 
 #include <cstring>
 #include <format>
-#include <iostream>
 #include <stdexcept>
 #include <string>
 
@@ -11,18 +10,6 @@
 #include <htslib/sam.h>
 #include <htslib/vcf.h>
 
-
-// TODO
-enum support_flag : uint8_t {
-
-};
-
-struct support_eval_s {
-    bool         s;
-    support_flag f;
-};
-
-// NOTE I like the idea of passing in a struct to be filled out
 
 // in caller, to assess type
 // bcf_has_variant_types (b, VCF_DEL | VCF_INS | VCF_SNP | VCF_MNP, bcf_variant_match::bcf_match_overlap)
@@ -55,14 +42,21 @@ inline bool evaluate_support (
             qpos = static_cast<size_t> (pl->qpos);
             qbase = seq_nt16_str[bam_seqi (bam_get_seq (pl->b), qpos)];
             // std::cout << std::format ("ref {}, alt {}, query {}", ref, alt, qbase)
-                      // << std::endl;
-            if (qbase != alt.substr (0, 1))     // compare to first character of mutation
+            // << std::endl;
+            if (qbase
+                != alt.substr (
+                    0,
+                    1
+                ))     // compare to first character of mutation
                 return false;     // all mutation types must conform
-            if (mtype == VCF_SNP)     // only relevant condition for SNP
+            if (mtype
+                == VCF_SNP)     // only relevant condition for SNP
                 return true;
 
             vdiff = static_cast<int> (alt.length())
-                    - static_cast<int> (ref.length());     // negative for del, pos for ins
+                    - static_cast<int> (
+                        ref.length()
+                    );     // negative for del, pos for ins
             indel_lmatch = (vdiff == pl->indel);
 
             // needs verification

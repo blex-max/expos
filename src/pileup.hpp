@@ -52,9 +52,10 @@ inline int pileup_func (
 auto inline get_aln_data (
     htsFile   *aln_fh,
     hts_idx_t *aln_idx,
-    bcf1_t    *v
+    bcf1_t    *v,
+    int        mtype
 ) {
-    using templ_endpoints = std::vector<endpoints1D<uint64_t>>;
+    using templ_endpoints = std::vector<line_seg<uint64_t>>;
     using qposv           = std::vector<uint64_t>;
     using pdat            = struct qdat {
         qposv qpv;     // NOTE: equivalent to analysing read endpoints
@@ -64,14 +65,6 @@ auto inline get_aln_data (
         pdat alt;
         pdat other;
     } obs;
-
-    // TODO enum
-    auto mtype = bcf_has_variant_type (
-        v,
-        1,
-        VCF_DEL | VCF_INS | VCF_SNP | VCF_MNP
-    );     // TODO and if not one of these?
-    // std::cout << std::format ("mtype {}", mtype) << std::endl;
 
     // prepare to pileup
     hts_itr_upt iter{
@@ -165,9 +158,6 @@ auto inline get_aln_data (
                 continue;
             }
             qnames.insert (qname);
-
-            // TODO logging
-            // std::cout << "retrieving template" << std::endl;
 
             //--- get template region ---//
             endpoints[0] = l0;
