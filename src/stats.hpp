@@ -76,7 +76,7 @@ tail_jump (const std::vector<T> &obs) {
         }
     }
 
-    // can overflow
+    // could overflow
     // +1 avoids confusing values with obs of 0
     return static_cast<double> (max1 + 1)
            / static_cast<double> (max2 + 1);
@@ -91,8 +91,6 @@ constexpr inline std::optional<T> min_span_containing (
     std::vector<T> obs,     // copy for sort, TODO remove
     double         pt
 ) {
-    // TODO consider whether these should be asserts
-    // or runtime checks
     assert (pt > 0 && pt <= 1);
 
     if (obs.size() < 2) {
@@ -155,9 +153,8 @@ constexpr inline T ucheb (
     return std::max<T> (upper_pair.diff(), lower_pair.diff());
 }
 
-// 2D matrix
-// via vector
-// rows are contiguous
+// 2D symmetric square matrix via vector
+// rows are contiguous in vector
 template <typename T>
     requires std::integral<T> || std::floating_point<T>
 class PairMatrix {
@@ -220,6 +217,7 @@ class PairMatrix {
 
     // span of smallest cluster of points that
     // contains strictly more than fraction pt of all points
+    // assumes symmetric
     std::optional<T> min_span_containing (double pt) const {
         assert (pt > 0 && pt <= 1);
         const auto nobs = dim();
@@ -338,9 +336,6 @@ inline stat_eval_s sim_to_bg (
     std::random_device rd;
     std::mt19937       g (rd());
 
-    // TODO also compare:
-    // i) event obs to uniform model
-    // ii) background/total obs to uniform model
     size_t sim_count = 0;
     for (size_t i = 0; i < nsim; ++i) {
         std::shuffle (begin (total_obs), end (total_obs), g);

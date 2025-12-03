@@ -224,7 +224,7 @@ int main (
            "TEMPL_SPAN50_"
            "EFF2BG\tTEMPL_SPAN50_PVAL\tTEMPL_"
            "LMOST\tTEMPL_RMOST\tTEMPL_CONSENSUS_LEN\tCONSENSUS_"
-           "CMPLX\tNALT_"
+           "CMPLXx100\tNALT_"
            "READS\tNTOTAL_READS\tNALT_TEMPL\tNTOTAL_TEMPL"
         << "\n";
     while (bcf_read (vp.get(), vph.get(), b1.get()) == 0) {
@@ -369,7 +369,7 @@ int main (
         const auto te_tail_jump = tail_jump (te_pwds.get1D());
 
         // const auto kolmc = nk_lz76()
-        std::optional<double> kolmc;
+        std::optional<uint> kolmc;
         if (rp) {
             // TODO should really check if it's in bam header, and that this is the correct reference
             auto rid_name = bcf_hdr_id2name (vph.get(), b1->rid);
@@ -389,7 +389,9 @@ int main (
                 rmosttc
             );
             // TODO warn if all N
-            kolmc.emplace (nk_lz76 (refs));
+            kolmc.emplace (
+                static_cast<uint> (round (nk_lz76 (refs) * 100))
+            );     // x100 scaling factor
         }
 
         // report informative set of descriptive statistics
@@ -416,7 +418,7 @@ int main (
             std::to_string (lmosttc),     // template consensus span
             std::to_string (rmosttc),
             std::to_string (rmosttc - lmosttc),     // span size
-            opt_to_str<double> (kolmc, "NA", rdbl2),
+            opt_to_str (kolmc, "NA"),
             std::to_string (altd.qpv.size()),     // n supporting reads
             std::to_string (qpos_popv.size()),
             std::to_string (altd.tev.size()),     // n supporting templates (qname deduplicated)
