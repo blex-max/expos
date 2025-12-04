@@ -4,3 +4,4 @@ compile_commands.json
 scratch/
 demo-proj/
 build/
+.DS_Store
