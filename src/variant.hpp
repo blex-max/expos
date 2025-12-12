@@ -4,11 +4,21 @@
 #include <format>
 #include <stdexcept>
 #include <string>
+#include <vector>
 
 #include <htslib/hts.h>
 #include <htslib/kstring.h>
 #include <htslib/sam.h>
 #include <htslib/vcf.h>
+
+
+inline std::vector<bool> has_filters (bcf_hdr_t *hdr, bcf1_t *rec, std::vector<std::string> &flt) {
+    std::vector<bool> out;
+    for (const auto &f : flt) {
+        out.push_back(bcf_has_filter(hdr, rec, const_cast<char*>(f.c_str())) > 0);
+    }
+    return out;
+}
 
 
 // in caller, to assess type

@@ -49,21 +49,21 @@ inline int pileup_func (
 }
 // end nothing but C
 
+
+struct alndv {
+    std::vector<uint64_t>           qp;
+    std::vector<double>             las;
+    std::vector<line_seg<uint64_t>> te;
+};
 auto inline get_aln_data (
     htsFile   *aln_fh,
     hts_idx_t *aln_idx,
     bcf1_t    *v,
     int        mtype
 ) {
-    using templ_endpoints = std::vector<line_seg<uint64_t>>;
-    using qposv           = std::vector<uint64_t>;
-    using pdat            = struct qdat {
-        qposv qpv;     // NOTE: equivalent to analysing read endpoints
-        templ_endpoints tev;
-    };
     struct {
-        pdat alt;
-        pdat other;
+        alndv alt;
+        alndv other;
     } obs;
 
     // prepare to pileup
@@ -136,21 +136,34 @@ auto inline get_aln_data (
                 );
             }
 
-            // check mate mapped to same reference
-            // NOTE: this would probably need to be adjusted
-            // if single end data is to be accepted
-            if (plp_tid != pli->b->core.mtid) {
-                // std::cout << "mtid skip" << std::endl;
-                continue;
-            }
+            auto raw_AS = bam_aux_get (pli->b, "AS");
+            if (raw_AS == NULL)
+                throw std::runtime_error (
+                    std::format ("no AS tag for read {}", qname)
+                );
+            const auto raw_AS_type = bam_aux_type (raw_AS);
+            if (raw_AS_type != 'i' && raw_AS_type != 'C')
+                throw std::runtime_error (
+                    std::format (
+                        "AS tag is not of type 'i' for read {}. "
+                        "Record data corrupt; type 'i' is mandated "
+                        "for AS tag by SAM format spec.",
+                        qname
+                    )
+                );
 
             // check variant support
             auto &bin = evaluate_support (pli, v, mtype) ? obs.alt
                                                          : obs.other;
 
-            const auto l0 = pli->b->core.pos;
+            bin.las.push_back (  // TODO guard
+                static_cast<double> (bam_aux2i (raw_AS))
+                / static_cast<double> (pli->b->core.l_qseq)
+            );     // length-normalised alignment score
 
-            bin.qpv.emplace_back (as_uint (pli->qpos));
+            const auto l0 = pli->b->core.pos;
+            bin.qp.emplace_back (as_uint (pli->qpos));
+
             // don't double count templates,
             // shared between read pairs (by definition)
             if (qnames.find (qname)
@@ -158,6 +171,14 @@ auto inline get_aln_data (
                 continue;
             }
             qnames.insert (qname);
+
+            // check mate mapped to same reference
+            // NOTE: this would probably need to be adjusted
+            // if single end data is to be accepted
+            if (plp_tid != pli->b->core.mtid) {
+                // std::cout << "mtid skip" << std::endl;
+                continue;
+            }
 
             //--- get template region ---//
             endpoints[0] = l0;
@@ -179,7 +200,7 @@ auto inline get_aln_data (
                 endpoints.end()
             );     // NOTE returns pair of *ptrs*
 
-            bin.tev.emplace_back (
+            bin.te.emplace_back (
                 as_uint (*tco.first),
                 as_uint (*tco.second)
             );

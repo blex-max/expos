@@ -39,8 +39,10 @@
 // TODO eyeball comparison to hp2 -> subset a vcf to DVF and ADF marked
 // TODO some folding of templates!
 
+#include <algorithm>
 #include <cstdint>
 #include <format>
+#include <fstream>
 #include <htslib/faidx.h>
 #include <iostream>
 
@@ -48,12 +50,65 @@
 #include <htslib/hts.h>
 #include <htslib/sam.h>
 #include <htslib/vcf.h>
+#include <stdexcept>
+#include <unordered_map>
 
 #include "hts_ptr_t.hpp"
 #include "pileup.hpp"
 #include "stats.hpp"
 
+constexpr std::string PROG_NAME = "expos";
+constexpr std::string VERSION   = "0.0.0";
+struct field_s {
+    std::string name;
+    std::string type;
+    std::string desc;
+};
+const std::unordered_map<std::string, field_s> FIELD_INF{
+    {"MLAS",
+     {"MLAS",
+      "Float",
+      "Median Length-normalised Alignment Score (AS) of "
+      "reads supporting variant"}},
+    {"QM1NN",
+     {"QM1NN",
+      "Float",
+      "Median nearest neighbour distance of qpos on reads "
+      "supporting variant"}},
+    {"QES",
+     {"QES",
+      "Float",
+      "Log2 ratio effect size of QM1NN against non-supporting reads, "
+      "from monte carlo simulation"}},
+    {"QPV",
+     {"QPV",
+      "Float",
+      "P-value of QM1NN against non-supporting reads, from monte "
+      "carlo simulation"}},
+    {"TM1NN",
+     {"TM1NN",
+      "Float",
+      "Median nearest neighbour distance of template endpoints as "
+      "calcluated from read pairs supporting variant"}},
+    {"TES",
+     {"TES",
+      "Float",
+      "Log2 ratio effect size of TM1NN against non-supporting "
+      "templates, from monte carlo simulation"}},
+    {"TPV",
+     {"TPV",
+      "Float",
+      "P-value of TM1NN against non-supporting templates, from monte "
+      "carlo simulation"}},
+    {"KC",
+     {"KC",
+      "Integer",
+      "Kolmogorov Complexity of region spanned by supporting "
+      "templates, scaled by x100"}}     // NOTE -- kc is optional
+};
 
+
+// various helpers
 template <class T>
 std::string opt_to_str (
     std::optional<T>               opt,
@@ -72,14 +127,29 @@ std::string rdbl4 (const double &a) {
     return std::format ("{:.4f}", a);
 }
 
+constexpr auto make_hdr_line (
+    std::string name,
+    std::string n,
+    std::string t,
+    std::string desc
+) {
+    return std::format (
+        "##INFO=<ID={},Number={},Type={},Description=\"{}\",Source="
+        "\"{}\",Version=\"{}\">",
+        name,
+        n,
+        t,
+        desc,
+        PROG_NAME,
+        VERSION
+    );
+}
 
-// TODO allow exclusion of variants by filter flags
+
 // TODO allow user defined samflags for include/exclude
 // TODO support single ended? LATER
 // TODO options for calculating subset of data
-// TODO --encode-vcf <COLNAME1,2,3> && --ovcf && --otsv ("-") for stdout
 // TODO options for more vcf data (e.g. REF,ALT) in TSV (if using expos as "genome browser by numbers")
-// TODO formalise why span50 better than MAD
 // TODO optionally use positional data from NORMAL/BULK/SOMATIC
 // to as background for simulation (if it's the same protocol which I don't know - if possible great!)
 // TODO compare to uniform distribution (less valuable than background but possibly useful if e.g. not enough reads otherwise)
@@ -88,22 +158,42 @@ int main (
     char *argv[]
 ) {
     namespace fs = std::filesystem;
-    fs::path vcf_path;
-    fs::path aln_path;
-    fs::path ref_path;
+    // TODO verify paths
+    fs::path                 vcf_path;
+    fs::path                 aln_path;
+    fs::path                 ref_path;
+    fs::path                 otsv_path;
+    std::vector<std::string> flt_inc;
+    std::vector<std::string> flt_ex;
+    // std::vector<std::string> wfields;
 
     cxxopts::Options options (
         "expos",
         "EXtract POSitional data and statistics from alignment at "
-        "VCF-specified pileups\n"
+        "VCF-specified pileups. Annotated VCF to stdout.\n"
     );
 
     // clang-format off
     options.add_options() ("h,help", "Print usage")
+        // POSITIONAL
         ("vcf", "VCF", cxxopts::value<fs::path>())
         ("aln", "Sample BAM", cxxopts::value<fs::path>())
+
+        // OPTS
+        ("i,include",
+         "Only operate on VCF records with this value present in FILTER. May be passed multiple times.",
+         cxxopts::value<std::vector<std::string>>()) // multiple allowed
+        ("e,exclude",
+         "Only operate on VCF records without this value present in FILTER. May be passed multiple times.",
+         cxxopts::value<std::vector<std::string>>()) // multiple allowed
+        // ("w,write",
+        //  "Write specified field to output VCF. May be passed multiple times.",
+        //  cxxopts::value<std::vector<std::string>>()->default_value("ALL"))
+        ("t,tsv",
+         "Write a tsv of the output to file specified.",
+         cxxopts::value<fs::path>())
         ("r,ref",
-         "Alignment Reference Fasta for optionally adding template kolmogorov to statistics", // TODO
+         "Alignment Reference Fasta for optionally adding template kolmogorov complexity to statistics.",
          cxxopts::value<fs::path>());
     // clang-format on
 
@@ -152,6 +242,16 @@ int main (
             std::cerr << "Using ref: " << ref_path << std::endl;
         }
 
+        if (parsedargs.count ("include")) {
+            flt_inc = parsedargs["include"].as<std::vector<std::string>>();
+        }
+        if (parsedargs.count ("exclude")) {
+            flt_ex = parsedargs["exclude"].as<std::vector<std::string>>();
+        }
+
+        if (parsedargs.count ("tsv")) {
+            otsv_path = parsedargs["tsv"].as<fs::path>();
+        }
 
     } catch (const std::exception &e) {
         std::cerr << "Error parsing CLI options: " << e.what()
@@ -159,6 +259,7 @@ int main (
         return 1;
     }
 
+    // inputs
     auto _ain{hts_open (aln_path.c_str(), "r")};
     if (_ain == NULL) {
         std::cerr << std::format (
@@ -214,14 +315,111 @@ int main (
     bcf1_upt b1{bcf_init(), bcf_destroy};
 
 
-    // loop vars
-    std::cout
-        << "CHROM\tPOS\tQPOS_M1NN\tQPOS_M1NN_EFFSZ\tQPOS_M1NN_PVAL\t"
-           "TEMPL_M1NN\tTEMPL_M1NN_EFFSZ\tTEMPL_M1NN_PVAL\t"
-           "CONSENSUS_CMPLXx100\tNALT_READS\t"
-           "NTOTAL_READS\tNALT_TEMPL\tNTOTAL_TEMPL"
-        << "\n";
+    // outputs
+    htsFile_upt ovcf{hts_open ("-", "w"), hts_close};     // stdout
+    bcf_hdr_upt ohdr{bcf_hdr_dup (vph.get()), bcf_hdr_destroy};
+
+    // ADD LINES TO HDR
+    // NOTE -- encodes a single field, regardless of number of samples (for now)
+    for (const auto &l : FIELD_INF) {
+        const auto &i = l.second;
+        if (bcf_hdr_append (
+                ohdr.get(),
+                make_hdr_line (i.name, "1", i.type, i.desc).c_str()
+            )
+            != 0) {
+            throw std::runtime_error (
+                std::format (
+                    "failed to append to hdr for field {}",
+                    i.name
+                )
+            );
+        }
+    }
+
+    if (bcf_hdr_sync (ohdr.get()) < 0) {
+        throw std::runtime_error ("failed to sync hdr");     // TODO
+    }
+    if (bcf_hdr_write (ovcf.get(), ohdr.get()) < 0) {
+        throw std::runtime_error ("failed to write header");     // TODO
+    };
+
+
+    // optional tsv output
+    std::optional<std::ofstream> otsv;
+    if (!otsv_path.empty()) {
+        otsv.emplace (otsv_path);
+        // TODO -- pre-header comments explaining each field
+        // NOTE -- TSV header should always stay the same.
+        // Columns not calculated should simply be NA or other indicator
+        *otsv << "CHROM\tPOS\t\tMLAS\tQPOS_M1NN\tQPOS_M1NN_"
+                 "EFFSZ\tQPOS_M1NN_PVAL\t"
+                 "TEMPL_M1NN\tTEMPL_M1NN_EFFSZ\tTEMPL_M1NN_PVAL\t"
+                 "CONSENSUS_CMPLXx100\tNALT_READS\t"
+                 "NTOTAL_READS"
+              << "\n";
+    }
+
+
+    bool firsti = true;
     while (bcf_read (vp.get(), vph.get(), b1.get()) == 0) {
+        if (firsti) {
+            for (const auto &f : flt_inc) {
+                if (bcf_has_filter (
+                        vph.get(),
+                        b1.get(),
+                        const_cast<char *> (f.c_str())
+                    )
+                    < 0)
+                    throw std::runtime_error (
+                        "Unknown --include filter"
+                    );     // unrecoverable
+            }
+            std::vector<std::string> tmp_ex;
+            for (size_t i = 0; i < flt_ex.size(); ++i) {
+                const auto &f = flt_ex[i];
+                if (bcf_has_filter (
+                        vph.get(),
+                        b1.get(),
+                        const_cast<char *> (f.c_str())
+                    )
+                    < 0) {
+                    std::cerr << std::format (
+                        "Warning: Unknown --exclude filter {}, "
+                        "ignoring",
+                        f
+                    ) << std::endl;
+                } else {
+                    tmp_ex.push_back (flt_ex[i]);
+                }
+            }
+            flt_ex = tmp_ex;
+            firsti = false;
+        }
+
+        const auto iflt = has_filters (vph.get(), b1.get(), flt_inc);
+        if (std::any_of (begin (iflt), end (iflt), [] (const auto a) {
+                return !a;
+            })) {
+            if (bcf_write (ovcf.get(), ohdr.get(), b1.get()) != 0) {
+                throw std::runtime_error (
+                    std::format ("failed to write record to VCF")
+                );
+            };
+            continue;
+        }
+        const auto eflt = has_filters (vph.get(), b1.get(), flt_ex);
+        if (std::any_of (begin (eflt), end (eflt), [] (const auto a) {
+                return a;
+            })) {
+            if (bcf_write (ovcf.get(), ohdr.get(), b1.get()) != 0) {
+                throw std::runtime_error (
+                    std::format ("failed to write record to VCF")
+                );
+            };
+            continue;
+        }
+
         // NOTE b1->errcode  // MUST CHECK BEFORE WRITE TO VCF
         if (b1->n_allele != 2) {
             std::cerr << std::format (
@@ -260,36 +458,36 @@ int main (
 
 
         auto &altd   = vard.alt;
-        using Tqposv = decltype (altd.qpv);
+        using Tqposv = decltype (altd.qp);
         using Tqpos  = Tqposv::value_type;
-        using Ttev   = decltype (altd.tev);
+        using Ttev   = decltype (altd.te);
         using Tte    = Ttev::value_type;
 
         Tqposv qpos_popv;
         qpos_popv.insert (
             qpos_popv.end(),
-            begin (vard.alt.qpv),
-            end (vard.alt.qpv)
+            begin (vard.alt.qp),
+            end (vard.alt.qp)
         );
         qpos_popv.insert (
             qpos_popv.end(),
-            begin (vard.other.qpv),
-            end (vard.other.qpv)
+            begin (vard.other.qp),
+            end (vard.other.qp)
         );
 
         Ttev te_popv;
         te_popv.insert (
             te_popv.end(),
-            begin (vard.alt.tev),
-            end (vard.alt.tev)
+            begin (vard.alt.te),
+            end (vard.alt.te)
         );
         te_popv.insert (
             te_popv.end(),
-            begin (vard.other.tev),
-            end (vard.other.tev)
+            begin (vard.other.te),
+            end (vard.other.te)
         );
 
-        if (altd.qpv.empty() || altd.tev.empty()) {
+        if (altd.qp.empty() || altd.te.empty()) {
             std::cerr << std::format (
                 "no supporting reads found for variant {}, "
                 "skipping.",
@@ -298,13 +496,17 @@ int main (
             continue;
         }
 
+        // --- MEDIAN LENGTH-NORMALISED ALIGNMENT SCORE --- //
+        const auto mlas = percentile_from_sorted (altd.las, 0.5);
+
+
         // --- GET PAIRWISE DISTANCES --- //
         constexpr auto d1d = [] (const Tqpos &a,
                                  const Tqpos &b) -> Tqpos {
             return (a > b) ? (a - b) : (b - a);
         };
         const auto qpos_pwd = PairMatrix<Tqpos>::from_sample (
-            altd.qpv,
+            altd.qp,
             d1d
         );     // empty if <2 samples
         // manhattan distance
@@ -315,7 +517,7 @@ int main (
             return upper_pair.diff() + lower_pair.diff();
         };
         const auto te_pwd = PairMatrix<uint64_t>::from_sample (
-            altd.tev,
+            altd.te,
             mannd
         );
 
@@ -327,7 +529,7 @@ int main (
             qpos_ann    = medianNN (*qpos_pwd);
             qpos_annsim = sim_to_bg<double, Tqpos> (
                 *qpos_ann,
-                altd.qpv.size(),
+                altd.qp.size(),
                 qpos_popv,
                 [&d1d] (const Tqposv &v) {
                     const auto pwds = PairMatrix<Tqpos>::from_sample (
@@ -350,7 +552,7 @@ int main (
             te_ann    = medianNN (*te_pwd);
             te_annsim = sim_to_bg<double, Tte> (
                 *te_ann,
-                altd.tev.size(),
+                altd.te.size(),
                 te_popv,
                 [&mannd] (const Ttev &v) {
                     const auto pwds = PairMatrix<uint64_t>::from_sample (
@@ -371,18 +573,17 @@ int main (
         // consensus region of supporting templates
         uint64_t lmosttc = std::numeric_limits<uint64_t>::max();
         uint64_t rmosttc = 0ULL;
-        for (const auto &te : altd.tev) {
+        for (const auto &te : altd.te) {
             if (te.lmost < lmosttc)
                 lmosttc = te.lmost;
             if (te.rmost > rmosttc)
                 rmosttc = te.rmost;
         }
 
-        // const auto kolmc = nk_lz76()
+        // TODO should really check if it's in bam header, and that this is the correct reference
+        auto rid_name = bcf_hdr_id2name (vph.get(), b1->rid);
         std::optional<uint> kolmc;
         if (rp) {
-            // TODO should really check if it's in bam header, and that this is the correct reference
-            auto rid_name = bcf_hdr_id2name (vph.get(), b1->rid);
             if (rid_name == NULL) {
                 throw std::runtime_error (
                     std::format (
@@ -405,26 +606,65 @@ int main (
             );     // x100 scaling factor
         }
 
-        // report informative set of descriptive statistics
+        // encode to vcf
+        // TODO check0
+        auto write_info =
+            [&] (std::string nm, const void *val, int type) {
+                if (bcf_update_info (
+                        ohdr.get(),
+                        b1.get(),
+                        nm.c_str(),
+                        val,
+                        1,
+                        type
+                    )
+                    != 0) {
+                    throw std::runtime_error (
+                        std::format (
+                            "failed to write data {} as INFO field "
+                            "in output VCF",
+                            nm
+                        )
+                    );
+                }
+            };
+        // TODO should probably encode missingness into the vcf somehow... like an EXPOS_ERR info field
+        // TODO write other fields!
+        // TODO extend the shorthand func further
+        if (mlas) {
+            const auto val = static_cast<float> (
+                *mlas
+            );     // htslib requires conversion
+            // TODO rounding
+            write_info ("MLAS", &val, BCF_HT_REAL);
+        }
+
+        if (bcf_write (ovcf.get(), ohdr.get(), b1.get()) != 0) {
+            throw std::runtime_error (
+                std::format ("failed to write record to VCF")
+            );
+        };
+
+        // report statistics to tsv
         // clang-format off
-        std::cout << std::format (
-            "{}\t{}\t{}\t{}\t{}\t"
-            "{}\t{}\t{}\t{}\t{}\t{}\t"
-            "{}\t{}\t",
-            b1->rid,
-            b1->pos,
-            opt_to_str<double>(qpos_ann, "NA"),
-            opt_to_str<double> (qpos_annsim.eff_sz, qpos_annsim.err, rdbl2),
-            opt_to_str<double> (qpos_annsim.pval, qpos_annsim.err, rdbl4),
-            opt_to_str<double>(te_ann, "NA"),
-            opt_to_str<double> (te_annsim.eff_sz, te_annsim.err, rdbl2),
-            opt_to_str<double> (te_annsim.pval, te_annsim.err, rdbl4),
-            opt_to_str (kolmc, "NA"),
-            std::to_string (altd.qpv.size()),     // n supporting reads
-            std::to_string (qpos_popv.size()),
-            std::to_string (altd.tev.size()),     // n supporting templates (qname deduplicated)
-            std::to_string (te_popv.size())
-        ) << "\n";
+        if (otsv) {
+            *otsv << std::format (
+                "{}\t{}\t{}\t{}\t{}\t"
+                "{}\t{}\t{}\t{}\t{}\t{}\t{}",
+                rid_name,
+                b1->pos + 1,
+                opt_to_str<double> (mlas, "NA", rdbl2),
+                opt_to_str<double> (qpos_ann, "NA", rdbl2),
+                opt_to_str<double> (qpos_annsim.eff_sz, qpos_annsim.err, rdbl2),
+                opt_to_str<double> (qpos_annsim.pval, qpos_annsim.err, rdbl4),
+                opt_to_str<double> (te_ann, "NA", rdbl2),
+                opt_to_str<double> (te_annsim.eff_sz, te_annsim.err, rdbl2),
+                opt_to_str<double> (te_annsim.pval, te_annsim.err, rdbl4),
+                opt_to_str (kolmc, "NA"),
+                std::to_string (altd.qp.size()),     // n supporting reads
+                std::to_string (qpos_popv.size())
+            ) << "\n";
+        }
         // clang-format on
     };
 
