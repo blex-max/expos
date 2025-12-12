@@ -6,7 +6,7 @@ Useful for inspecting and flagging false postive variants.
 
 Core functionality all present but niceties and guard rails are not.
 
-# installation
+## Installation
 
 ```bash
  # from the cloned repo
@@ -17,7 +17,7 @@ Core functionality all present but niceties and guard rails are not.
  ./expos --help
 ```
 
-# example
+## Example
 
 For clarity commands are separated, but in practice these can all be piped together
 ```bash
