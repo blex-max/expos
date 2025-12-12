@@ -22,7 +22,7 @@ Core functionality all present but niceties and guard rails are not.
 For clarity commands are separated, but in practice these can all be piped together
 ```bash
  # calculate statistics and encode to VCF
- expos --ref ref.fa my.vcf my.bam > expos.vcf.gz
+ ./path/to/expos --ref ref.fa my.vcf my.bam > expos.vcf.gz
 
  # Add some soft flags in the FILTER column
  # (or alternately, subset entirely with bcftools view instead of filter)
