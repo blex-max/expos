@@ -61,50 +61,37 @@ constexpr std::string PROG_NAME = "expos";
 constexpr std::string VERSION   = "0.0.0";
 struct field_s {
     std::string name;
-    std::string type;
     std::string desc;
+    int         type, nrec;
 };
 const std::unordered_map<std::string, field_s> FIELD_INF{
     {"MLAS",
      {"MLAS",
-      "Float",
-      "Median Length-normalised Alignment Score (AS) of "
-      "reads supporting variant"}},
+      "Median read-Length-normalised Alignment Score (AS) of "
+      "reads supporting variant",
+      BCF_HT_REAL,
+      1}},
     {"QM1NN",
      {"QM1NN",
-      "Float",
-      "Median nearest neighbour distance of qpos on reads "
-      "supporting variant"}},
-    {"QES",
-     {"QES",
-      "Float",
-      "Log2 ratio effect size of QM1NN against non-supporting reads, "
-      "from monte carlo simulation"}},
-    {"QPV",
-     {"QPV",
-      "Float",
-      "P-value of QM1NN against non-supporting reads, from monte "
-      "carlo simulation"}},
+      "[0]Median nearest neighbour distance of variant query "
+      "position; [1]log2 ratio effect size and [2]P-value against "
+      "background, from monte-carlo simulation",
+      BCF_HT_REAL,
+      3}},
     {"TM1NN",
      {"TM1NN",
-      "Float",
-      "Median nearest neighbour distance of template endpoints as "
-      "calcluated from read pairs supporting variant"}},
-    {"TES",
-     {"TES",
-      "Float",
-      "Log2 ratio effect size of TM1NN against non-supporting "
-      "templates, from monte carlo simulation"}},
-    {"TPV",
-     {"TPV",
-      "Float",
-      "P-value of TM1NN against non-supporting templates, from monte "
-      "carlo simulation"}},
+      "[0]Median nearest neighbour distance of template endpoints "
+      "from read pairs supporting variant; [1]log2 ratio effect size "
+      "and [2]P-value against background, from "
+      "monte-carlo simulation",
+      BCF_HT_REAL,
+      3}},
     {"KC",
      {"KC",
-      "Integer",
       "Kolmogorov Complexity of region spanned by supporting "
-      "templates, scaled by x100"}}     // NOTE -- kc is optional
+      "templates, scaled by x100",
+      BCF_HT_INT,
+      1}}     // NOTE -- kc is optional
 };
 
 
@@ -127,32 +114,16 @@ std::string rdbl4 (const double &a) {
     return std::format ("{:.4f}", a);
 }
 
-constexpr auto make_hdr_line (
-    std::string name,
-    std::string n,
-    std::string t,
-    std::string desc
-) {
-    return std::format (
-        "##INFO=<ID={},Number={},Type={},Description=\"{}\",Source="
-        "\"{}\",Version=\"{}\">",
-        name,
-        n,
-        t,
-        desc,
-        PROG_NAME,
-        VERSION
-    );
-}
 
-
-// TODO allow user defined samflags for include/exclude
-// TODO support single ended? LATER
-// TODO options for calculating subset of data
+// TODO VCF from stdin
+// TODO simulate MLAS
+// TODO MCLP (CLPM), and simulate
+// TODO add consensus span region back to tsv
+// TODO options for calculating subset of data only
 // TODO options for more vcf data (e.g. REF,ALT) in TSV (if using expos as "genome browser by numbers")
 // TODO optionally use positional data from NORMAL/BULK/SOMATIC
 // to as background for simulation (if it's the same protocol which I don't know - if possible great!)
-// TODO compare to uniform distribution (less valuable than background but possibly useful if e.g. not enough reads otherwise)
+// NOTE could compare to uniform distribution (less valuable than background but possibly useful if e.g. not enough reads otherwise)
 int main (
     int   argc,
     char *argv[]
@@ -170,7 +141,7 @@ int main (
     cxxopts::Options options (
         "expos",
         "EXtract POSitional data and statistics from alignment at "
-        "VCF-specified pileups. Annotated VCF to stdout.\n"
+        "VCF variant sites. Annotated VCF to stdout.\n"
     );
 
     // clang-format off
@@ -190,7 +161,7 @@ int main (
         //  "Write specified field to output VCF. May be passed multiple times.",
         //  cxxopts::value<std::vector<std::string>>()->default_value("ALL"))
         ("t,tsv",
-         "Write a tsv of the output to file specified.",
+         "Write a tsv of extended statistics to file specified.",
          cxxopts::value<fs::path>())
         ("r,ref",
          "Alignment Reference Fasta for optionally adding template kolmogorov complexity to statistics.",
@@ -321,12 +292,26 @@ int main (
 
     // ADD LINES TO HDR
     // NOTE -- encodes a single field, regardless of number of samples (for now)
+    constexpr auto make_info_line = [] (field_s i) {
+        std::string t2s[4]{
+            [BCF_HT_INT]  = "Integer",
+            [BCF_HT_REAL] = "Float",
+        };
+        return std::format (
+            "##INFO=<ID={},Number={},Type={},Description=\"{}\","
+            "Source="
+            "\"{}\",Version=\"{}\">",
+            i.name,
+            i.nrec,
+            t2s[i.type],
+            i.desc,
+            PROG_NAME,
+            VERSION
+        );
+    };
     for (const auto &l : FIELD_INF) {
         const auto &i = l.second;
-        if (bcf_hdr_append (
-                ohdr.get(),
-                make_hdr_line (i.name, "1", i.type, i.desc).c_str()
-            )
+        if (bcf_hdr_append (ohdr.get(), make_info_line (i).c_str())
             != 0) {
             throw std::runtime_error (
                 std::format (
@@ -372,7 +357,7 @@ int main (
                     )
                     < 0)
                     throw std::runtime_error (
-                        "Unknown --include filter"
+                        std::format ("Unknown --include filter {}", f)
                     );     // unrecoverable
             }
             std::vector<std::string> tmp_ex;
@@ -523,12 +508,12 @@ int main (
 
 
         // --- NEAREST NEIGHBOUR MONTE CARLO --- //
-        std::optional<double> qpos_ann;
-        stat_eval_s           qpos_annsim;
+        std::optional<double> qpos_m1nn;
+        stat_eval_s           qpos_m1nn_sim;
         if (qpos_pwd) {
-            qpos_ann    = medianNN (*qpos_pwd);
-            qpos_annsim = sim_to_bg<double, Tqpos> (
-                *qpos_ann,
+            qpos_m1nn     = medianNN (*qpos_pwd);
+            qpos_m1nn_sim = sim_to_bg<double, Tqpos> (
+                *qpos_m1nn,
                 altd.qp.size(),
                 qpos_popv,
                 [&d1d] (const Tqposv &v) {
@@ -540,18 +525,18 @@ int main (
                     const auto ret = medianNN (*pwds);
                     return ret;
                 },
-                [&qpos_ann] (const auto s) { return s <= qpos_ann; }
+                [&qpos_m1nn] (const auto s) { return s <= qpos_m1nn; }
             );
         } else {
-            qpos_annsim.err = "INSUFF_OBS";
+            qpos_m1nn_sim.err = "INSUFF_OBS";
         }
 
-        std::optional<double> te_ann = medianNN (*te_pwd);
-        stat_eval_s           te_annsim;
+        std::optional<double> te_m1nn = medianNN (*te_pwd);
+        stat_eval_s           te_m1nn_sim;
         if (te_pwd) {
-            te_ann    = medianNN (*te_pwd);
-            te_annsim = sim_to_bg<double, Tte> (
-                *te_ann,
+            te_m1nn     = medianNN (*te_pwd);
+            te_m1nn_sim = sim_to_bg<double, Tte> (
+                *te_m1nn,
                 altd.te.size(),
                 te_popv,
                 [&mannd] (const Ttev &v) {
@@ -563,13 +548,12 @@ int main (
                     const auto ret = medianNN (*pwds);
                     return ret;
                 },
-                [&te_ann] (const auto s) { return s <= te_ann; }
+                [&te_m1nn] (const auto s) { return s <= te_m1nn; }
             );
         } else {
-            te_annsim.err = "INSUFF_OBS";
+            te_m1nn_sim.err = "INSUFF_OBS";
         }
 
-        // TODO guard
         // consensus region of supporting templates
         uint64_t lmosttc = std::numeric_limits<uint64_t>::max();
         uint64_t rmosttc = 0ULL;
@@ -580,9 +564,10 @@ int main (
                 rmosttc = te.rmost;
         }
 
-        // TODO should really check if it's in bam header, and that this is the correct reference
+        // TODO should really check if it's in bam header not just the vcf,
+        // and that this is the correct reference
         auto rid_name = bcf_hdr_id2name (vph.get(), b1->rid);
-        std::optional<uint> kolmc;
+        std::optional<uint> kc;
         if (rp) {
             if (rid_name == NULL) {
                 throw std::runtime_error (
@@ -601,42 +586,60 @@ int main (
                 rmosttc
             );
             // TODO warn if all N
-            kolmc.emplace (
+            kc.emplace (
                 static_cast<uint> (round (nk_lz76 (refs) * 100))
             );     // x100 scaling factor
         }
 
         // encode to vcf
-        // TODO check0
-        auto write_info =
-            [&] (std::string nm, const void *val, int type) {
-                if (bcf_update_info (
-                        ohdr.get(),
-                        b1.get(),
-                        nm.c_str(),
-                        val,
-                        1,
-                        type
+        auto write_info = [&] (field_s i, const void *val) {
+            if (bcf_update_info (
+                    ohdr.get(),
+                    b1.get(),
+                    i.name.c_str(),
+                    val,
+                    i.nrec,
+                    i.type
+                )
+                != 0) {
+                throw std::runtime_error (
+                    std::format (
+                        "failed to write data {} as INFO field "
+                        "in output VCF",
+                        i.name
                     )
-                    != 0) {
-                    throw std::runtime_error (
-                        std::format (
-                            "failed to write data {} as INFO field "
-                            "in output VCF",
-                            nm
-                        )
-                    );
-                }
-            };
+                );
+            }
+        };
         // TODO should probably encode missingness into the vcf somehow... like an EXPOS_ERR info field
-        // TODO write other fields!
-        // TODO extend the shorthand func further
         if (mlas) {
             const auto val = static_cast<float> (
                 *mlas
             );     // htslib requires conversion
             // TODO rounding
-            write_info ("MLAS", &val, BCF_HT_REAL);
+            write_info (FIELD_INF.at ("MLAS"), &val);
+        }
+        if (qpos_m1nn) {
+            float val[3]{
+                static_cast<float> (*qpos_m1nn),
+                static_cast<float> (
+                    qpos_m1nn_sim.eff_sz.value_or (0.0)
+                ),
+                static_cast<float> (qpos_m1nn_sim.pval.value_or (1.0))
+            };
+            write_info (FIELD_INF.at ("QM1NN"), &val);
+        }
+        if (te_m1nn) {
+            float val[3]{
+                static_cast<float> (*te_m1nn),
+                static_cast<float> (te_m1nn_sim.eff_sz.value_or (0.0)),
+                static_cast<float> (te_m1nn_sim.pval.value_or (1.0))
+            };
+            write_info (FIELD_INF.at ("TM1NN"), &val);
+        }
+        if (kc) {
+            const auto val = *kc;
+            write_info (FIELD_INF.at ("KC"), &val);
         }
 
         if (bcf_write (ovcf.get(), ohdr.get(), b1.get()) != 0) {
@@ -654,13 +657,13 @@ int main (
                 rid_name,
                 b1->pos + 1,
                 opt_to_str<double> (mlas, "NA", rdbl2),
-                opt_to_str<double> (qpos_ann, "NA", rdbl2),
-                opt_to_str<double> (qpos_annsim.eff_sz, qpos_annsim.err, rdbl2),
-                opt_to_str<double> (qpos_annsim.pval, qpos_annsim.err, rdbl4),
-                opt_to_str<double> (te_ann, "NA", rdbl2),
-                opt_to_str<double> (te_annsim.eff_sz, te_annsim.err, rdbl2),
-                opt_to_str<double> (te_annsim.pval, te_annsim.err, rdbl4),
-                opt_to_str (kolmc, "NA"),
+                opt_to_str<double> (qpos_m1nn, "NA", rdbl2),
+                opt_to_str<double> (qpos_m1nn_sim.eff_sz, qpos_m1nn_sim.err, rdbl2),
+                opt_to_str<double> (qpos_m1nn_sim.pval, qpos_m1nn_sim.err, rdbl4),
+                opt_to_str<double> (te_m1nn, "NA", rdbl2),
+                opt_to_str<double> (te_m1nn_sim.eff_sz, te_m1nn_sim.err, rdbl2),
+                opt_to_str<double> (te_m1nn_sim.pval, te_m1nn_sim.err, rdbl4),
+                opt_to_str (kc, "NA"),
                 std::to_string (altd.qp.size()),     // n supporting reads
                 std::to_string (qpos_popv.size())
             ) << "\n";

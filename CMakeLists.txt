@@ -10,9 +10,9 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
-option(ENABLE_DEBUG_FLAGS "Enable extra debug compile options" ON)
-option(MAKE_TEST "Compile tests binary" ON)
-option(MAKE_EXE "Compile exe")
+option(ENABLE_DEBUG_FLAGS "Enable extra debug compile options" OFF)
+option(MAKE_TEST "Compile tests binary" OFF)
+option(MAKE_EXE "Compile exe" ON)
 
 # user paths to htslib if needed
 set(HTSLIB_INCLUDE_DIR "" CACHE PATH "Path to directory that contains htslib/hts.h")
@@ -85,7 +85,9 @@ if(MAKE_TEST)
   FetchContent_MakeAvailable(Catch2)
 
   add_executable(test-expos tests/test.cpp)
-  target_compile_options(test-expos PRIVATE
+
+  if(ENABLE_DEBUG_FLAGS)
+    target_compile_options(test-expos PRIVATE
       -Wall
       -Wextra
       -Wpedantic
@@ -99,10 +101,6 @@ if(MAKE_TEST)
       -Wnull-dereference
       -Wdouble-promotion
       -Wformat=2
-  )
-
-  if(ENABLE_DEBUG_FLAGS)
-    target_compile_options(test-expos PRIVATE
       -fsanitize=address,undefined
       -fno-omit-frame-pointer
       -O0 -g
@@ -123,7 +121,8 @@ if(MAKE_EXE)
   add_executable(expos
     src/main.cpp
   )
-  target_compile_options(expos PRIVATE
+  if(ENABLE_DEBUG_FLAGS)
+    target_compile_options(expos PRIVATE
       -Wall
       -Wextra
       -Wpedantic
@@ -137,10 +136,6 @@ if(MAKE_EXE)
       -Wnull-dereference
       -Wdouble-promotion
       -Wformat=2
-  )
-
-  if(ENABLE_DEBUG_FLAGS)
-    target_compile_options(expos PRIVATE
       -fsanitize=address,undefined
       -fno-omit-frame-pointer
       -O0 -g
