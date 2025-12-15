@@ -96,6 +96,7 @@ std::string rdbl4 (const double &a) {
 }
 
 
+// TODO add record of command to VCF!
 // TODO MCLP (CLPM), and simulate
 // TODO add consensus span region back to tsv
 // TODO options for calculating subset of data only
@@ -131,7 +132,7 @@ int main (
 
         // OPTS
         ("i,include",
-         "Only operate on VCF records with this value present in FILTER. May be passed multiple times.",
+         "Only operate on VCF records with this value present in FILTER. e.g. -i PASS. May be passed multiple times.",
          cxxopts::value<std::vector<std::string>>()) // multiple allowed
         ("e,exclude",
          "Only operate on VCF records without this value present in FILTER. May be passed multiple times.",

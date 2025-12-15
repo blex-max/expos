@@ -224,6 +224,7 @@ requires
     std::invocable<CmpFn&, StatT, StatT> &&
     std::invocable<EffFn&, StatT, const std::vector<StatT>>
 // clang-format on
+// TODO SEED
 inline stat_eval_s sim_to_bg (
     StatT             ev_stat,
     std::size_t       n_ev_obs,
