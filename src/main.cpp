@@ -48,7 +48,7 @@ const std::unordered_map<std::string, field_s> FIELD_INF{
      {"MLAS",
       "[0]Median read-Length-normalised Alignment Score (AS) of "
       "reads supporting variant;"
-      "[1]log2 ratio effect size and [2]P-value against "
+      "[1]delta (supporting - background) effect size and [2]P-value against "
       "background, from monte-carlo simulation",
       BCF_HT_REAL,
       3}},
@@ -115,13 +115,15 @@ int main (
     fs::path                 otsv_path;
     std::vector<std::string> flt_inc;
     std::vector<std::string> flt_ex;
-    bool no_gz = false;
+    bool                     no_gz = false;
     // std::vector<std::string> wfields;
 
     cxxopts::Options options (
         "expos",
         "EXtract POSitional data and statistics from alignment at "
-        "VCF variant sites. Annotated VCF to stdout.\n"
+        "VCF variant sites. Alignment files used require indexes of "
+        "the same name with the .(b/cr)ai extension. Annotated VCF "
+        "to stdout.\n"
     );
 
     // clang-format off
@@ -153,7 +155,7 @@ int main (
     // clang-format on
 
     options.parse_positional ({"vcf", "aln"});
-    options.positional_help ("<VCF> <ALN>");
+    options.positional_help ("<VCF/BCF (- for stdin)> <ALN.(b/cr)am>");
 
     try {
         auto parsedargs = options.parse (argc, argv);
@@ -300,7 +302,10 @@ int main (
     }
 
     // outputs
-    htsFile_upt ovcf{hts_open ("-", (no_gz ? "w" : "wz")), hts_close};     // stdout
+    htsFile_upt ovcf{
+        hts_open ("-", (no_gz ? "w" : "wz")),
+        hts_close
+    };     // stdout
     bcf_hdr_upt ohdr{bcf_hdr_dup (vcf_hdr.get()), bcf_hdr_destroy};
 
     // ADD LINES TO HDR
@@ -552,7 +557,7 @@ int main (
                 // log2 means -1 = half the size of background
                 // +1 = double the size of background
                 [] (const auto ev, const auto simv) {
-                    return log2((ev + 1) / (*mean (simv) + 1));
+                    return log2 ((ev + 1) / (*mean (simv) + 1));
                 }
             );
         } else {
@@ -598,7 +603,7 @@ int main (
                     return sim <= ev;
                 },
                 [] (const auto ev, const auto simv) {
-                    return log2((ev + 1) / (*mean (simv) + 1));
+                    return log2 ((ev + 1) / (*mean (simv) + 1));
                 }
             );
         } else {
