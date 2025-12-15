@@ -5,13 +5,9 @@
 #include <concepts>
 #include <cstddef>
 #include <cstdint>
-#include <functional>
-#include <iostream>
 #include <limits>
 #include <math.h>
-#include <numeric>
 #include <optional>
-#include <ostream>
 #include <random>
 #include <stdexcept>
 #include <vector>
@@ -28,7 +24,7 @@ constexpr inline uint64_t as_uint (const T &a) {
 
 
 template <typename T>
-    requires std::integral<T> || std::floating_point<T>
+requires std::integral<T> || std::floating_point<T>
 constexpr inline std::optional<double>
 mean (const std::vector<T> &v) {
     if (v.empty())
@@ -44,7 +40,7 @@ mean (const std::vector<T> &v) {
 
 
 template <typename T>
-    requires std::unsigned_integral<T> || std::floating_point<T>
+requires std::unsigned_integral<T> || std::floating_point<T>
 constexpr inline std::optional<double> percentile_from_sorted (
     const std::vector<T> &obs,
     double                pt
@@ -82,7 +78,7 @@ constexpr inline std::optional<double> percentile_from_sorted (
 // object described by two
 // coordinates on the same axis
 template <typename T>
-    requires std::unsigned_integral<T>
+requires std::unsigned_integral<T>
 struct line_seg {
     T lmost;
     T rmost;
@@ -114,7 +110,7 @@ struct line_seg {
 // 2D symmetric square matrix via vector
 // rows are contiguous in vector
 template <typename T>
-    requires std::unsigned_integral<T> || std::floating_point<T>
+requires std::unsigned_integral<T> || std::floating_point<T>
 class PairMatrix {
   private:
     std::vector<T> mat;
@@ -180,7 +176,7 @@ class PairMatrix {
 
 
 template <typename T>
-    requires std::unsigned_integral<T>
+requires std::unsigned_integral<T>
 inline double medianNN (const PairMatrix<T> &pwd) {
     assert (pwd.dim() > 1);
     std::vector<T> nndv;
@@ -215,18 +211,28 @@ struct stat_eval_s {
 // how often do we get a lt/gt value for the
 // statistic in question (pvalue), and
 // how large is the effect size.
-// TODO templatise better
+// clang-format off
 template <
-    typename StatT,
-    typename ObsT>
+    typename ObsT,
+    typename StatFn,
+    typename EffFn,
+    typename CmpFn,
+    typename StatT = std::invoke_result_t<StatFn&, const std::vector<ObsT>>
+>
+requires
+    std::invocable<StatFn&, const std::vector<ObsT>> &&
+    std::invocable<CmpFn&, StatT, StatT> &&
+    std::invocable<EffFn&, StatT, const std::vector<StatT>>
+// clang-format on
 inline stat_eval_s sim_to_bg (
     StatT             ev_stat,
-    size_t            n_ev_obs,
-    std::vector<ObsT> total_obs,     // intentional copy
-    std::function<StatT (const std::vector<ObsT> &)> statfn,
-    std::function<bool (StatT)>                      statcmp,
-    size_t                                           nsim = 2000,
-    size_t event_obs_ext_min                              = 0
+    std::size_t       n_ev_obs,
+    std::vector<ObsT> total_obs,     // intentional copy (or move-in)
+    StatFn          &&statfn,
+    CmpFn           &&statcmp,
+    EffFn           &&efffn,
+    std::size_t       nsim              = 2000,
+    std::size_t       event_obs_ext_min = 0
 ) {
     stat_eval_s res;
     if (n_ev_obs < 2 || n_ev_obs < event_obs_ext_min) {
@@ -255,7 +261,7 @@ inline stat_eval_s sim_to_bg (
                 total_obs.begin() + n_ev_obs
             )
         );
-        if (statcmp (sv)) {
+        if (statcmp (ev_stat, sv)) {
             ++sim_count;
         }
         sim_vals.push_back (sv);
@@ -265,14 +271,7 @@ inline stat_eval_s sim_to_bg (
     // if eff_sz is large then we can
     // get away with a low number of samples
     // if not it's just noise
-    // +1 removes confusing values when 0,
-    // log makes effect size symmetric around 0
-    // log2 means -1 = half the size of background
-    // +1 = doulbe the size of background
-    res.eff_sz = log2 (
-        static_cast<double> (ev_stat + 1)
-        / static_cast<double> (*mean (sim_vals) + 1)
-    );
+    res.eff_sz = efffn (ev_stat, sim_vals);
 
     // TODO "power analysis"
 
@@ -284,7 +283,6 @@ inline stat_eval_s sim_to_bg (
 
 // FOR REF COMPLEXITY
 // length normalised kolgomorov complexity via lempel-ziv 76
-// TODO test
 inline double nk_lz76 (const std::string &s) {
     size_t slen = s.size();
     size_t n_phrase = 1;     // number of phrases (complexity), starts at 1 (first char is a phrase)

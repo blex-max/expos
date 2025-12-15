@@ -1,25 +1,5 @@
 // clang-format off
-// TODO UPDATE, NOT USING MAD AND SO ON NOW
-// GET TEMPLATES AND DISTRIBUTION OF TEMPLATES SUPPORTING A VARIANT
-// for variant, report:
-// - template start total range and MAD [Median Absolute Distribution]*
-// - template size total range and MAD*
-// - leftmost template start
-// - rightmost template start
-// - leftmost template end
-// - rightmost template end
-// optional reports to separate file:
-// - template details per qname
-// *If MAD ~= range, broad distribution, if range >> MAD, narrow distribution with outlier/s
-// Using MAD because it is a robust spread statistic (i.e. not sensitive to outliers)
-// and better able to deal with a low number of observations than IQR.
-// NOTE could also report number of reads, bases, a pileup events style report (but different scope)
-// ---
-// The above in itself is probably an advancement in method for assessing variant
-// legitimacy for low yield seq. If theres very little template start/size
-// variation (compared to the average) then almost certainly it's an artefact.
-// That is, you can filter on this data alone
-// ---
+// NOTE --
 // A subsequent pipeline for folding investigation might go:
 // WITH BCFTOOLS CONSENSUS
 // fetch template region from reference.
@@ -32,17 +12,16 @@
 // NOTE: qpos clustering is equivalent to read endpoint clustering iff read lengths are ~all the same
 // which they are for short read seq
 // template clustering, via five number summary of the template endpoint chebyshev distance MST edges
-// CRITICAL NOTE:
+// NOTE:
 // distribution of supporting data must not be meaningfully
 // different to a random sampling of the total data
 // if nothing odd is going on
-// TODO eyeball comparison to hp2 -> subset a vcf to DVF and ADF marked
-// TODO some folding of templates!
 
 #include <algorithm>
 #include <cstdint>
 #include <format>
 #include <fstream>
+#include <functional>
 #include <htslib/faidx.h>
 #include <iostream>
 
@@ -67,10 +46,12 @@ struct field_s {
 const std::unordered_map<std::string, field_s> FIELD_INF{
     {"MLAS",
      {"MLAS",
-      "Median read-Length-normalised Alignment Score (AS) of "
-      "reads supporting variant",
+      "[0]Median read-Length-normalised Alignment Score (AS) of "
+      "reads supporting variant;"
+      "[1]log2 ratio effect size and [2]P-value against "
+      "background, from monte-carlo simulation",
       BCF_HT_REAL,
-      1}},
+      3}},
     {"QM1NN",
      {"QM1NN",
       "[0]Median nearest neighbour distance of variant query "
@@ -115,14 +96,10 @@ std::string rdbl4 (const double &a) {
 }
 
 
-// TODO VCF from stdin
-// TODO simulate MLAS
 // TODO MCLP (CLPM), and simulate
 // TODO add consensus span region back to tsv
 // TODO options for calculating subset of data only
 // TODO options for more vcf data (e.g. REF,ALT) in TSV (if using expos as "genome browser by numbers")
-// TODO optionally use positional data from NORMAL/BULK/SOMATIC
-// to as background for simulation (if it's the same protocol which I don't know - if possible great!)
 // NOTE could compare to uniform distribution (less valuable than background but possibly useful if e.g. not enough reads otherwise)
 int main (
     int   argc,
@@ -132,10 +109,12 @@ int main (
     // TODO verify paths
     fs::path                 vcf_path;
     fs::path                 aln_path;
+    fs::path                 norm_path;
     fs::path                 ref_path;
     fs::path                 otsv_path;
     std::vector<std::string> flt_inc;
     std::vector<std::string> flt_ex;
+    bool no_gz = false;
     // std::vector<std::string> wfields;
 
     cxxopts::Options options (
@@ -163,9 +142,13 @@ int main (
         ("t,tsv",
          "Write a tsv of extended statistics to file specified.",
          cxxopts::value<fs::path>())
+        ("n,normal",
+         "Alignment for use as additional background data for simulation",
+         cxxopts::value<fs::path>())
         ("r,ref",
          "Alignment Reference Fasta for optionally adding template kolmogorov complexity to statistics.",
-         cxxopts::value<fs::path>());
+         cxxopts::value<fs::path>())
+        ("u,uncompressed", "output uncompressed VCF");
     // clang-format on
 
     options.parse_positional ({"vcf", "aln"});
@@ -187,7 +170,7 @@ int main (
         vcf_path = parsedargs["vcf"].as<fs::path>();
         aln_path = parsedargs["aln"].as<fs::path>();
 
-        if (!fs::exists (vcf_path)) {
+        if (vcf_path.string() != "-" && !fs::exists (vcf_path)) {
             throw std::runtime_error (
                 "VCF file not found: " + vcf_path.string()
             );
@@ -224,6 +207,15 @@ int main (
             otsv_path = parsedargs["tsv"].as<fs::path>();
         }
 
+        if (parsedargs.count ("normal")) {
+            norm_path = parsedargs["normal"].as<fs::path>();
+            std::cerr << "Using normal: " << norm_path << std::endl;
+        }
+
+        if (parsedargs.count ("uncompressed")) {
+            no_gz = true;
+        }
+
     } catch (const std::exception &e) {
         std::cerr << "Error parsing CLI options: " << e.what()
                   << "\n";
@@ -247,6 +239,8 @@ int main (
             aln_path.c_str()
         ) << std::endl;
     }
+    htsFile_upt alnfh{std::move (_ain), hts_close};
+    hts_idx_upt aln_idx{std::move (_aixin), hts_idx_destroy};
 
     auto _vin{hts_open (vcf_path.c_str(), "r")};
     if (_vin == NULL) {
@@ -263,8 +257,10 @@ int main (
             vcf_path.string()
         );
     }
+    htsFile_upt vcffh{std::move (_vin), hts_close};
+    bcf_hdr_upt vcf_hdr{std::move (_vh), bcf_hdr_destroy};
 
-    fai_upt rp{nullptr, fai_destroy};
+    fai_upt reffh{nullptr, fai_destroy};
     if (!ref_path.empty()) {
         auto _fin = fai_load (ref_path.string().c_str());
         if (_fin == NULL) {
@@ -273,30 +269,44 @@ int main (
                 ref_path.string()
             );
         } else {
-            rp.reset (_fin);
+            reffh.reset (_fin);
         }
     }
 
-    htsFile_upt ap{std::move (_ain), hts_close};
-    hts_idx_upt apit{std::move (_aixin), hts_idx_destroy};
-
-    htsFile_upt vp{std::move (_vin), hts_close};
-    bcf_hdr_upt vph{std::move (_vh), bcf_hdr_destroy};
-
-    bcf1_upt b1{bcf_init(), bcf_destroy};
-
+    // inputs
+    std::optional<std::pair<htsFile_upt, hts_idx_upt>> norm;
+    if (!norm_path.empty()) {
+        auto _nin{hts_open (aln_path.c_str(), "r")};
+        if (_nin == NULL) {
+            std::cerr << std::format (
+                "Could not open alignment file at {}",
+                aln_path.string()
+            ) << std::endl;
+            return 1;
+        }
+        auto _nixin{sam_index_load (_nin, aln_path.c_str())};
+        if (_nixin == NULL) {
+            std::cerr << std::format (
+                "Coud not open index for alignment "
+                "file. Searched for {}.bai",
+                aln_path.c_str()
+            ) << std::endl;
+        }
+        norm.emplace (
+            htsFile_upt{std::move (_nin), hts_close},
+            hts_idx_upt{std::move (_nixin), hts_idx_destroy}
+        );
+    }
 
     // outputs
-    htsFile_upt ovcf{hts_open ("-", "w"), hts_close};     // stdout
-    bcf_hdr_upt ohdr{bcf_hdr_dup (vph.get()), bcf_hdr_destroy};
+    htsFile_upt ovcf{hts_open ("-", (no_gz ? "w" : "wz")), hts_close};     // stdout
+    bcf_hdr_upt ohdr{bcf_hdr_dup (vcf_hdr.get()), bcf_hdr_destroy};
 
     // ADD LINES TO HDR
-    // NOTE -- encodes a single field, regardless of number of samples (for now)
     constexpr auto make_info_line = [] (field_s i) {
-        std::string t2s[4]{
-            [BCF_HT_INT]  = "Integer",
-            [BCF_HT_REAL] = "Float",
-        };
+        std::string t2s[4];
+        t2s[BCF_HT_INT]  = "Integer";
+        t2s[BCF_HT_REAL] = "Float";
         return std::format (
             "##INFO=<ID={},Number={},Type={},Description=\"{}\","
             "Source="
@@ -337,7 +347,8 @@ int main (
         // TODO -- pre-header comments explaining each field
         // NOTE -- TSV header should always stay the same.
         // Columns not calculated should simply be NA or other indicator
-        *otsv << "CHROM\tPOS\t\tMLAS\tQPOS_M1NN\tQPOS_M1NN_"
+        *otsv << "CHROM\tPOS\t\tMLAS\tMLAS_EFFSZ\tMLAS_PVAL\tQPOS_"
+                 "M1NN\tQPOS_M1NN_"
                  "EFFSZ\tQPOS_M1NN_PVAL\t"
                  "TEMPL_M1NN\tTEMPL_M1NN_EFFSZ\tTEMPL_M1NN_PVAL\t"
                  "CONSENSUS_CMPLXx100\tNALT_READS\t"
@@ -346,12 +357,13 @@ int main (
     }
 
 
-    bool firsti = true;
-    while (bcf_read (vp.get(), vph.get(), b1.get()) == 0) {
+    bool     firsti = true;
+    bcf1_upt b1{bcf_init(), bcf_destroy};
+    while (bcf_read (vcffh.get(), vcf_hdr.get(), b1.get()) == 0) {
         if (firsti) {
             for (const auto &f : flt_inc) {
                 if (bcf_has_filter (
-                        vph.get(),
+                        vcf_hdr.get(),
                         b1.get(),
                         const_cast<char *> (f.c_str())
                     )
@@ -364,7 +376,7 @@ int main (
             for (size_t i = 0; i < flt_ex.size(); ++i) {
                 const auto &f = flt_ex[i];
                 if (bcf_has_filter (
-                        vph.get(),
+                        vcf_hdr.get(),
                         b1.get(),
                         const_cast<char *> (f.c_str())
                     )
@@ -382,7 +394,11 @@ int main (
             firsti = false;
         }
 
-        const auto iflt = has_filters (vph.get(), b1.get(), flt_inc);
+        const auto iflt = has_filters (
+            vcf_hdr.get(),
+            b1.get(),
+            flt_inc
+        );
         if (std::any_of (begin (iflt), end (iflt), [] (const auto a) {
                 return !a;
             })) {
@@ -393,7 +409,7 @@ int main (
             };
             continue;
         }
-        const auto eflt = has_filters (vph.get(), b1.get(), flt_ex);
+        const auto eflt = has_filters (vcf_hdr.get(), b1.get(), flt_ex);
         if (std::any_of (begin (eflt), end (eflt), [] (const auto a) {
                 return a;
             })) {
@@ -435,43 +451,24 @@ int main (
                 continue;
         }
         auto vard = get_aln_data (
-            ap.get(),
-            apit.get(),
+            alnfh.get(),
+            aln_idx.get(),
             b1.get(),
-            mtype
+            mtype,
+            true
         );
+        std::optional<aln_obs> normd;
+        if (norm) {
+            normd = get_aln_data (
+                norm->first.get(),
+                norm->second.get(),
+                b1.get(),
+                mtype,
+                true
+            );
+        }
 
-
-        auto &altd   = vard.alt;
-        using Tqposv = decltype (altd.qp);
-        using Tqpos  = Tqposv::value_type;
-        using Ttev   = decltype (altd.te);
-        using Tte    = Ttev::value_type;
-
-        Tqposv qpos_popv;
-        qpos_popv.insert (
-            qpos_popv.end(),
-            begin (vard.alt.qp),
-            end (vard.alt.qp)
-        );
-        qpos_popv.insert (
-            qpos_popv.end(),
-            begin (vard.other.qp),
-            end (vard.other.qp)
-        );
-
-        Ttev te_popv;
-        te_popv.insert (
-            te_popv.end(),
-            begin (vard.alt.te),
-            end (vard.alt.te)
-        );
-        te_popv.insert (
-            te_popv.end(),
-            begin (vard.other.te),
-            end (vard.other.te)
-        );
-
+        auto &altd = vard.alt;
         if (altd.qp.empty() || altd.te.empty()) {
             std::cerr << std::format (
                 "no supporting reads found for variant {}, "
@@ -481,11 +478,13 @@ int main (
             continue;
         }
 
-        // --- MEDIAN LENGTH-NORMALISED ALIGNMENT SCORE --- //
-        const auto mlas = percentile_from_sorted (altd.las, 0.5);
+        // --- CLUSTERING ANALYSIS (nearest neighbour) --- //
+        using Tqposv = decltype (altd.qp);
+        using Tqpos  = Tqposv::value_type;
+        using Ttev   = decltype (altd.te);
+        using Tte    = Ttev::value_type;
 
-
-        // --- GET PAIRWISE DISTANCES --- //
+        // get pairwise distances
         constexpr auto d1d = [] (const Tqpos &a,
                                  const Tqpos &b) -> Tqpos {
             return (a > b) ? (a - b) : (b - a);
@@ -506,13 +505,32 @@ int main (
             mannd
         );
 
-
-        // --- NEAREST NEIGHBOUR MONTE CARLO --- //
+        // nearest neighbour monte carlo //
+        size_t                nread;     // extra stat
         std::optional<double> qpos_m1nn;
         stat_eval_s           qpos_m1nn_sim;
         if (qpos_pwd) {
-            qpos_m1nn     = medianNN (*qpos_pwd);
-            qpos_m1nn_sim = sim_to_bg<double, Tqpos> (
+            qpos_m1nn = medianNN (*qpos_pwd);
+            Tqposv qpos_popv;
+            qpos_popv.insert (
+                qpos_popv.end(),
+                begin (vard.alt.qp),
+                end (vard.alt.qp)
+            );
+            qpos_popv.insert (
+                qpos_popv.end(),
+                begin (vard.other.qp),
+                end (vard.other.qp)
+            );
+            nread = qpos_popv.size();     // don't include normal
+            if (normd) {                  // ADD NORMAL OBS
+                qpos_popv.insert (
+                    qpos_popv.end(),
+                    begin (normd->other.qp),
+                    end (normd->other.qp)
+                );
+            }
+            qpos_m1nn_sim = sim_to_bg (
                 *qpos_m1nn,
                 altd.qp.size(),
                 qpos_popv,
@@ -525,17 +543,44 @@ int main (
                     const auto ret = medianNN (*pwds);
                     return ret;
                 },
-                [&qpos_m1nn] (const auto s) { return s <= qpos_m1nn; }
+                [] (const auto ev, const auto sim) {
+                    return sim <= ev;
+                },
+                // +1 removes confusing values when 0,
+                // log makes effect size symmetric around 0
+                // log2 means -1 = half the size of background
+                // +1 = double the size of background
+                [] (const auto ev, const auto simv) {
+                    return log2((ev + 1) / (*mean (simv) + 1));
+                }
             );
         } else {
             qpos_m1nn_sim.err = "INSUFF_OBS";
         }
 
-        std::optional<double> te_m1nn = medianNN (*te_pwd);
+        std::optional<double> te_m1nn;
         stat_eval_s           te_m1nn_sim;
         if (te_pwd) {
-            te_m1nn     = medianNN (*te_pwd);
-            te_m1nn_sim = sim_to_bg<double, Tte> (
+            te_m1nn = medianNN (*te_pwd);
+            Ttev te_popv;
+            te_popv.insert (
+                te_popv.end(),
+                begin (vard.alt.te),
+                end (vard.alt.te)
+            );
+            te_popv.insert (
+                te_popv.end(),
+                begin (vard.other.te),
+                end (vard.other.te)
+            );
+            if (normd) {     // ADD NORMAL OBS
+                te_popv.insert (
+                    te_popv.end(),
+                    begin (normd->other.te),
+                    end (normd->other.te)
+                );
+            }
+            te_m1nn_sim = sim_to_bg (
                 *te_m1nn,
                 altd.te.size(),
                 te_popv,
@@ -548,10 +593,58 @@ int main (
                     const auto ret = medianNN (*pwds);
                     return ret;
                 },
-                [&te_m1nn] (const auto s) { return s <= te_m1nn; }
+                [] (const auto ev, const auto sim) {
+                    return sim <= ev;
+                },
+                [] (const auto ev, const auto simv) {
+                    return log2((ev + 1) / (*mean (simv) + 1));
+                }
             );
         } else {
             te_m1nn_sim.err = "INSUFF_OBS";
+        }
+
+        // --- MEDIAN LENGTH-NORMALISED ALIGNMENT SCORE --- //
+        const auto  mlas = percentile_from_sorted (altd.las, 0.5);
+        stat_eval_s mlas_sim;
+        if (mlas) {
+            std::vector<double> mlas_popv;
+            mlas_popv.insert (
+                mlas_popv.end(),
+                begin (vard.alt.las),
+                end (vard.alt.las)
+            );
+            mlas_popv.insert (
+                mlas_popv.end(),
+                begin (vard.other.las),
+                end (vard.other.las)
+            );
+            if (normd) {     // ADD NORMAL OBS
+                mlas_popv.insert (
+                    mlas_popv.end(),
+                    begin (normd->other.las),
+                    end (normd->other.las)
+                );
+            }
+            mlas_sim = sim_to_bg (
+                *mlas,
+                altd.las.size(),
+                mlas_popv,
+                [&mannd] (const std::vector<double> &v) {
+                    const auto slas = percentile_from_sorted (v, 0.5);
+                    assert (percentile_from_sorted);
+                    return *slas;
+                },
+                [] (const auto ev, const auto sim) {
+                    return sim <= ev;
+                },
+                // effect size == raw delta
+                [] (const auto ev, const auto simv) {
+                    return ev - *mean (simv);
+                }
+            );
+        } else {
+            mlas_sim.err = "INSUFF_OBS";
         }
 
         // consensus region of supporting templates
@@ -566,9 +659,9 @@ int main (
 
         // TODO should really check if it's in bam header not just the vcf,
         // and that this is the correct reference
-        auto rid_name = bcf_hdr_id2name (vph.get(), b1->rid);
+        auto rid_name = bcf_hdr_id2name (vcf_hdr.get(), b1->rid);
         std::optional<uint> kc;
-        if (rp) {
+        if (reffh) {
             if (rid_name == NULL) {
                 throw std::runtime_error (
                     std::format (
@@ -580,7 +673,7 @@ int main (
                 );
             }
             std::string refs = fai_autofetch (
-                rp.get(),
+                reffh.get(),
                 rid_name,
                 lmosttc,
                 rmosttc
@@ -613,9 +706,11 @@ int main (
         };
         // TODO should probably encode missingness into the vcf somehow... like an EXPOS_ERR info field
         if (mlas) {
-            const auto val = static_cast<float> (
-                *mlas
-            );     // htslib requires conversion
+            float val[3]{
+                static_cast<float> (*mlas),
+                static_cast<float> (mlas_sim.eff_sz.value_or (0.0)),
+                static_cast<float> (mlas_sim.pval.value_or (0.0))
+            };     // htslib requires conversion
             // TODO rounding
             write_info (FIELD_INF.at ("MLAS"), &val);
         }
@@ -653,10 +748,12 @@ int main (
         if (otsv) {
             *otsv << std::format (
                 "{}\t{}\t{}\t{}\t{}\t"
-                "{}\t{}\t{}\t{}\t{}\t{}\t{}",
+                "{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}",
                 rid_name,
                 b1->pos + 1,
                 opt_to_str<double> (mlas, "NA", rdbl2),
+                opt_to_str<double> (mlas_sim.eff_sz, mlas_sim.err, rdbl2),
+                opt_to_str<double> (mlas_sim.pval, mlas_sim.err, rdbl4),
                 opt_to_str<double> (qpos_m1nn, "NA", rdbl2),
                 opt_to_str<double> (qpos_m1nn_sim.eff_sz, qpos_m1nn_sim.err, rdbl2),
                 opt_to_str<double> (qpos_m1nn_sim.pval, qpos_m1nn_sim.err, rdbl4),
@@ -665,7 +762,7 @@ int main (
                 opt_to_str<double> (te_m1nn_sim.pval, te_m1nn_sim.err, rdbl4),
                 opt_to_str (kc, "NA"),
                 std::to_string (altd.qp.size()),     // n supporting reads
-                std::to_string (qpos_popv.size())
+                std::to_string (nread)
             ) << "\n";
         }
         // clang-format on

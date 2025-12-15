@@ -55,16 +55,18 @@ struct alndv {
     std::vector<double>             las;
     std::vector<line_seg<uint64_t>> te;
 };
+struct aln_obs {
+    alndv alt;
+    alndv other;
+};
 auto inline get_aln_data (
     htsFile   *aln_fh,
     hts_idx_t *aln_idx,
     bcf1_t    *v,
-    int        mtype
+    int        mtype,
+    bool       eval_support
 ) {
-    struct {
-        alndv alt;
-        alndv other;
-    } obs;
+    aln_obs obs;
 
     // prepare to pileup
     hts_itr_upt iter{
@@ -153,8 +155,10 @@ auto inline get_aln_data (
                 );
 
             // check variant support
-            auto &bin = evaluate_support (pli, v, mtype) ? obs.alt
-                                                         : obs.other;
+            auto &bin = (eval_support
+                         && evaluate_support (pli, v, mtype))
+                            ? obs.alt
+                            : obs.other;
 
             bin.las.push_back (  // TODO guard
                 static_cast<double> (bam_aux2i (raw_AS))

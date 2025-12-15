@@ -47,6 +47,7 @@ SpaceBeforeParensOptions:
 # misc
 IncludeBlocks: Preserve
 IndentCaseLabels: true
+IndentRequiresClause: false
 KeepEmptyLinesAtTheStartOfBlocks: true
 MaxEmptyLinesToKeep: 2
 ReflowComments: IndentOnly  # I'll break
