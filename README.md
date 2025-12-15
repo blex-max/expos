@@ -1,6 +1,6 @@
 # expos
 
-Spatial information extraction for variant sites in alignment data,
+Spatial information extraction for variant sites from alignment data,
 plus comparison to background via monte-carlo simulation.
 Useful for inspecting and flagging false postive variants.
 
