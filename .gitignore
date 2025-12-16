@@ -5,3 +5,4 @@ scratch/
 demo-proj/
 build/
 .DS_Store
+*.sif
