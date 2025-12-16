@@ -22,7 +22,12 @@ More extensive documentation TODO!
 ## Usage
 
 ```
-EXtract POSitional data and statistics from alignment at VCF variant sites. Alignment files used require indexes of the same name with the .(b/cr)ai extension. Annotated VCF to stdout.
+EXtract POSitional data and statistics from alignment at
+VCF variant sites, and encode them as INFO fields to VCF.
+Requires the presence of .(b/cr)ai indexes of the same name
+as the relevant alignment. Annotated VCF to stdout. See
+README or output VCF header for descriptions of fields
+added.
 
 Usage:
   expos [OPTION...] <VCF/BCF (- for stdin)> <ALN.(b/cr)am>

@@ -48,7 +48,8 @@ const std::unordered_map<std::string, field_s> FIELD_INF{
      {"MLAS",
       "[0]Median read-Length-normalised Alignment Score (AS) of "
       "reads supporting variant;"
-      "[1]delta (supporting - background) effect size and [2]P-value against "
+      "[1]delta (supporting - background) effect size and [2]P-value "
+      "against "
       "background, from monte-carlo simulation",
       BCF_HT_REAL,
       3}},
@@ -118,15 +119,18 @@ int main (
     bool                     no_gz = false;
     // std::vector<std::string> wfields;
 
+    // clang-format off
     cxxopts::Options options (
         "expos",
-        "EXtract POSitional data and statistics from alignment at "
-        "VCF variant sites. Alignment files used require indexes of "
-        "the same name with the .(b/cr)ai extension. Annotated VCF "
-        "to stdout.\n"
+        "\n"
+        "EXtract POSitional data and statistics from alignment at\n"
+        "VCF variant sites, and encode them as INFO fields to VCF.\n"
+        "Requires the presence of .(b/cr)ai indexes of the same name\n"
+        "as the relevant alignment. Annotated VCF to stdout. See\n"
+        "README or output VCF header for descriptions of fields\n"
+        "added.\n"
     );
 
-    // clang-format off
     options.add_options() ("h,help", "Print usage")
         // POSITIONAL
         ("vcf", "VCF", cxxopts::value<fs::path>())
