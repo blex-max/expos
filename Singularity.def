@@ -1,0 +1,28 @@
+Bootstrap: docker
+From: ubuntu:24.04
+
+%post
+    apt-get update && apt-get install -y --no-install-recommends \
+        ca-certificates \
+        git \
+        build-essential \
+        cmake \
+        pkg-config \
+        libhts-dev \
+    && update-ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+%files
+    . /src
+
+%post
+    cmake -S /src -B /src/build \
+        -DCMAKE_BUILD_TYPE=Release \
+        -DMAKE_EXE=ON \
+        -DMAKE_TEST=OFF
+    cmake --build /src/build -j
+    install -m 0755 /src/build/expos /usr/local/bin/expos
+
+%runscript
+    exec /usr/local/bin/expos "$@"
+
