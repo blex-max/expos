@@ -45,6 +45,11 @@ Usage:
                       template kolmogorov complexity to statistics.
   -u, --uncompressed  output uncompressed VCF
 ```
+basic usage then looks like:
+```bash
+expos my.vcf my.bam
+```
+
 
 ## Annotations made
 
@@ -71,7 +76,7 @@ MLAS is equivalent to ASRD as may be familiar to some users.
 
 # line by line:
 # 1: pipe VCF producing program to expos stdin.
-# 2: read from stdin, calculate statistics, output uncompressed VCF to stdout.
+# 2: calculate statistics with expos, reading VCF from stdin (-), output uncompressed VCF to stdout.
 # 3: statisically-backed flagging on distribution/clustering stats;
 # flagging variants where observations are at least 2x as tightly clustered as the background data,
 # and the difference is statistically significant (P <= 0.05).
