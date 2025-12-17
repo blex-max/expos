@@ -225,7 +225,7 @@ int main (
 
     } catch (const std::exception &e) {
         std::cerr << "Error parsing CLI options: " << e.what()
-                  << "\n";
+                  << "\nTry expos --help.";
         return 1;
     }
 
@@ -245,6 +245,7 @@ int main (
             "file. Searched for {}.bai",
             aln_path.c_str()
         ) << std::endl;
+        return 1;
     }
     htsFile_upt alnfh{std::move (_ain), hts_close};
     hts_idx_upt aln_idx{std::move (_aixin), hts_idx_destroy};
@@ -263,6 +264,7 @@ int main (
             "Could not read header of VCF file at {}",
             vcf_path.string()
         );
+        return 1;
     }
     htsFile_upt vcffh{std::move (_vin), hts_close};
     bcf_hdr_upt vcf_hdr{std::move (_vh), bcf_hdr_destroy};
@@ -278,6 +280,7 @@ int main (
         } else {
             reffh.reset (_fin);
         }
+        return 1;
     }
 
     // inputs
@@ -298,6 +301,7 @@ int main (
                 "file. Searched for {}.bai",
                 aln_path.c_str()
             ) << std::endl;
+            return 1;
         }
         norm.emplace (
             htsFile_upt{std::move (_nin), hts_close},
