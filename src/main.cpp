@@ -263,7 +263,7 @@ int main (
         std::cerr << std::format (
             "Could not read header of VCF file at {}",
             vcf_path.string()
-        );
+        ) << std::endl;
         return 1;
     }
     htsFile_upt vcffh{std::move (_vin), hts_close};
@@ -276,14 +276,13 @@ int main (
             std::cerr << std::format (
                 "Could not read reference fasta at {}",
                 ref_path.string()
-            );
+            ) << std::endl;
+            return 1;
         } else {
             reffh.reset (_fin);
         }
-        return 1;
     }
 
-    // inputs
     std::optional<std::pair<htsFile_upt, hts_idx_upt>> norm;
     if (!norm_path.empty()) {
         auto _nin{hts_open (aln_path.c_str(), "r")};
@@ -503,7 +502,7 @@ int main (
                                  const Tqpos &b) -> Tqpos {
             return (a > b) ? (a - b) : (b - a);
         };
-        const auto qpos_pwd = PairMatrix<Tqpos>::from_sample (
+        const auto qpos_pwd = PairMatrix::from_sample (
             altd.qp,
             d1d
         );     // empty if <2 samples
@@ -514,7 +513,7 @@ int main (
             line_seg lower_pair{a.lmost, b.lmost};
             return upper_pair.diff() + lower_pair.diff();
         };
-        const auto te_pwd = PairMatrix<uint64_t>::from_sample (
+        const auto te_pwd = PairMatrix::from_sample (
             altd.te,
             mannd
         );
@@ -549,7 +548,7 @@ int main (
                 altd.qp.size(),
                 qpos_popv,
                 [&d1d] (const Tqposv &v) {
-                    const auto pwds = PairMatrix<Tqpos>::from_sample (
+                    const auto pwds = PairMatrix::from_sample (
                         v,
                         d1d
                     );
@@ -599,7 +598,7 @@ int main (
                 altd.te.size(),
                 te_popv,
                 [&mannd] (const Ttev &v) {
-                    const auto pwds = PairMatrix<uint64_t>::from_sample (
+                    const auto pwds = PairMatrix::from_sample (
                         v,
                         mannd
                     );
@@ -619,7 +618,7 @@ int main (
         }
 
         // --- MEDIAN LENGTH-NORMALISED ALIGNMENT SCORE --- //
-        const auto  mlas = percentile_from_sorted (altd.las, 0.5);
+        const auto  mlas = percentile (altd.las, 0.5);
         stat_eval_s mlas_sim;
         if (mlas) {
             std::vector<double> mlas_popv;
@@ -645,7 +644,7 @@ int main (
                 altd.las.size(),
                 mlas_popv,
                 [] (const std::vector<double> &v) {
-                    const auto slas = percentile_from_sorted (v, 0.5);
+                    const auto slas = percentile (v, 0.5);
                     assert (slas);
                     return *slas;
                 },
@@ -673,6 +672,7 @@ int main (
 
         // TODO should really check if it's in bam header not just the vcf,
         // and that this is the correct reference
+        // NOTE not all needed each loop
         auto rid_name = bcf_hdr_id2name (vcf_hdr.get(), b1->rid);
         std::optional<uint> kc;
         if (reffh) {

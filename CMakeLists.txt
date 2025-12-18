@@ -121,6 +121,21 @@ if(MAKE_EXE)
   add_executable(expos
     src/main.cpp
   )
+  target_compile_options(expos PRIVATE
+    -Wall
+    -Wextra
+    -Wpedantic
+    -Wshadow
+    -Wconversion
+    -Wsign-conversion
+    -Wfloat-equal
+    -Wnon-virtual-dtor
+    -Wold-style-cast
+    -Woverloaded-virtual
+    -Wnull-dereference
+    -Wdouble-promotion
+    -Wformat=2
+  )
   if(ENABLE_DEBUG_FLAGS)
     target_compile_options(expos PRIVATE
       -Wall

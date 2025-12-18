@@ -53,7 +53,7 @@ inline int pileup_func (
 struct alndv {
     std::vector<uint64_t>           qp;
     std::vector<double>             las;
-    std::vector<line_seg<uint64_t>> te;
+    std::vector<line_seg> te;
 };
 struct aln_obs {
     alndv alt;
@@ -122,7 +122,8 @@ auto inline get_aln_data (
                     std::format (
                         "MC tag is not of type 'Z' for read {}. "
                         "Record data corrupt; type 'Z' is mandated "
-                        "for MC tag by SAM format spec.",
+                        "for MC tag by SAM format spec. Try samtools"
+                        "fixmate?",
                         qname
                     )
                 );

@@ -23,10 +23,8 @@ constexpr inline uint64_t as_uint (const T &a) {
 }
 
 
-template <typename T>
-requires std::integral<T> || std::floating_point<T>
 constexpr inline std::optional<double>
-mean (const std::vector<T> &v) {
+mean (const std::vector<double> &v) {
     if (v.empty())
         return std::nullopt;
 
@@ -41,18 +39,22 @@ mean (const std::vector<T> &v) {
 
 template <typename T>
 requires std::unsigned_integral<T> || std::floating_point<T>
-constexpr inline std::optional<double> percentile_from_sorted (
-    const std::vector<T> &obs,
+constexpr inline std::optional<double> percentile(
+    std::vector<T> obs,
     double                pt
 ) {
     assert (pt > 0 && pt < 1);
-    assert (std::is_sorted (begin (obs), end (obs)));
 
     if (obs.empty())
         return std::nullopt;
 
     if (obs.size() == 1)
         return obs[0];
+
+    std::sort(
+        begin(obs),
+        end(obs)
+    );
 
     double pi = static_cast<double> (obs.size() - 1)
                 * pt;     // 0 indexed rank
@@ -77,47 +79,32 @@ constexpr inline std::optional<double> percentile_from_sorted (
 
 // object described by two
 // coordinates on the same axis
-template <typename T>
-requires std::unsigned_integral<T>
 struct line_seg {
-    T lmost;
-    T rmost;
+    uint64_t lmost;
+    uint64_t rmost;
 
     line_seg() = delete;
     line_seg (
-        T a,
-        T b
+        uint64_t a,
+        uint64_t b
     ) {
         lmost = a > b ? b : a;
         rmost = a > b ? a : b;
     }
 
-    T diff () const { return rmost - lmost; }
+    uint64_t diff () const { return rmost - lmost; }
 };
 
-// // mannhattan distance
-// template <typename T>
-//     requires std::unsigned_integral<T>
-// constexpr inline T umannd (
-//     const line_seg<T> &a,
-//     const line_seg<T> &b
-// ) {
-//     line_seg upper_pair{a.rmost, b.rmost};
-//     line_seg lower_pair{a.lmost, b.lmost};
-//     return upper_pair.diff() + lower_pair.diff();
-// }
 
 // 2D symmetric square matrix via vector
 // rows are contiguous in vector
-template <typename T>
-requires std::unsigned_integral<T> || std::floating_point<T>
 class PairMatrix {
   private:
-    std::vector<T> mat;
+    std::vector<uint64_t> mat;
     const size_t   dim_;
 
     PairMatrix (
-        std::vector<T> v,
+        std::vector<uint64_t> v,
         size_t         dim
     )
         : mat (v),
@@ -150,9 +137,9 @@ class PairMatrix {
     // clang-format off
     template <typename U, typename F>
         requires std::invocable<F &, const U &, const U &>
-                 && std::same_as<std::invoke_result_t<F &,const U &,const U &>, T>
+                 && std::same_as<std::invoke_result_t<F &,const U &,const U &>, uint64_t>
     // clang-format on
-    static std::optional<PairMatrix<T>> from_sample (
+    static std::optional<PairMatrix> from_sample (
         const std::vector<U> &obs,
         F                   &&sym_pairfn
     ) {
@@ -161,7 +148,7 @@ class PairMatrix {
         if (dim < 2)
             return std::nullopt;
         const auto     nel = dim * dim;
-        std::vector<T> in (nel);     // nel-long vector
+        std::vector<uint64_t> in (nel);     // nel-long vector
         for (size_t i = 0; i < dim; ++i) {
             for (size_t j = 0; j < (i + 1); ++j) {
                 const auto val    = sym_pairfn (obs[i], obs[j]);
@@ -175,13 +162,11 @@ class PairMatrix {
 };
 
 
-template <typename T>
-requires std::unsigned_integral<T>
-inline double medianNN (const PairMatrix<T> &pwd) {
+inline double medianNN (const PairMatrix &pwd) {
     assert (pwd.dim() > 1);
-    std::vector<T> nndv;
+    std::vector<uint64_t> nndv;
     for (size_t row = 0; row < pwd.dim(); ++row) {
-        auto min_nnd = std::numeric_limits<T>::max();
+        auto min_nnd = std::numeric_limits<uint64_t>::max();
         for (size_t col = 0; col < pwd.dim(); ++col) {
             if (row == col)
                 continue;     // skip self-self
@@ -192,8 +177,7 @@ inline double medianNN (const PairMatrix<T> &pwd) {
         }
         nndv.push_back (min_nnd);
     }
-    std::sort (begin (nndv), end (nndv));
-    return *percentile_from_sorted (nndv, 0.5);     // median
+    return *percentile (nndv, 0.5);     // median
 }
 
 
