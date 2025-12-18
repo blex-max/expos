@@ -285,20 +285,20 @@ int main (
 
     std::optional<std::pair<htsFile_upt, hts_idx_upt>> norm;
     if (!norm_path.empty()) {
-        auto _nin{hts_open (aln_path.c_str(), "r")};
+        auto _nin{hts_open (norm_path.c_str(), "r")};
         if (_nin == NULL) {
             std::cerr << std::format (
                 "Could not open alignment file at {}",
-                aln_path.string()
+                norm_path.string()
             ) << std::endl;
             return 1;
         }
-        auto _nixin{sam_index_load (_nin, aln_path.c_str())};
+        auto _nixin{sam_index_load (_nin, norm_path.c_str())};
         if (_nixin == NULL) {
             std::cerr << std::format (
                 "Coud not open index for alignment "
                 "file. Searched for {}.bai",
-                aln_path.c_str()
+                norm_path.c_str()
             ) << std::endl;
             return 1;
         }
@@ -442,6 +442,11 @@ int main (
                 "Skipping.",
                 b1->d.id
             ) << std::endl;
+            if (bcf_write (ovcf.get(), ohdr.get(), b1.get()) != 0) {
+                throw std::runtime_error (
+                    std::format ("failed to write record to VCF")
+                );
+            };
             continue;
         }
         auto mtype = bcf_has_variant_type (
@@ -461,6 +466,11 @@ int main (
                     "skipping.",
                     b1->d.id
                 ) << std::endl;
+                if (bcf_write (ovcf.get(), ohdr.get(), b1.get()) != 0) {
+                    throw std::runtime_error (
+                        std::format ("failed to write record to VCF")
+                    );
+                };
                 continue;
         }
         auto vard = get_aln_data (
@@ -491,6 +501,8 @@ int main (
             continue;
         }
 
+        size_t nread = vard.alt.qp.size() + vard.other.qp.size();     // extra stat
+
         // --- CLUSTERING ANALYSIS (nearest neighbour) --- //
         using Tqposv = decltype (altd.qp);
         using Tqpos  = Tqposv::value_type;
@@ -519,7 +531,6 @@ int main (
         );
 
         // nearest neighbour monte carlo //
-        size_t                nread;     // extra stat
         std::optional<double> qpos_m1nn;
         stat_eval_s           qpos_m1nn_sim;
         if (qpos_pwd) {
@@ -535,7 +546,6 @@ int main (
                 begin (vard.other.qp),
                 end (vard.other.qp)
             );
-            nread = qpos_popv.size();     // don't include normal
             if (normd) {                  // ADD NORMAL OBS
                 qpos_popv.insert (
                     qpos_popv.end(),
