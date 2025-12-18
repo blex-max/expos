@@ -644,9 +644,9 @@ int main (
                 *mlas,
                 altd.las.size(),
                 mlas_popv,
-                [&mannd] (const std::vector<double> &v) {
+                [] (const std::vector<double> &v) {
                     const auto slas = percentile_from_sorted (v, 0.5);
-                    assert (percentile_from_sorted);
+                    assert (slas);
                     return *slas;
                 },
                 [] (const auto ev, const auto sim) {
