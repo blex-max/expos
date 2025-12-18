@@ -671,6 +671,7 @@ int main (
         }
 
         // consensus region of supporting templates
+        // NOTE guarded earlier
         uint64_t lmosttc = std::numeric_limits<uint64_t>::max();
         uint64_t rmosttc = 0ULL;
         for (const auto &te : altd.te) {

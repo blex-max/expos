@@ -216,10 +216,11 @@ inline stat_eval_s sim_to_bg (
     StatFn          &&statfn,
     CmpFn           &&statcmp,
     EffFn           &&efffn,
-    std::size_t       nsim              = 2000,
+    std::size_t       nsim              = 2500,
     std::size_t       event_obs_ext_min = 0
 ) {
     stat_eval_s res;
+    assert (nsim > 0);
     if (n_ev_obs < 2 || n_ev_obs < event_obs_ext_min) {
         res.err = "INSUFF_OBS";
         return res;
@@ -233,6 +234,8 @@ inline stat_eval_s sim_to_bg (
         return res;
     }
 
+    // TODO take as input, for reproducible testing purposes
+    // ALSO, on profiling, this is like 20% of the runtime!!!
     std::random_device rd;
     std::mt19937       g (rd());
 
@@ -269,6 +272,7 @@ inline stat_eval_s sim_to_bg (
 // FOR REF COMPLEXITY
 // length normalised kolgomorov complexity via lempel-ziv 76
 inline double nk_lz76 (const std::string &s) {
+    assert(!s.empy());
     size_t slen = s.size();
     size_t n_phrase = 1;     // number of phrases (complexity), starts at 1 (first char is a phrase)
     size_t frontier_i = 1;     // start index of current phrase in s

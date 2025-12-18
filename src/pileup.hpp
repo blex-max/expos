@@ -69,10 +69,14 @@ auto inline get_aln_data (
     aln_obs obs;
 
     // prepare to pileup
-    hts_itr_upt iter{
-        sam_itr_queryi (aln_idx, v->rid, v->pos, v->pos + v->rlen),
-        hts_itr_destroy
-    };
+    hts_itr_t *raw_iter = sam_itr_queryi(aln_idx, v->rid, v->pos, v->pos + v->rlen);
+    // TODO fix reported rid/positions to user expectations (and elsewhere)
+    if (raw_iter == nullptr) {
+        throw std::runtime_error(
+            std::format("could not create iterator for {}:{}-{}",
+                        v->rid, v->pos, v->pos + v->rlen));
+    }
+    hts_itr_upt iter{raw_iter, hts_itr_destroy};
     pf_capture pfc{aln_fh, iter.get()};     // not using mapq at present
     bam_plp_upt buf{
         bam_plp_init (pileup_func, &pfc),
@@ -160,6 +164,13 @@ auto inline get_aln_data (
                          && evaluate_support (pli, v, mtype))
                             ? obs.alt
                             : obs.other;
+            // TODO consider what guarding is necessary and appropriate
+            // if support isn't being evaluated (or perhaps even if it is)
+            if (!eval_support) {
+                if (pli->is_del || pli->is_refskip || pli->qpos < 0) {
+                    continue;   // or route to a different handling branch
+                }
+            }
 
             bin.las.push_back (  // TODO guard
                 static_cast<double> (bam_aux2i (raw_AS))

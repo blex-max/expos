@@ -4,7 +4,12 @@ Spatial information extraction for variant sites from alignment data,
 plus comparison to background via monte-carlo simulation.
 Useful for inspecting and flagging false postive variants.
 
-Core functionality all present but niceties and guard rails are not.
+Core functionality present but niceties and guard rails are not.
+
+NOT CURRENTLY EXTENDED TO INDELS. The concept applies,
+but at this stage the program has only been applied to SNPs
+and almost certainly won't work for indels. I'll add
+indel support in Jan 2026.
 
 More extensive documentation TODO!
 
