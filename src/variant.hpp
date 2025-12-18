@@ -49,6 +49,8 @@ inline bool evaluate_support (
             ref = b->d.allele[0];
             alt = b->d.allele[1];
 
+            // TODO/BUG does not handle refskip/is_del bases!
+            // where qpos will be -1
             qpos = static_cast<size_t> (pl->qpos);
             qbase = seq_nt16_str[bam_seqi (bam_get_seq (pl->b), qpos)];
             // std::cout << std::format ("ref {}, alt {}, query {}", ref, alt, qbase)
@@ -86,7 +88,7 @@ inline bool evaluate_support (
                 }
                 auto ins_match
                     = static_cast<int> ( // check bases match
-                        strcmp (ks_c_str (&ins), alt.c_str()) == 0);
+                        strcmp (ks_c_str (&ins), alt.substr(1).c_str()) == 0);
                 ks_free (&ins);
                 return (ins_match);
             }
