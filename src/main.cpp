@@ -19,6 +19,7 @@
 
 #include <algorithm>
 #include <cstdint>
+#include <cstdlib>
 #include <format>
 #include <fstream>
 #include <functional>
@@ -97,6 +98,7 @@ std::string rdbl4 (const double &a) {
 }
 
 
+// TODO add option for read flag inclusion/exclusion at command line
 // TODO add record of command to VCF!
 // TODO MCLP (CLPM), and simulate
 // TODO add consensus span region back to tsv
@@ -226,7 +228,7 @@ int main (
     } catch (const std::exception &e) {
         std::cerr << "Error parsing CLI options: " << e.what()
                   << "\nTry expos --help.";
-        return 1;
+        return EXIT_FAILURE;
     }
 
     // inputs
@@ -236,7 +238,7 @@ int main (
             "Could not open alignment file at {}",
             aln_path.string()
         ) << std::endl;
-        return 1;
+        return EXIT_FAILURE;
     }
     auto _aixin{sam_index_load (_ain, aln_path.c_str())};
     if (_aixin == NULL) {
@@ -245,7 +247,7 @@ int main (
             "file. Searched for {}.bai",
             aln_path.c_str()
         ) << std::endl;
-        return 1;
+        return EXIT_FAILURE;
     }
     htsFile_upt alnfh{std::move (_ain), hts_close};
     hts_idx_upt aln_idx{std::move (_aixin), hts_idx_destroy};
@@ -256,7 +258,7 @@ int main (
             "Could not open VCF file at {}",
             vcf_path.string()
         ) << std::endl;
-        return 1;
+        return EXIT_FAILURE;
     }
     auto _vh{bcf_hdr_read (_vin)};
     if (_vh == NULL) {
@@ -264,7 +266,7 @@ int main (
             "Could not read header of VCF file at {}",
             vcf_path.string()
         ) << std::endl;
-        return 1;
+        return EXIT_FAILURE;
     }
     htsFile_upt vcffh{std::move (_vin), hts_close};
     bcf_hdr_upt vcf_hdr{std::move (_vh), bcf_hdr_destroy};
@@ -277,7 +279,7 @@ int main (
                 "Could not read reference fasta at {}",
                 ref_path.string()
             ) << std::endl;
-            return 1;
+            return EXIT_FAILURE;
         } else {
             reffh.reset (_fin);
         }
@@ -291,7 +293,7 @@ int main (
                 "Could not open alignment file at {}",
                 norm_path.string()
             ) << std::endl;
-            return 1;
+            return EXIT_FAILURE;
         }
         auto _nixin{sam_index_load (_nin, norm_path.c_str())};
         if (_nixin == NULL) {
@@ -300,7 +302,7 @@ int main (
                 "file. Searched for {}.bai",
                 norm_path.c_str()
             ) << std::endl;
-            return 1;
+            return EXIT_FAILURE;
         }
         norm.emplace (
             htsFile_upt{std::move (_nin), hts_close},
@@ -370,8 +372,9 @@ int main (
     }
 
 
-    bool     firsti = true;
-    bcf1_upt b1{bcf_init(), bcf_destroy};
+    sim_to_bgConfig sim_config{};
+    bool            firsti = true;
+    bcf1_upt        b1{bcf_init(), bcf_destroy};
     while (bcf_read (vcffh.get(), vcf_hdr.get(), b1.get()) == 0) {
         if (firsti) {
             for (const auto &f : flt_inc) {
@@ -380,10 +383,14 @@ int main (
                         b1.get(),
                         const_cast<char *> (f.c_str())
                     )
-                    < 0)
-                    throw std::runtime_error (
-                        std::format ("Unknown --include filter {}", f)
-                    );     // unrecoverable
+                    < 0) {
+                    std::cerr << std::format (
+                        "Unknown --include filter {} not present in "
+                        "VCF",
+                        f
+                    ) << std::endl;     // unrecoverable
+                    return EXIT_FAILURE;
+                }
             }
             std::vector<std::string> tmp_ex;
             for (size_t i = 0; i < flt_ex.size(); ++i) {
@@ -395,7 +402,8 @@ int main (
                     )
                     < 0) {
                     std::cerr << std::format (
-                        "Warning: Unknown --exclude filter {}, "
+                        "Warning: Unknown --exclude filter {} not "
+                        "present in VCF, "
                         "ignoring",
                         f
                     ) << std::endl;
@@ -416,9 +424,10 @@ int main (
                 return !a;
             })) {
             if (bcf_write (ovcf.get(), ohdr.get(), b1.get()) != 0) {
-                throw std::runtime_error (
-                    std::format ("failed to write record to VCF")
-                );
+                std::cerr << std::format (
+                    "failed to write record to output VCF"
+                ) << std::endl;
+                return EXIT_FAILURE;
             };
             continue;
         }
@@ -427,9 +436,10 @@ int main (
                 return a;
             })) {
             if (bcf_write (ovcf.get(), ohdr.get(), b1.get()) != 0) {
-                throw std::runtime_error (
-                    std::format ("failed to write record to VCF")
-                );
+                std::cerr << std::format (
+                    "failed to write record to output VCF"
+                ) << std::endl;
+                return EXIT_FAILURE;
             };
             continue;
         }
@@ -437,15 +447,19 @@ int main (
         // NOTE b1->errcode  // MUST CHECK BEFORE WRITE TO VCF
         if (b1->n_allele != 2) {
             std::cerr << std::format (
-                "Variant {} has more than two (REF,ALT) alleles. "
+                "Variant {} {} {} has more than two (REF,ALT) "
+                "alleles. "
                 "Unnormalised variant calls are not supported. "
                 "Skipping.",
+                b1->rid,     // TODO convert rid to user facing
+                b1->pos,     // ditto
                 b1->d.id
             ) << std::endl;
             if (bcf_write (ovcf.get(), ohdr.get(), b1.get()) != 0) {
-                throw std::runtime_error (
-                    std::format ("failed to write record to VCF")
-                );
+                std::cerr << std::format (
+                    "failed to write record to output VCF"
+                ) << std::endl;
+                return EXIT_FAILURE;
             };
             continue;
         }
@@ -454,6 +468,7 @@ int main (
             1,
             VCF_DEL | VCF_INS | VCF_SNP | VCF_MNP
         );
+        // one and only one of
         switch (mtype) {
             case (VCF_DEL):
             case (VCF_INS):
@@ -462,14 +477,16 @@ int main (
                 break;
             default:
                 std::cerr << std::format (
-                    "Variant {} has an unsupported/complex mutation, "
+                    "Variant {} has an unsupported/complex mutation, or could not be typed"
                     "skipping.",
                     b1->d.id
                 ) << std::endl;
-                if (bcf_write (ovcf.get(), ohdr.get(), b1.get()) != 0) {
-                    throw std::runtime_error (
-                        std::format ("failed to write record to VCF")
-                    );
+                if (bcf_write (ovcf.get(), ohdr.get(), b1.get())
+                    != 0) {
+                    std::cerr << std::format (
+                        "failed to write record to output VCF"
+                    ) << std::endl;
+                    return EXIT_FAILURE;
                 };
                 continue;
         }
@@ -494,14 +511,20 @@ int main (
         auto &altd = vard.alt;
         if (altd.qp.empty() || altd.te.empty()) {
             std::cerr << std::format (
-                "no supporting reads found for variant {}, "
+                "no supporting reads found for variant {} {} {}, "
                 "skipping.",
+                b1->rid,     // TODO convert rid to user facing
+                b1->pos,     // ditto
                 b1->d.id
             ) << std::endl;
+            if (bcf_write (ovcf.get(), ohdr.get(), b1.get()) != 0) {
+                std::cerr << std::format (
+                    "failed to write record to output VCF"
+                ) << std::endl;
+                return EXIT_FAILURE;
+            };
             continue;
         }
-
-        size_t nread = vard.alt.qp.size() + vard.other.qp.size();     // extra stat
 
         // --- CLUSTERING ANALYSIS (nearest neighbour) --- //
         using Tqposv = decltype (altd.qp);
@@ -525,10 +548,7 @@ int main (
             line_seg lower_pair{a.lmost, b.lmost};
             return upper_pair.diff() + lower_pair.diff();
         };
-        const auto te_pwd = PairMatrix::from_sample (
-            altd.te,
-            mannd
-        );
+        const auto te_pwd = PairMatrix::from_sample (altd.te, mannd);
 
         // nearest neighbour monte carlo //
         std::optional<double> qpos_m1nn;
@@ -546,7 +566,7 @@ int main (
                 begin (vard.other.qp),
                 end (vard.other.qp)
             );
-            if (normd) {                  // ADD NORMAL OBS
+            if (normd) {     // ADD NORMAL OBS
                 qpos_popv.insert (
                     qpos_popv.end(),
                     begin (normd->other.qp),
@@ -558,10 +578,7 @@ int main (
                 altd.qp.size(),
                 qpos_popv,
                 [&d1d] (const Tqposv &v) {
-                    const auto pwds = PairMatrix::from_sample (
-                        v,
-                        d1d
-                    );
+                    const auto pwds = PairMatrix::from_sample (v, d1d);
                     assert (pwds);
                     const auto ret = medianNN (*pwds);
                     return ret;
@@ -575,7 +592,8 @@ int main (
                 // +1 = double the size of background
                 [] (const auto ev, const auto simv) {
                     return log2 ((ev + 1) / (*mean (simv) + 1));
-                }
+                },
+                sim_config
             );
         } else {
             qpos_m1nn_sim.err = "INSUFF_OBS";
@@ -621,7 +639,8 @@ int main (
                 },
                 [] (const auto ev, const auto simv) {
                     return log2 ((ev + 1) / (*mean (simv) + 1));
-                }
+                },
+                sim_config
             );
         } else {
             te_m1nn_sim.err = "INSUFF_OBS";
@@ -664,7 +683,8 @@ int main (
                 // effect size == raw delta
                 [] (const auto ev, const auto simv) {
                     return ev - *mean (simv);
-                }
+                },
+                sim_config
             );
         } else {
             mlas_sim.err = "INSUFF_OBS";
@@ -688,14 +708,12 @@ int main (
         std::optional<uint> kc;
         if (reffh) {
             if (rid_name == NULL) {
-                throw std::runtime_error (
-                    std::format (
-                        "Could not find rid {} in VCF header "
-                        "- VCF "
-                        "misformatted?",
-                        b1->rid
-                    )
-                );
+                std::cerr << std::format (
+                    "Could not find reference ID {} in VCF header "
+                    "- VCF "
+                    "misformatted?",
+                    b1->rid
+                ) << std::endl;
             }
             std::string refs = fai_autofetch (
                 reffh.get(),
@@ -720,13 +738,11 @@ int main (
                     i.type
                 )
                 != 0) {
-                throw std::runtime_error (
-                    std::format (
-                        "failed to write data {} as INFO field "
-                        "in output VCF",
-                        i.name
-                    )
-                );
+                std::cerr << std::format (
+                    "failed to write {} as INFO field "
+                    "in output VCF",
+                    i.name
+                ) << std::endl;
             }
         };
         // TODO should probably encode missingness into the vcf somehow... like an EXPOS_ERR info field
@@ -763,9 +779,9 @@ int main (
         }
 
         if (bcf_write (ovcf.get(), ohdr.get(), b1.get()) != 0) {
-            throw std::runtime_error (
-                std::format ("failed to write record to VCF")
-            );
+            std::cerr << std::format (
+                "failed to write record to output VCF"
+            ) << std::endl;
         };
 
         // report statistics to tsv
@@ -786,8 +802,8 @@ int main (
                 opt_to_str<double> (te_m1nn_sim.eff_sz, te_m1nn_sim.err, rdbl2),
                 opt_to_str<double> (te_m1nn_sim.pval, te_m1nn_sim.err, rdbl4),
                 opt_to_str (kc, "NA"),
-                std::to_string (altd.qp.size()),     // n supporting reads
-                std::to_string (nread)
+                std::to_string (altd.nreads),     // n supporting reads
+                std::to_string (altd.nreads + vard.other.nreads)
             ) << "\n";
         }
         // clang-format on

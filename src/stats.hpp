@@ -39,9 +39,9 @@ mean (const std::vector<double> &v) {
 
 template <typename T>
 requires std::unsigned_integral<T> || std::floating_point<T>
-constexpr inline std::optional<double> percentile(
+constexpr inline std::optional<double> percentile (
     std::vector<T> obs,
-    double                pt
+    double         pt
 ) {
     assert (pt > 0 && pt < 1);
 
@@ -51,10 +51,7 @@ constexpr inline std::optional<double> percentile(
     if (obs.size() == 1)
         return obs[0];
 
-    std::sort(
-        begin(obs),
-        end(obs)
-    );
+    std::sort (begin (obs), end (obs));
 
     double pi = static_cast<double> (obs.size() - 1)
                 * pt;     // 0 indexed rank
@@ -101,11 +98,11 @@ struct line_seg {
 class PairMatrix {
   private:
     std::vector<uint64_t> mat;
-    const size_t   dim_;
+    const size_t          dim_;
 
     PairMatrix (
         std::vector<uint64_t> v,
-        size_t         dim
+        size_t                dim
     )
         : mat (v),
           dim_ (dim) {
@@ -147,7 +144,7 @@ class PairMatrix {
         const auto dim = obs.size();
         if (dim < 2)
             return std::nullopt;
-        const auto     nel = dim * dim;
+        const auto            nel = dim * dim;
         std::vector<uint64_t> in (nel);     // nel-long vector
         for (size_t i = 0; i < dim; ++i) {
             for (size_t j = 0; j < (i + 1); ++j) {
@@ -196,6 +193,11 @@ struct stat_eval_s {
 // statistic in question (pvalue), and
 // how large is the effect size.
 // clang-format off
+struct sim_to_bgConfig {
+const size_t       nsim              = 2500;
+const size_t       event_obs_ext_min = 0;
+std::mt19937      rng               = {};
+};
 template <
     typename ObsT,
     typename StatFn,
@@ -211,17 +213,16 @@ requires
 // TODO SEED
 inline stat_eval_s sim_to_bg (
     StatT             ev_stat,
-    std::size_t       n_ev_obs,
+    size_t            n_ev_obs,
     std::vector<ObsT> total_obs,     // intentional copy (or move-in)
     StatFn          &&statfn,
     CmpFn           &&statcmp,
     EffFn           &&efffn,
-    std::size_t       nsim              = 2500,
-    std::size_t       event_obs_ext_min = 0
+    sim_to_bgConfig  &conf
 ) {
     stat_eval_s res;
     assert (nsim > 0);
-    if (n_ev_obs < 2 || n_ev_obs < event_obs_ext_min) {
+    if (n_ev_obs < 2 || n_ev_obs < conf.event_obs_ext_min) {
         res.err = "INSUFF_OBS";
         return res;
     }
@@ -234,15 +235,10 @@ inline stat_eval_s sim_to_bg (
         return res;
     }
 
-    // TODO take as input, for reproducible testing purposes
-    // ALSO, on profiling, this is like 20% of the runtime!!!
-    std::random_device rd;
-    std::mt19937       g (rd());
-
     std::vector<StatT> sim_vals;
     size_t             sim_count = 0;
-    for (size_t i = 0; i < nsim; ++i) {
-        std::shuffle (begin (total_obs), end (total_obs), g);
+    for (size_t i = 0; i < conf.nsim; ++i) {
+        std::shuffle (begin (total_obs), end (total_obs), conf.rng);
         const auto sv = statfn (
             std::vector (
                 total_obs.begin(),
@@ -264,7 +260,7 @@ inline stat_eval_s sim_to_bg (
     // TODO "power analysis"
 
     res.pval = static_cast<double> (sim_count + 1)
-               / static_cast<double> (nsim + 1);
+               / static_cast<double> (conf.nsim + 1);
     return res;
 }
 
@@ -272,7 +268,7 @@ inline stat_eval_s sim_to_bg (
 // FOR REF COMPLEXITY
 // length normalised kolgomorov complexity via lempel-ziv 76
 inline double nk_lz76 (const std::string &s) {
-    assert(!s.empy());
+    assert (!s.empty());
     size_t slen = s.size();
     size_t n_phrase = 1;     // number of phrases (complexity), starts at 1 (first char is a phrase)
     size_t frontier_i = 1;     // start index of current phrase in s

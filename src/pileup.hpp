@@ -4,6 +4,7 @@
 #include <cstdint>
 #include <format>
 #include <htslib/vcf.h>
+#include <iostream>
 #include <unordered_set>
 #include <vector>
 
@@ -51,9 +52,10 @@ inline int pileup_func (
 
 
 struct alndv {
-    std::vector<uint64_t>           qp;
-    std::vector<double>             las;
+    std::vector<uint64_t> qp;
+    std::vector<double>   las;
     std::vector<line_seg> te;
+    size_t                nreads = 0;
 };
 struct aln_obs {
     alndv alt;
@@ -69,12 +71,22 @@ auto inline get_aln_data (
     aln_obs obs;
 
     // prepare to pileup
-    hts_itr_t *raw_iter = sam_itr_queryi(aln_idx, v->rid, v->pos, v->pos + v->rlen);
+    hts_itr_t *raw_iter = sam_itr_queryi (
+        aln_idx,
+        v->rid,
+        v->pos,
+        v->pos + v->rlen
+    );
     // TODO fix reported rid/positions to user expectations (and elsewhere)
     if (raw_iter == nullptr) {
-        throw std::runtime_error(
-            std::format("could not create iterator for {}:{}-{}",
-                        v->rid, v->pos, v->pos + v->rlen));
+        throw std::runtime_error (
+            std::format (
+                "could not create iterator for {}:{}-{}",
+                v->rid,
+                v->pos,
+                v->pos + v->rlen
+            )
+        );
     }
     hts_itr_upt iter{raw_iter, hts_itr_destroy};
     pf_capture pfc{aln_fh, iter.get()};     // not using mapq at present
@@ -105,7 +117,7 @@ auto inline get_aln_data (
         if (n_plp < 0 || plp_tid < 0 || plp_pos < 0)
             throw std::runtime_error ("pileup failed");
 
-        if (plp_pos < v->pos || plp_pos >= v->pos + v->rlen) {
+        if (plp_pos != v->pos) {
             continue;     // doesn't cover variant
         }
 
@@ -113,10 +125,11 @@ auto inline get_aln_data (
             const auto pli = plarr + i;
 
             const std::string qname{bam_get_qname (pli->b)};
+
             // These are error states rather than skips
             // because if either occurs then something is fundamentally wrong
             // i.e. neither can occur during correct application of this function
-            auto              raw_mc = bam_aux_get (pli->b, "MC");
+            auto raw_mc = bam_aux_get (pli->b, "MC");
             if (raw_mc == NULL)
                 throw std::runtime_error (
                     std::format ("no MC tag for read {}", qname)
@@ -164,13 +177,8 @@ auto inline get_aln_data (
                          && evaluate_support (pli, v, mtype))
                             ? obs.alt
                             : obs.other;
-            // TODO consider what guarding is necessary and appropriate
-            // if support isn't being evaluated (or perhaps even if it is)
-            if (!eval_support) {
-                if (pli->is_del || pli->is_refskip || pli->qpos < 0) {
-                    continue;   // or route to a different handling branch
-                }
-            }
+
+            bin.nreads++;
 
             bin.las.push_back (  // TODO guard
                 static_cast<double> (bam_aux2i (raw_AS))
@@ -178,7 +186,10 @@ auto inline get_aln_data (
             );     // length-normalised alignment score
 
             const auto l0 = pli->b->core.pos;
-            bin.qp.emplace_back (as_uint (pli->qpos));
+
+            if (!(pli->is_del || pli->is_refskip || pli->qpos < 0)) {
+                bin.qp.emplace_back (as_uint (pli->qpos));
+            }
 
             // don't double count templates,
             // shared between read pairs (by definition)
