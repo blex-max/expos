@@ -100,7 +100,7 @@ std::string rdbl4 (const double &a) {
 
 // TODO add option for read flag inclusion/exclusion at command line
 // TODO add record of command to VCF!
-// TODO MCLP (CLPM), and simulate
+// TODO fraction of supporting reads with soft clipping (better than number as CLPM!), and simulate
 // TODO add consensus span region back to tsv
 // TODO options for calculating subset of data only
 // TODO options for more vcf data (e.g. REF,ALT) in TSV (if using expos as "genome browser by numbers")
@@ -117,7 +117,9 @@ int main (
     fs::path                 ref_path;
     fs::path                 otsv_path;
     std::vector<std::string> flt_inc;
-    std::vector<std::string> flt_ex;
+    std::vector<std::string> flt_exc;
+    int                      flag_inc = 3;
+    int                      flag_exc = 3852;
     bool                     no_gz = false;
     // std::vector<std::string> wfields;
 
@@ -145,6 +147,12 @@ int main (
         ("e,exclude",
          "Only operate on VCF records without this value present in FILTER. May be passed multiple times.",
          cxxopts::value<std::vector<std::string>>()) // multiple allowed
+        ("f,flag-include",
+         "Only consider reads with these bits set in the SAM flag. Applies to both target and background alignment data. Default: 3",
+         cxxopts::value<int>())
+        ("F,flag-exclude",
+         "Do not consider reads with these bits set in the SAM flag. Applies to both target and background alignment data. Default: 3852",
+         cxxopts::value<int>())
         // ("w,write",
         //  "Write specified field to output VCF. May be passed multiple times.",
         //  cxxopts::value<std::vector<std::string>>()->default_value("ALL"))
@@ -209,7 +217,13 @@ int main (
             flt_inc = parsedargs["include"].as<std::vector<std::string>>();
         }
         if (parsedargs.count ("exclude")) {
-            flt_ex = parsedargs["exclude"].as<std::vector<std::string>>();
+            flt_exc = parsedargs["exclude"].as<std::vector<std::string>>();
+        }
+        if (parsedargs.count ("flag-include")) {
+            flag_inc = parsedargs["flag-include"].as<int>();
+        }
+        if (parsedargs.count ("flag-exclude")) {
+            flag_exc = parsedargs["flag-exclude"].as<int>();
         }
 
         if (parsedargs.count ("tsv")) {
@@ -393,8 +407,8 @@ int main (
                 }
             }
             std::vector<std::string> tmp_ex;
-            for (size_t i = 0; i < flt_ex.size(); ++i) {
-                const auto &f = flt_ex[i];
+            for (size_t i = 0; i < flt_exc.size(); ++i) {
+                const auto &f = flt_exc[i];
                 if (bcf_has_filter (
                         vcf_hdr.get(),
                         b1.get(),
@@ -408,10 +422,10 @@ int main (
                         f
                     ) << std::endl;
                 } else {
-                    tmp_ex.push_back (flt_ex[i]);
+                    tmp_ex.push_back (flt_exc[i]);
                 }
             }
-            flt_ex = tmp_ex;
+            flt_exc = tmp_ex;
             firsti = false;
         }
 
@@ -431,7 +445,7 @@ int main (
             };
             continue;
         }
-        const auto eflt = has_filters (vcf_hdr.get(), b1.get(), flt_ex);
+        const auto eflt = has_filters (vcf_hdr.get(), b1.get(), flt_exc);
         if (std::any_of (begin (eflt), end (eflt), [] (const auto a) {
                 return a;
             })) {
@@ -495,7 +509,9 @@ int main (
             aln_idx.get(),
             b1.get(),
             mtype,
-            true
+            true,
+            flag_inc,
+            flag_exc
         );
         std::optional<aln_obs> normd;
         if (norm) {
@@ -504,7 +520,9 @@ int main (
                 norm->second.get(),
                 b1.get(),
                 mtype,
-                true
+                false,
+                flag_inc,
+                flag_exc
             );
         }
 

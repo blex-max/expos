@@ -4,7 +4,6 @@
 #include <cstdint>
 #include <format>
 #include <htslib/vcf.h>
-#include <iostream>
 #include <unordered_set>
 #include <vector>
 
@@ -20,7 +19,8 @@ extern "C" {
 struct pf_capture {
     htsFile   *fh;
     hts_itr_t *it;
-    int        min_mapq = 0;
+    int        inc_flag;
+    int        exc_flag;
 };
 // NOTE can attach data to pileup members
 // via bam_pileup_cd and bam_plp_constructor/destructor.
@@ -30,7 +30,7 @@ inline int pileup_func (
     void   *data,
     bam1_t *b
 ) {
-    pf_capture *d = static_cast<pf_capture *> (data);
+    pf_capture *d = (pf_capture *)(data);
     int         ret;
     uint16_t    flag;
     // find the next good read
@@ -40,8 +40,8 @@ inline int pileup_func (
             break;     // EOF/err
         }
         flag = b->core.flag;
-        if (!(flag & 3852) && ((flag & 3) == 3)
-            && b->core.qual >= d->min_mapq) {
+        if (!(flag & d->exc_flag) && ((flag & d->inc_flag) == d->inc_flag)) {
+            // && b->core.qual >= d->min_mapq) {
             break;     // found good read
         };
     }
@@ -66,7 +66,9 @@ auto inline get_aln_data (
     hts_idx_t *aln_idx,
     bcf1_t    *v,
     int        mtype,
-    bool       eval_support
+    bool       eval_support,
+    int        sam_flag_include,
+    int        sam_flag_exclude
 ) {
     aln_obs obs;
 
@@ -89,7 +91,12 @@ auto inline get_aln_data (
         );
     }
     hts_itr_upt iter{raw_iter, hts_itr_destroy};
-    pf_capture pfc{aln_fh, iter.get()};     // not using mapq at present
+    pf_capture  pfc{
+        aln_fh,
+        iter.get(),
+        sam_flag_include,
+        sam_flag_exclude
+    };
     bam_plp_upt buf{
         bam_plp_init (pileup_func, &pfc),
         bam_plp_destroy
