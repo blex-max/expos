@@ -74,7 +74,7 @@ These are the header lines from an output VCF describing the INFO fields added. 
 
 log2 effect sizes scale such no effect is 0, -1 means the statistic is 1/2 on supporting data compared background, -2 1/4, whereas an effect size of 1 means the statistic 2x on supporting data compared to background, 2 4x. Practically this means that effect sizes below 0 indicate tighter clustering of observations as compared to background.
 
-The effect size for median length-normalised alignment score is simply reported as difference between the statisic as calculated on the supporting data and the mean of all simulated calculations. Therefore a lower alignment score on supporting reads as compared to background data results in a negative effect size. Note that the presence of a variant will by definition lower alignment score so very small but significant (by p value) effects do not necessarily indicate a spurious variant.
+The effect size for median length-normalised alignment score is simply reported as difference between the statisic as calculated on the supporting data and the mean of all simulated calculations. Therefore a lower alignment score on supporting reads as compared to background data results in a negative effect size. Note that the presence of a variant will by definition lower alignment score so significant effects do not necessarily indicate a spurious variant, particularly in the case of larger indels.
 
 MLAS is equivalent to ASRD as may be familiar to some users.
 
