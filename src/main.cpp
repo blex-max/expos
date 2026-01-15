@@ -98,9 +98,9 @@ std::string rdbl4 (const double &a) {
 }
 
 
-// TODO add option for read flag inclusion/exclusion at command line
 // TODO add record of command to VCF!
 // TODO fraction of supporting reads with soft clipping (better than number as CLPM!), and simulate
+// TODO calculate ref statistics even if no supporting reads
 // TODO add consensus span region back to tsv
 // TODO options for calculating subset of data only
 // TODO options for more vcf data (e.g. REF,ALT) in TSV (if using expos as "genome browser by numbers")
