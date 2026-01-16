@@ -265,8 +265,8 @@ inline stat_eval_s sim_to_bg (
 
 
 // FOR REF COMPLEXITY
-// length normalised kolgomorov complexity via lempel-ziv 76
-inline double nk_lz76 (const std::string &s) {
+// lempel-ziv 76 entropy rate (bits per base)
+inline double entropy_lz76 (const std::string &s) {
     assert (!s.empty());
     size_t slen = s.size();
     size_t n_phrase = 1;     // number of phrases (complexity), starts at 1 (first char is a phrase)

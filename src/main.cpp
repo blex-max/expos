@@ -69,9 +69,9 @@ const std::unordered_map<std::string, field_s> FIELD_INF{
       "monte-carlo simulation",
       BCF_HT_REAL,
       3}},
-    {"KC",
-     {"KC",
-      "Kolmogorov Complexity of region spanned by supporting "
+    {"RCMPLX",
+     {"RCMPLX",
+      "Complexity (Lempel-Ziv estimated entropy rate) of region spanned by supporting "
       "templates, scaled by x100",
       BCF_HT_INT,
       1}}     // NOTE -- kc is optional
@@ -163,7 +163,7 @@ int main (
          "Alignment for use as additional background data for simulation",
          cxxopts::value<fs::path>())
         ("r,ref",
-         "Alignment Reference Fasta for optionally adding template kolmogorov complexity to statistics.",
+         "Alignment Reference Fasta for optionally adding reference complexity to statistics.",
          cxxopts::value<fs::path>())
         ("u,uncompressed", "output uncompressed VCF");
     // clang-format on
@@ -741,7 +741,7 @@ int main (
             );
             // TODO warn if all N
             kc.emplace (
-                static_cast<uint> (round (nk_lz76 (refs) * 100))
+                static_cast<uint> (round (entropy_lz76 (refs) * 100))
             );     // x100 scaling factor
         }
 
@@ -793,7 +793,7 @@ int main (
         }
         if (kc) {
             const auto val = *kc;
-            write_info (FIELD_INF.at ("KC"), &val);
+            write_info (FIELD_INF.at ("RCMPLX"), &val);
         }
 
         if (bcf_write (ovcf.get(), ohdr.get(), b1.get()) != 0) {
