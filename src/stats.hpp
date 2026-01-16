@@ -202,20 +202,20 @@ template <
     typename ObsT,
     typename StatFn,
     typename EffFn,
-    typename CmpFn,
-    typename StatT = std::invoke_result_t<StatFn&, const std::vector<ObsT>>
+    typename StatT = std::invoke_result_t<StatFn&, const std::vector<ObsT> &>
 >
 requires
-    std::invocable<StatFn&, const std::vector<ObsT>> &&
-    std::invocable<CmpFn&, StatT, StatT> &&
-    std::invocable<EffFn&, StatT, const std::vector<StatT>>
+    std::invocable<StatFn&, const std::vector<ObsT> &> &&
+    std::invocable<EffFn&, StatT, const std::vector<StatT> &> &&
+    std::same_as<
+        std::invoke_result_t<EffFn&, StatT, const std::vector<StatT> &>,
+        double>
 // clang-format on
 inline stat_eval_s sim_to_bg (
     StatT             ev_stat,
     size_t            n_ev_obs,
     std::vector<ObsT> total_obs,     // intentional copy (or move-in)
     StatFn          &&statfn,
-    CmpFn           &&statcmp,
     EffFn           &&efffn,
     sim_to_bgConfig  &conf
 ) {
@@ -235,19 +235,19 @@ inline stat_eval_s sim_to_bg (
     }
 
     std::vector<StatT> sim_vals;
-    size_t             sim_count = 0;
+    size_t             sim_count_le = 0;  // count of simulated stats that are <= observed stat
     for (size_t i = 0; i < conf.nsim; ++i) {
         std::shuffle (begin (total_obs), end (total_obs), conf.rng);
-        const auto sv = statfn (
+        const auto draw_stat = statfn (
             std::vector (
                 total_obs.begin(),
                 total_obs.begin() + n_ev_obs
             )
         );
-        if (statcmp (ev_stat, sv)) {
-            ++sim_count;
+        if (draw_stat <= ev_stat) {
+            ++sim_count_le;
         }
-        sim_vals.push_back (sv);
+        sim_vals.push_back (draw_stat);
     }
 
     // report effect size
@@ -258,8 +258,14 @@ inline stat_eval_s sim_to_bg (
 
     // TODO "power analysis"
 
-    res.pval = static_cast<double> (sim_count + 1)
+    // two sided p val
+    res.pval = 2
+               * static_cast<double> (std::min(sim_count_le + 1, conf.nsim - sim_count_le + 1))
                / static_cast<double> (conf.nsim + 1);
+
+    // one sided
+    // res.pval = static_cast<double> (sim_count_le + 1)
+    //            / static_cast<double> (conf.nsim + 1);
     return res;
 }
 

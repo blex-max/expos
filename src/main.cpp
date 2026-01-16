@@ -49,7 +49,7 @@ const std::unordered_map<std::string, field_s> FIELD_INF{
      {"MLAS",
       "[0]Median read-Length-normalised Alignment Score (AS) of "
       "reads supporting variant;"
-      "[1]delta (supporting - background) effect size and [2]P-value "
+      "[1]delta (supporting - background) effect size and [2]two-sided P-value "
       "against "
       "background, from monte-carlo simulation",
       BCF_HT_REAL,
@@ -57,7 +57,7 @@ const std::unordered_map<std::string, field_s> FIELD_INF{
     {"QM1NN",
      {"QM1NN",
       "[0]Median nearest neighbour distance of variant query "
-      "position; [1]log2 ratio effect size and [2]P-value against "
+      "position; [1]log2 ratio effect size and [2]two-sided P-value against "
       "background, from monte-carlo simulation",
       BCF_HT_REAL,
       3}},
@@ -65,7 +65,7 @@ const std::unordered_map<std::string, field_s> FIELD_INF{
      {"TM1NN",
       "[0]Median nearest neighbour distance of template endpoints "
       "from read pairs supporting variant; [1]log2 ratio effect size "
-      "and [2]P-value against background, from "
+      "and [2]two-sided P-value against background, from "
       "monte-carlo simulation",
       BCF_HT_REAL,
       3}},
@@ -99,7 +99,7 @@ std::string rdbl4 (const double &a) {
 
 
 // TODO add record of command to VCF!
-// TODO fraction of supporting reads with soft clipping (better than number as CLPM!), and simulate
+// TODO fraction of supporting reads with soft clipping (better than number as CLPM!)
 // TODO calculate ref statistics even if no supporting reads
 // TODO add consensus span region back to tsv
 // TODO options for calculating subset of data only
@@ -601,14 +601,11 @@ int main (
                     const auto ret = medianNN (*pwds);
                     return ret;
                 },
-                [] (const auto ev, const auto sim) {
-                    return sim <= ev;
-                },
                 // +1 removes confusing values when 0,
                 // log makes effect size symmetric around 0
                 // log2 means -1 = half the size of background
                 // +1 = double the size of background
-                [] (const auto ev, const auto simv) {
+                [] (const auto &ev, const auto &simv) {
                     return log2 ((ev + 1) / (*mean (simv) + 1));
                 },
                 sim_config
@@ -652,10 +649,7 @@ int main (
                     const auto ret = medianNN (*pwds);
                     return ret;
                 },
-                [] (const auto ev, const auto sim) {
-                    return sim <= ev;
-                },
-                [] (const auto ev, const auto simv) {
+                [] (const auto &ev, const auto &simv) {
                     return log2 ((ev + 1) / (*mean (simv) + 1));
                 },
                 sim_config
@@ -695,11 +689,8 @@ int main (
                     assert (slas);
                     return *slas;
                 },
-                [] (const auto ev, const auto sim) {
-                    return sim <= ev;
-                },
                 // effect size == raw delta
-                [] (const auto ev, const auto simv) {
+                [] (const auto &ev, const auto &simv) {
                     return ev - *mean (simv);
                 },
                 sim_config

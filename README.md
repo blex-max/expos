@@ -52,7 +52,7 @@ Usage:
   -n, --normal arg        Alignment for use as additional background data
                           for simulation
   -r, --ref arg           Alignment Reference Fasta for optionally adding
-                          template kolmogorov complexity to statistics.
+                          template complexity to statistics.
   -u, --uncompressed      output uncompressed VCF
 ```
 basic usage then looks like:
@@ -66,10 +66,10 @@ expos my.vcf my.bam
 These are the header lines from an output VCF describing the INFO fields added. The [] notation is used to indicate which element of the array holds the data in question where the INFO field added is an array.
 
 ```
-##INFO=<ID=KC,Number=1,Type=Integer,Description="Kolmogorov Complexity of region spanned by supporting templates, scaled by x100">
-##INFO=<ID=TM1NN,Number=3,Type=Float,Description="[0]Median nearest neighbour distance of template endpoints from read pairs supporting variant; [1]log2 ratio effect size and [2]P-value against background, from monte-carlo simulation">
-##INFO=<ID=QM1NN,Number=3,Type=Float,Description="[0]Median nearest neighbour distance of variant query position; [1]log2 ratio effect size and [2]P-value against background, from monte-carlo simulation">
-##INFO=<ID=MLAS,Number=3,Type=Float,Description="[0]Median read-Length-normalised Alignment Score (AS) of reads supporting variant;[1]delta (supporting - background) effect size and [2]P-value against background, from monte-carlo simulation">
+##INFO=<ID=RCMPLX,Number=1,Type=Integer,Description="Complexity (Lempel-Ziv estimated entropy rate) of region spanned by supporting templates, scaled by x100">
+##INFO=<ID=TM1NN,Number=3,Type=Float,Description="[0]Median nearest neighbour distance of template endpoints from read pairs supporting variant; [1]log2 ratio effect size and [2]two-sided P-value against background, from monte-carlo simulation">
+##INFO=<ID=QM1NN,Number=3,Type=Float,Description="[0]Median nearest neighbour distance of variant query position; [1]log2 ratio effect size and [2]two-sided P-value against background, from monte-carlo simulation">
+##INFO=<ID=MLAS,Number=3,Type=Float,Description="[0]Median read-Length-normalised Alignment Score (AS) of reads supporting variant;[1]delta (supporting - background) effect size and [2]two-sided P-value against background, from monte-carlo simulation">
 ```
 
 log2 effect sizes scale such no effect is 0, -1 means the statistic is 1/2 on supporting data compared background, -2 1/4, whereas an effect size of 1 means the statistic 2x on supporting data compared to background, 2 4x. Practically this means that effect sizes below 0 indicate tighter clustering of observations as compared to background.
@@ -87,17 +87,16 @@ MLAS is equivalent to ASRD as may be familiar to some users.
 # line by line:
 # 1: pipe VCF producing program to expos stdin.
 # 2: calculate statistics with expos, reading VCF from stdin (-), output uncompressed VCF to stdout.
-# 3: statisically-backed flagging on distribution/clustering stats;
-# flagging variants where observations are at least 2x as tightly clustered as the background data,
+# 3, 4: statisically-backed flagging on distribution/clustering stats;
+# flagging variants where observations are at least 2x as tightly clustered or spread as the background data,
 # and the difference is statistically significant (P <= 0.05).
-# 4: statistically-backed threshold flagging on alignment score;
-# flagging variants where MLAS < 0.93, and the difference between supporting reads
-# and background is statistically significant (P <= 0.05)
-# but ignoring very small effects.
-# 5: conservative heuristic/rule-of-thumb flagging on poor alignment score in regions of low complexity, and write to disk.
+# 5: statistically-backed flagging on siginificant drops in alignment score on supporting reads in regions
+# of low reference complexity;
+# 6: heuristic/rule-of-thumb flagging on poor alignment score, and write to disk.
 <some vcf producing command> |
 ./path/to/expos -u --ref ref.fa - my.bam |
-bcftools filter --mode + -s SPATIAL -e'(INFO/QM1NN[1] <= -1.0 & INFO/QM1NN[2] <= 0.05) | (INFO/TM1NN[1] <= -1.0 & INFO/TM1NN[2] <= 0.05)' |
-bcftools filter --mode + -s LOW_AS -e'(INFO/MLAS[0] < 0.93 & INFO/MLAS[1] < -0.05 & INFO/MLAS[2] <= 0.05)' |
-bcftools filter --mode + -s LOW_CMPLX -e'(INFO/MLAS[0] < 0.93 & INFO/KC < 150)' > my.flagged.vcf
+bcftools filter --mode + -s CLUSTER -e'(INFO/QM1NN[1] <= -1.0 & INFO/QM1NN[2] < 0.05) | (INFO/TM1NN[1] <= -1.0 & INFO/TM1NN[2] < 0.05)' |
+bcftools filter --mode + -s SPREAD -e'(INFO/QM1NN[1] >= 1 & INFO/QM1NN[2] < 0.05) | (INFO/TM1NN[1] >= 1 & INFO/TM1NN[2] < 0.05)' |
+bcftools filter --mode + -s LOW_CMPLX -e'(INFO/MLAS[1] < 0 & INFO/MLAS[2] < 0.05 & INFO/RCMPLX < 150)' |
+bcftools filter --mode + -s LOW_AS -e'(INFO/MLAS[0] < 0.93)' > my.flagged.vcf
 ```
