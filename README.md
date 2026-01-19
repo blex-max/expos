@@ -80,8 +80,6 @@ Assessments of spatial clustering of mutant bases have been used to filter false
 
 expos implements a nearest-neighbour algorithm (Cover, 1967) on two spatial properties of the set of mutant reads; the query position of the mutation on each read, and the endpoints of the inferred template from which each read was amplified. For each property, expos finds the distance to the single closest neighbour for each read, and reports the median of the set of these distances. Since the unit of these metrics is in sequence bases, they are readily interpretable as descriptive statistics – what is the average distance in bases to the closest neighboring observation?
 
-The underlying hypothesis is that mutant reads should be drawn from the same spatial distribution as reference reads; if mutant reads differ significantly from reference reads, then the spatial process producing those reads deviates from the spatial process producing the reference reads. This may indicate that a non-biological process, or sequencing artefact, is responsible for the mutant reads since it would not be expected that mutant reads exhibit a unique preference for a particular region. These statistics are an advancement on the heuristic approach to this kind of artefact detection put forward by Ellis et al., and GATK's ReadPosRankSumTest
-
 These are the header lines from an output VCF describing the INFO fields added. The [] notation is used to indicate which element of the array holds the data in question where the INFO field added is an array.
 
 ```
