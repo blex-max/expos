@@ -380,7 +380,7 @@ int main (
                  "M1NN\tQPOS_M1NN_"
                  "EFFSZ\tQPOS_M1NN_PVAL\t"
                  "TEMPL_M1NN\tTEMPL_M1NN_EFFSZ\tTEMPL_M1NN_PVAL\t"
-                 "CONSENSUS_CMPLXx100\tNALT_READS\t"
+                 "CONSENSUS_CMPLXx100\tLMOST_TEMPLATE_START\tRMOST_TEMPLATE_END\tNALT_READS\t"
                  "NTOTAL_READS"
               << "\n";
     }
@@ -798,7 +798,9 @@ int main (
         if (otsv) {
             *otsv << std::format (
                 "{}\t{}\t{}\t{}\t{}\t"
-                "{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}",
+                "{}\t{}\t{}\t{}\t{}\t"
+                "{}\t{}\t{}\t{}\t{}\t"
+                "{}",
                 rid_name,
                 b1->pos + 1,
                 opt_to_str<double> (mlas, "NA", rdbl2),
@@ -811,6 +813,8 @@ int main (
                 opt_to_str<double> (te_m1nn_sim.eff_sz, te_m1nn_sim.err, rdbl2),
                 opt_to_str<double> (te_m1nn_sim.pval, te_m1nn_sim.err, rdbl4),
                 opt_to_str (kc, "NA"),
+                std::to_string(lmosttc),
+                std::to_string(rmosttc),
                 std::to_string (altd.nreads),     // n supporting reads
                 std::to_string (altd.nreads + vard.other.nreads)
             ) << "\n";
