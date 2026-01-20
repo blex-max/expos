@@ -648,16 +648,20 @@ int main (
             }
 
             // simulate against uniform distribution
-            // std::uniform_int_distribution<uint64_t> rand_qpos{0, read_len};
-            // qpos_m1nn_unisim = sim_to_bg(
-            //     *qpos_m1nn,
-            //     n_event_obs,
-            //     [&rand_qpos, &rng] () {
-            //         return rand_qpos(rng);
-            //     },
-            //     stat_fn,
-            //     log2_effsz
-            // );
+            std::uniform_int_distribution<uint64_t> qpos_gen{0, read_len};
+            qpos_m1nn_unisim = sim_to_bg(
+                *qpos_m1nn,
+                n_event_obs,
+                [&qpos_gen, &rng, n_event_obs] () {
+                    std::vector<uint64_t> rand_qpos;
+                    for (size_t i = 0; i < n_event_obs; ++i) {
+                        rand_qpos.push_back(qpos_gen(rng));
+                    }
+                    return rand_qpos;
+                },
+                stat_fn,
+                log2_effsz
+            );
 
         } else {
             qpos_m1nn_bgsim.err = "INSUFF_OBS";
