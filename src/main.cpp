@@ -119,6 +119,7 @@ int main (
     fs::path                 otsv_path;
     std::vector<std::string> flt_inc;
     std::vector<std::string> flt_exc;
+    uint32_t                 seed = 24601;
     size_t                   read_len = 150;
     int                      flag_inc = 3;
     int                      flag_exc = 3852;
@@ -168,6 +169,9 @@ int main (
         ("r,ref",
          "Alignment Reference Fasta for optionally adding reference complexity to statistics.",
          cxxopts::value<fs::path>())
+        ("seed",
+        "Set random seed. Default: 24601",
+        cxxopts::value<uint32_t>())
         ("normal-only",
          "Use only reads from the provided normal as background data, excluding non-supporting reads from the sample")
         ("u,uncompressed", "output uncompressed VCF");
@@ -229,6 +233,9 @@ int main (
         }
         if (parsedargs.count ("flag-exclude")) {
             flag_exc = parsedargs["flag-exclude"].as<int>();
+        }
+        if (parsedargs.count ("seed")) {
+            seed = parsedargs["seed"].as<uint32_t>();
         }
 
         if (parsedargs.count ("tsv")) {
@@ -404,6 +411,7 @@ int main (
 
 
     std::mt19937 rng{};
+    rng.seed(seed);
     bool         firsti = true;
     bcf1_upt     b1{bcf_init(), bcf_destroy};
     while (bcf_read (vcffh.get(), vcf_hdr.get(), b1.get()) == 0) {
@@ -624,12 +632,11 @@ int main (
             ) {
                 qpos_m1nn_bgsim.err = "INSUFF_BG";
             } else {
-                std::uniform_int_distribution<size_t> rand_idx{0, qpos_popv.size() - 1};
                 qpos_m1nn_bgsim = sim_to_bg (
                     *qpos_m1nn,
                     n_event_obs,
-                    [&qpos_popv, &rng, &rand_idx] () {
-                        return qpos_popv[rand_idx(rng)];
+                    [&qpos_popv, &rng, n_event_obs] () {
+                        return subsample_wo_replace(qpos_popv, n_event_obs, rng);
                     },
                     stat_fn,
                     // +1 removes confusing values when 0,
@@ -641,16 +648,16 @@ int main (
             }
 
             // simulate against uniform distribution
-            std::uniform_int_distribution<uint64_t> rand_qpos{0, read_len};
-            qpos_m1nn_unisim = sim_to_bg(
-                *qpos_m1nn,
-                n_event_obs,
-                [&rand_qpos, &rng] () {
-                    return rand_qpos(rng);
-                },
-                stat_fn,
-                log2_effsz
-            );
+            // std::uniform_int_distribution<uint64_t> rand_qpos{0, read_len};
+            // qpos_m1nn_unisim = sim_to_bg(
+            //     *qpos_m1nn,
+            //     n_event_obs,
+            //     [&rand_qpos, &rng] () {
+            //         return rand_qpos(rng);
+            //     },
+            //     stat_fn,
+            //     log2_effsz
+            // );
 
         } else {
             qpos_m1nn_bgsim.err = "INSUFF_OBS";
@@ -686,12 +693,11 @@ int main (
             ) {
                 te_m1nn_sim.err = "INSUFF_BG";
             } else {
-                std::uniform_int_distribution<size_t> rand_idx{0, te_popv.size() - 1};
                 te_m1nn_sim = sim_to_bg (
                     *te_m1nn,
                     n_event_obs,
-                    [&rng, &rand_idx, &te_popv] () {
-                        return te_popv[rand_idx(rng)];
+                    [&rng, &te_popv, n_event_obs] () {
+                        return subsample_wo_replace(te_popv, n_event_obs, rng);
                     },
                     [&mannd] (const Ttev &v) {
                         const auto pwds = PairMatrix::from_sample (
@@ -738,12 +744,11 @@ int main (
             if (mlas_popv.size() < (2 * n_event_obs)) {
                 mlas_sim.err = "INSUFF_BG";
             } else {
-                std::uniform_int_distribution<size_t> rand_idx{0, mlas_popv.size() - 1};
                 mlas_sim = sim_to_bg (
                     *mlas,
                     n_event_obs,
-                    [&rng, &rand_idx, &mlas_popv] () {
-                        return mlas_popv[rand_idx(rng)];
+                    [&rng, &mlas_popv, n_event_obs] () {
+                        return subsample_wo_replace(mlas_popv, n_event_obs, rng);
                     },
                     [] (const std::vector<double> &v) {
                         const auto slas = percentile (v, 0.5);

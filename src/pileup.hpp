@@ -126,119 +126,120 @@ auto inline get_aln_data (
 
         if (plp_pos != v->pos) {
             continue;     // doesn't cover variant
+        } else {
+            for (size_t i = 0; i < static_cast<size_t> (n_plp); i++) {
+                const auto pli = plarr + i;
+
+                const std::string qname{bam_get_qname (pli->b)};
+
+                // These are error states rather than skips
+                // because if either occurs then something is fundamentally wrong
+                // i.e. neither can occur during correct application of this function
+                auto raw_mc = bam_aux_get (pli->b, "MC");
+                if (raw_mc == NULL)
+                    throw std::runtime_error (
+                        std::format ("no MC tag for read {}", qname)
+                    );
+                if (bam_aux_type (raw_mc) != 'Z')
+                    throw std::runtime_error (
+                        std::format (
+                            "MC tag is not of type 'Z' for read {}. "
+                            "Record data corrupt; type 'Z' is mandated "
+                            "for MC tag by SAM format spec. Try samtools"
+                            "fixmate?",
+                            qname
+                        )
+                    );
+                const std::string mc{bam_aux2Z (raw_mc)};
+                if (bam_parse_cigar (mc.c_str(), NULL, mateb.get()) < 1) {
+                    throw std::runtime_error (
+                        std::format (
+                            "unable to parse MC tag {} as cigar string "
+                            "for read {}",
+                            mc,
+                            qname
+                        )
+                    );
+                }
+
+                auto raw_AS = bam_aux_get (pli->b, "AS");
+                if (raw_AS == NULL)
+                    throw std::runtime_error (
+                        std::format ("no AS tag for read {}", qname)
+                    );
+                const auto raw_AS_type = bam_aux_type (raw_AS);
+                if (raw_AS_type != 'i' && raw_AS_type != 'C')
+                    throw std::runtime_error (
+                        std::format (
+                            "AS tag is not of type 'i' for read {}. "
+                            "Record data corrupt; type 'i' is mandated "
+                            "for AS tag by SAM format spec.",
+                            qname
+                        )
+                    );
+
+                // check variant support
+                auto &bin = (eval_support
+                             && evaluate_support (pli, v, mtype))
+                                ? obs.alt
+                                : obs.other;
+
+                bin.nreads++;
+
+                bin.las.push_back (  // TODO guard
+                    static_cast<double> (bam_aux2i (raw_AS))
+                    / static_cast<double> (pli->b->core.l_qseq)
+                );     // length-normalised alignment score
+
+                const auto l0 = pli->b->core.pos;
+
+                if (!(pli->is_del || pli->is_refskip || pli->qpos < 0)) {
+                    bin.qp.emplace_back (as_uint (pli->qpos));
+                }
+
+                // don't double count templates,
+                // shared between read pairs (by definition)
+                if (qnames.find (qname)
+                    != qnames.end()) {     // qname already seen
+                    continue;
+                }
+                qnames.insert (qname);
+
+                // check mate mapped to same reference
+                // NOTE: this would probably need to be adjusted
+                // if single end data is to be accepted
+                if (plp_tid != pli->b->core.mtid) {
+                    // std::cout << "mtid skip" << std::endl;
+                    continue;
+                }
+
+                //--- get template region ---//
+                endpoints[0] = l0;
+                endpoints[1] = l0
+                               + bam_cigar2rlen (
+                                   static_cast<int> (pli->b->core.n_cigar),
+                                   bam_get_cigar (pli->b)
+                               );
+                const auto ml0 = pli->b->core.mpos;     // leftmost mate coord
+                endpoints[2] = ml0;
+                endpoints[3] = ml0
+                               + bam_cigar2rlen (
+                                   static_cast<int> (mateb->core.n_cigar),
+                                   bam_get_cigar (mateb)
+                               );
+
+                const auto tco = std::minmax_element (
+                    endpoints.begin(),
+                    endpoints.end()
+                );     // NOTE returns pair of *ptrs*
+
+                bin.te.emplace_back (
+                    as_uint (*tco.first),
+                    as_uint (*tco.second)
+                );
+            }
         }
-
-        for (size_t i = 0; i < static_cast<size_t> (n_plp); i++) {
-            const auto pli = plarr + i;
-
-            const std::string qname{bam_get_qname (pli->b)};
-
-            // These are error states rather than skips
-            // because if either occurs then something is fundamentally wrong
-            // i.e. neither can occur during correct application of this function
-            auto raw_mc = bam_aux_get (pli->b, "MC");
-            if (raw_mc == NULL)
-                throw std::runtime_error (
-                    std::format ("no MC tag for read {}", qname)
-                );
-            if (bam_aux_type (raw_mc) != 'Z')
-                throw std::runtime_error (
-                    std::format (
-                        "MC tag is not of type 'Z' for read {}. "
-                        "Record data corrupt; type 'Z' is mandated "
-                        "for MC tag by SAM format spec. Try samtools"
-                        "fixmate?",
-                        qname
-                    )
-                );
-            const std::string mc{bam_aux2Z (raw_mc)};
-            if (bam_parse_cigar (mc.c_str(), NULL, mateb.get()) < 1) {
-                throw std::runtime_error (
-                    std::format (
-                        "unable to parse MC tag {} as cigar string "
-                        "for read {}",
-                        mc,
-                        qname
-                    )
-                );
-            }
-
-            auto raw_AS = bam_aux_get (pli->b, "AS");
-            if (raw_AS == NULL)
-                throw std::runtime_error (
-                    std::format ("no AS tag for read {}", qname)
-                );
-            const auto raw_AS_type = bam_aux_type (raw_AS);
-            if (raw_AS_type != 'i' && raw_AS_type != 'C')
-                throw std::runtime_error (
-                    std::format (
-                        "AS tag is not of type 'i' for read {}. "
-                        "Record data corrupt; type 'i' is mandated "
-                        "for AS tag by SAM format spec.",
-                        qname
-                    )
-                );
-
-            // check variant support
-            auto &bin = (eval_support
-                         && evaluate_support (pli, v, mtype))
-                            ? obs.alt
-                            : obs.other;
-
-            bin.nreads++;
-
-            bin.las.push_back (  // TODO guard
-                static_cast<double> (bam_aux2i (raw_AS))
-                / static_cast<double> (pli->b->core.l_qseq)
-            );     // length-normalised alignment score
-
-            const auto l0 = pli->b->core.pos;
-
-            if (!(pli->is_del || pli->is_refskip || pli->qpos < 0)) {
-                bin.qp.emplace_back (as_uint (pli->qpos));
-            }
-
-            // don't double count templates,
-            // shared between read pairs (by definition)
-            if (qnames.find (qname)
-                != qnames.end()) {     // qname already seen
-                continue;
-            }
-            qnames.insert (qname);
-
-            // check mate mapped to same reference
-            // NOTE: this would probably need to be adjusted
-            // if single end data is to be accepted
-            if (plp_tid != pli->b->core.mtid) {
-                // std::cout << "mtid skip" << std::endl;
-                continue;
-            }
-
-            //--- get template region ---//
-            endpoints[0] = l0;
-            endpoints[1] = l0
-                           + bam_cigar2rlen (
-                               static_cast<int> (pli->b->core.n_cigar),
-                               bam_get_cigar (pli->b)
-                           );
-            const auto ml0 = pli->b->core.mpos;     // leftmost mate coord
-            endpoints[2] = ml0;
-            endpoints[3] = ml0
-                           + bam_cigar2rlen (
-                               static_cast<int> (mateb->core.n_cigar),
-                               bam_get_cigar (mateb)
-                           );
-
-            const auto tco = std::minmax_element (
-                endpoints.begin(),
-                endpoints.end()
-            );     // NOTE returns pair of *ptrs*
-
-            bin.te.emplace_back (
-                as_uint (*tco.first),
-                as_uint (*tco.second)
-            );
-        }
+        break;
     }
 
     return obs;

@@ -7,7 +7,9 @@
 #include <cstdint>
 #include <limits>
 #include <math.h>
+#include <numeric>
 #include <optional>
+#include <random>
 #include <stdexcept>
 #include <vector>
 
@@ -196,9 +198,13 @@ template <
     typename StatFn,
     typename DrawFn,
     typename EffFn,
-    typename ObsT = std::invoke_result_t<DrawFn&>
+    typename ObsT = typename std::invoke_result_t<DrawFn&>::value_type
 >
 requires
+    std::same_as<
+        std::invoke_result_t<DrawFn&>,
+        std::vector<ObsT>
+    > &&
     std::same_as<
         std::invoke_result_t<StatFn&, const std::vector<ObsT> &>,
         StatT
@@ -221,17 +227,8 @@ inline stat_eval_s sim_to_bg (
         res.err = "INSUFF_OBS";
         return res;
     }
-    // if (
-    //     total_obs.size()
-    //     < n_ev_obs
-    //           * 2     // at a bare minimum, we want 2x more total samples than bg
-    // ) {
-    //     res.err = "INSUFF_BG";
-    //     return res;
-    // }
 
     std::vector<ObsT> sim_obs;
-    sim_obs.reserve(n_ev_obs);
 
     std::vector<StatT> draw_results;
     draw_results.reserve(nsim);
@@ -239,9 +236,7 @@ inline stat_eval_s sim_to_bg (
     size_t sim_count_le = 0;  // count of simulated stats that are <= observed stat
     for (size_t i = 0; i < nsim; ++i) {
         sim_obs.clear();
-        for (size_t j = 0; j < n_ev_obs; ++j) {
-            sim_obs.push_back(drawfn());
-        }
+        sim_obs = drawfn();
 
         const auto draw_stat = statfn (sim_obs);
         if (draw_stat <= ev_stat) {
@@ -272,6 +267,38 @@ inline stat_eval_s sim_to_bg (
 
 inline auto log2_effsz (const double &ev, const std::vector<double> &simv) {
     return log2 ((ev + 1) / (*mean (simv) + 1));
+}
+
+// get a random sample without replacement of
+// size n from input obs vector.
+template <typename T>
+inline std::vector<T> subsample_wo_replace (
+    const std::vector<T>& obs,
+    size_t n,
+    std::mt19937 &rng
+) {
+    size_t nobs = obs.size();
+    assert (n < nobs);
+
+    // partial Fisher–Yates shuffle an index vector so that
+    // idx[0..n] is a uniform sample without replacement.
+    std::vector<size_t> all_idx;
+    all_idx.resize(nobs);
+    std::iota(begin(all_idx), end(all_idx), 0);
+
+    // shuffle
+    for (size_t i = 0; i < n; ++i) {
+        std::uniform_int_distribution<size_t> dist(i, nobs - 1);
+        size_t j = dist(rng);
+        std::swap(all_idx[i], all_idx[j]);
+    }
+
+    // get obs
+    std::vector<T> out;
+    for (size_t k = 0; k < n; ++k) {
+        out.push_back(obs[all_idx[k]]);
+    }
+    return out;
 }
 
 // FOR REF COMPLEXITY
