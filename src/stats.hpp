@@ -8,7 +8,6 @@
 #include <limits>
 #include <math.h>
 #include <optional>
-#include <random>
 #include <stdexcept>
 #include <vector>
 
@@ -192,83 +191,88 @@ struct stat_eval_s {
 // how often do we get a lt/gt value for the
 // statistic in question (pvalue), and
 // how large is the effect size.
-// clang-format off
-struct sim_to_bgConfig {
-const size_t       nsim              = 2500;
-const size_t       event_obs_ext_min = 0;
-std::mt19937      rng               = {};
-};
 template <
-    typename ObsT,
+    typename StatT,
     typename StatFn,
+    typename DrawFn,
     typename EffFn,
-    typename StatT = std::invoke_result_t<StatFn&, const std::vector<ObsT> &>
+    typename ObsT = std::invoke_result_t<DrawFn&>
 >
 requires
-    std::invocable<StatFn&, const std::vector<ObsT> &> &&
-    std::invocable<EffFn&, StatT, const std::vector<StatT> &> &&
+    std::same_as<
+        std::invoke_result_t<StatFn&, const std::vector<ObsT> &>,
+        StatT
+    > &&
     std::same_as<
         std::invoke_result_t<EffFn&, StatT, const std::vector<StatT> &>,
-        double>
-// clang-format on
+        double
+    >
 inline stat_eval_s sim_to_bg (
-    StatT             ev_stat,
-    size_t            n_ev_obs,
-    std::vector<ObsT> total_obs,     // intentional copy (or move-in)
-    StatFn          &&statfn,
-    EffFn           &&efffn,
-    sim_to_bgConfig  &conf
+    StatT    ev_stat,
+    size_t   n_ev_obs,
+    DrawFn &&drawfn,
+    StatFn &&statfn,
+    EffFn  &&efffn,
+    size_t   nsim=2500
 ) {
     stat_eval_s res;
     assert (nsim > 0);
-    if (n_ev_obs < 2 || n_ev_obs < conf.event_obs_ext_min) {
+    if (n_ev_obs < 2) {
         res.err = "INSUFF_OBS";
         return res;
     }
-    if (
-        total_obs.size()
-        < n_ev_obs
-              * 2     // at a bare minimum, we want 2x more total samples than bg
-    ) {
-        res.err = "INSUFF_BG";
-        return res;
-    }
+    // if (
+    //     total_obs.size()
+    //     < n_ev_obs
+    //           * 2     // at a bare minimum, we want 2x more total samples than bg
+    // ) {
+    //     res.err = "INSUFF_BG";
+    //     return res;
+    // }
 
-    std::vector<StatT> sim_vals;
-    size_t             sim_count_le = 0;  // count of simulated stats that are <= observed stat
-    for (size_t i = 0; i < conf.nsim; ++i) {
-        std::shuffle (begin (total_obs), end (total_obs), conf.rng);
-        const auto draw_stat = statfn (
-            std::vector (
-                total_obs.begin(),
-                total_obs.begin() + n_ev_obs
-            )
-        );
+    std::vector<ObsT> sim_obs;
+    sim_obs.reserve(n_ev_obs);
+
+    std::vector<StatT> draw_results;
+    draw_results.reserve(nsim);
+
+    size_t sim_count_le = 0;  // count of simulated stats that are <= observed stat
+    for (size_t i = 0; i < nsim; ++i) {
+        sim_obs.clear();
+        for (size_t j = 0; j < n_ev_obs; ++j) {
+            sim_obs.push_back(drawfn());
+        }
+
+        const auto draw_stat = statfn (sim_obs);
         if (draw_stat <= ev_stat) {
             ++sim_count_le;
         }
-        sim_vals.push_back (draw_stat);
+        draw_results.push_back (draw_stat);
     }
 
     // report effect size
     // if eff_sz is large then we can
     // get away with a low number of samples
     // if not it's just noise
-    res.eff_sz = efffn (ev_stat, sim_vals);
+    res.eff_sz = efffn (ev_stat, draw_results);
 
     // TODO "power analysis"
 
     // two sided p val
     res.pval = 2
-               * static_cast<double> (std::min(sim_count_le + 1, conf.nsim - sim_count_le + 1))
-               / static_cast<double> (conf.nsim + 1);
+               * static_cast<double> (std::min(sim_count_le + 1, nsim - sim_count_le + 1))
+               / static_cast<double> (nsim + 1);
 
     // one sided
     // res.pval = static_cast<double> (sim_count_le + 1)
-    //            / static_cast<double> (conf.nsim + 1);
+    //            / static_cast<double> (nsim + 1);
     return res;
 }
 
+
+inline auto log2_effsz (const double &ev, const std::vector<double> &simv) {
+    return log2 ((ev + 1) / (*mean (simv) + 1));
+}
 
 // FOR REF COMPLEXITY
 // lempel-ziv 76 entropy rate (bits per base)

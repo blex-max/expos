@@ -30,6 +30,7 @@
 #include <htslib/hts.h>
 #include <htslib/sam.h>
 #include <htslib/vcf.h>
+#include <random>
 #include <stdexcept>
 #include <unordered_map>
 
@@ -118,9 +119,11 @@ int main (
     fs::path                 otsv_path;
     std::vector<std::string> flt_inc;
     std::vector<std::string> flt_exc;
+    size_t                   read_len = 150;
     int                      flag_inc = 3;
     int                      flag_exc = 3852;
     bool                     no_gz = false;
+    bool                     normal_only = false;
     // std::vector<std::string> wfields;
 
     // clang-format off
@@ -165,6 +168,8 @@ int main (
         ("r,ref",
          "Alignment Reference Fasta for optionally adding reference complexity to statistics.",
          cxxopts::value<fs::path>())
+        ("normal-only",
+         "Use only reads from the provided normal as background data, excluding non-supporting reads from the sample")
         ("u,uncompressed", "output uncompressed VCF");
     // clang-format on
 
@@ -376,19 +381,31 @@ int main (
         // TODO -- pre-header comments explaining each field
         // NOTE -- TSV header should always stay the same.
         // Columns not calculated should simply be NA or other indicator
-        *otsv << "CHROM\tPOS\t\tMLAS\tMLAS_EFFSZ\tMLAS_PVAL\tQPOS_"
-                 "M1NN\tQPOS_M1NN_"
-                 "EFFSZ\tQPOS_M1NN_PVAL\t"
-                 "TEMPL_M1NN\tTEMPL_M1NN_EFFSZ\tTEMPL_M1NN_PVAL\t"
-                 "CONSENSUS_CMPLXx100\tLMOST_TEMPLATE_START\tRMOST_TEMPLATE_END\tNALT_READS\t"
+        *otsv << "CHROM\t"
+                 "POS\t"
+                 "MLAS\t"
+                 "MLAS_EFFSZ\t"
+                 "MLAS_PVAL\t"
+                 "QPOS_M1NN\t"
+                 "QPOS_M1NN_EFFSZ_TO_BACKGROUND\t"
+                 "QPOS_M1NN_PVAL_TO_BACKGROUND\t"
+                 "QPOS_M1NN_EFFSZ_TO_UNIFORM\t"
+                 "QPOS_M1NN_PVAL_TO_UNIFORM\t"
+                 "TEMPL_M1NN\t"
+                 "TEMPL_M1NN_EFFSZ\t"
+                 "TEMPL_M1NN_PVAL\t"
+                 "CONSENSUS_CMPLXx100\t"
+                 "LMOST_TEMPLATE_START\t"
+                 "RMOST_TEMPLATE_END\t"
+                 "NALT_READS\t"
                  "NTOTAL_READS"
               << "\n";
     }
 
 
-    sim_to_bgConfig sim_config{};
-    bool            firsti = true;
-    bcf1_upt        b1{bcf_init(), bcf_destroy};
+    std::mt19937 rng{};
+    bool         firsti = true;
+    bcf1_upt     b1{bcf_init(), bcf_destroy};
     while (bcf_read (vcffh.get(), vcf_hdr.get(), b1.get()) == 0) {
         if (firsti) {
             for (const auto &f : flt_inc) {
@@ -504,7 +521,7 @@ int main (
                 };
                 continue;
         }
-        auto vard = get_aln_data (
+        auto sample_pileup = get_aln_data (
             alnfh.get(),
             aln_idx.get(),
             b1.get(),
@@ -513,9 +530,9 @@ int main (
             flag_inc,
             flag_exc
         );
-        std::optional<aln_obs> normd;
+        std::optional<aln_obs> normal_pileup;
         if (norm) {
-            normd = get_aln_data (
+            normal_pileup = get_aln_data (
                 norm->first.get(),
                 norm->second.get(),
                 b1.get(),
@@ -526,7 +543,7 @@ int main (
             );
         }
 
-        auto &altd = vard.alt;
+        auto &altd = sample_pileup.alt;
         if (altd.qp.empty() || altd.te.empty()) {
             std::cerr << std::format (
                 "no supporting reads found for variant {} {} {}, "
@@ -551,13 +568,13 @@ int main (
         using Tte    = Ttev::value_type;
 
         // get pairwise distances
-        constexpr auto d1d = [] (const Tqpos &a,
+        constexpr auto basic_dist = [] (const Tqpos &a,
                                  const Tqpos &b) -> Tqpos {
             return (a > b) ? (a - b) : (b - a);
         };
         const auto qpos_pwd = PairMatrix::from_sample (
             altd.qp,
-            d1d
+            basic_dist
         );     // empty if <2 samples
         // manhattan distance
         constexpr auto mannd = [] (const Tte &a,
@@ -570,48 +587,73 @@ int main (
 
         // nearest neighbour monte carlo //
         std::optional<double> qpos_m1nn;
-        stat_eval_s           qpos_m1nn_sim;
+        stat_eval_s           qpos_m1nn_bgsim;  // compared to all reads
+        stat_eval_s           qpos_m1nn_unisim; // compared to expected distribution
         if (qpos_pwd) {
             qpos_m1nn = medianNN (*qpos_pwd);
             Tqposv qpos_popv;
             qpos_popv.insert (
                 qpos_popv.end(),
-                begin (vard.alt.qp),
-                end (vard.alt.qp)
+                begin (sample_pileup.alt.qp),
+                end (sample_pileup.alt.qp)
             );
             qpos_popv.insert (
                 qpos_popv.end(),
-                begin (vard.other.qp),
-                end (vard.other.qp)
+                begin (sample_pileup.other.qp),
+                end (sample_pileup.other.qp)
             );
-            if (normd) {     // ADD NORMAL OBS
+            if (normal_pileup) {     // ADD NORMAL OBS
                 qpos_popv.insert (
                     qpos_popv.end(),
-                    begin (normd->other.qp),
-                    end (normd->other.qp)
+                    begin (normal_pileup->other.qp),
+                    end (normal_pileup->other.qp)
                 );
             }
-            qpos_m1nn_sim = sim_to_bg (
+
+            auto stat_fn = [&basic_dist] (const Tqposv &v) {
+                const auto pwds = PairMatrix::from_sample (v, basic_dist);
+                assert (pwds);
+                const auto ret = medianNN (*pwds);
+                return ret;
+            };
+            auto n_event_obs = altd.qp.size();
+            // at a bare minimum, we want 2x more total samples than bg
+            if (
+                qpos_popv.size()
+                < n_event_obs * 2
+            ) {
+                qpos_m1nn_bgsim.err = "INSUFF_BG";
+            } else {
+                std::uniform_int_distribution<size_t> rand_idx{0, qpos_popv.size() - 1};
+                qpos_m1nn_bgsim = sim_to_bg (
+                    *qpos_m1nn,
+                    n_event_obs,
+                    [&qpos_popv, &rng, &rand_idx] () {
+                        return qpos_popv[rand_idx(rng)];
+                    },
+                    stat_fn,
+                    // +1 removes confusing values when 0,
+                    // log makes effect size symmetric around 0
+                    // log2 means -1 = half the size of background
+                    // +1 = double the size of background
+                    log2_effsz
+                );
+            }
+
+            // simulate against uniform distribution
+            std::uniform_int_distribution<uint64_t> rand_qpos{0, read_len};
+            qpos_m1nn_unisim = sim_to_bg(
                 *qpos_m1nn,
-                altd.qp.size(),
-                qpos_popv,
-                [&d1d] (const Tqposv &v) {
-                    const auto pwds = PairMatrix::from_sample (v, d1d);
-                    assert (pwds);
-                    const auto ret = medianNN (*pwds);
-                    return ret;
+                n_event_obs,
+                [&rand_qpos, &rng] () {
+                    return rand_qpos(rng);
                 },
-                // +1 removes confusing values when 0,
-                // log makes effect size symmetric around 0
-                // log2 means -1 = half the size of background
-                // +1 = double the size of background
-                [] (const auto &ev, const auto &simv) {
-                    return log2 ((ev + 1) / (*mean (simv) + 1));
-                },
-                sim_config
+                stat_fn,
+                log2_effsz
             );
+
         } else {
-            qpos_m1nn_sim.err = "INSUFF_OBS";
+            qpos_m1nn_bgsim.err = "INSUFF_OBS";
         }
 
         std::optional<double> te_m1nn;
@@ -621,39 +663,50 @@ int main (
             Ttev te_popv;
             te_popv.insert (
                 te_popv.end(),
-                begin (vard.alt.te),
-                end (vard.alt.te)
+                begin (sample_pileup.alt.te),
+                end (sample_pileup.alt.te)
             );
             te_popv.insert (
                 te_popv.end(),
-                begin (vard.other.te),
-                end (vard.other.te)
+                begin (sample_pileup.other.te),
+                end (sample_pileup.other.te)
             );
-            if (normd) {     // ADD NORMAL OBS
+            if (normal_pileup) {     // ADD NORMAL OBS
                 te_popv.insert (
                     te_popv.end(),
-                    begin (normd->other.te),
-                    end (normd->other.te)
+                    begin (normal_pileup->other.te),
+                    end (normal_pileup->other.te)
                 );
             }
-            te_m1nn_sim = sim_to_bg (
-                *te_m1nn,
-                altd.te.size(),
-                te_popv,
-                [&mannd] (const Ttev &v) {
-                    const auto pwds = PairMatrix::from_sample (
-                        v,
-                        mannd
-                    );
-                    assert (pwds);
-                    const auto ret = medianNN (*pwds);
-                    return ret;
-                },
-                [] (const auto &ev, const auto &simv) {
-                    return log2 ((ev + 1) / (*mean (simv) + 1));
-                },
-                sim_config
-            );
+
+            auto n_event_obs = altd.te.size();
+            if (
+                te_popv.size()
+                < n_event_obs * 2
+            ) {
+                te_m1nn_sim.err = "INSUFF_BG";
+            } else {
+                std::uniform_int_distribution<size_t> rand_idx{0, te_popv.size() - 1};
+                te_m1nn_sim = sim_to_bg (
+                    *te_m1nn,
+                    n_event_obs,
+                    [&rng, &rand_idx, &te_popv] () {
+                        return te_popv[rand_idx(rng)];
+                    },
+                    [&mannd] (const Ttev &v) {
+                        const auto pwds = PairMatrix::from_sample (
+                            v,
+                            mannd
+                        );
+                        assert (pwds);
+                        const auto ret = medianNN (*pwds);
+                        return ret;
+                    },
+                    [] (const auto &ev, const auto &simv) {
+                        return log2 ((ev + 1) / (*mean (simv) + 1));
+                    }
+                );
+            }
         } else {
             te_m1nn_sim.err = "INSUFF_OBS";
         }
@@ -665,36 +718,44 @@ int main (
             std::vector<double> mlas_popv;
             mlas_popv.insert (
                 mlas_popv.end(),
-                begin (vard.alt.las),
-                end (vard.alt.las)
+                begin (sample_pileup.alt.las),
+                end (sample_pileup.alt.las)
             );
             mlas_popv.insert (
                 mlas_popv.end(),
-                begin (vard.other.las),
-                end (vard.other.las)
+                begin (sample_pileup.other.las),
+                end (sample_pileup.other.las)
             );
-            if (normd) {     // ADD NORMAL OBS
+            if (normal_pileup) {     // ADD NORMAL OBS
                 mlas_popv.insert (
                     mlas_popv.end(),
-                    begin (normd->other.las),
-                    end (normd->other.las)
+                    begin (normal_pileup->other.las),
+                    end (normal_pileup->other.las)
                 );
             }
-            mlas_sim = sim_to_bg (
-                *mlas,
-                altd.las.size(),
-                mlas_popv,
-                [] (const std::vector<double> &v) {
-                    const auto slas = percentile (v, 0.5);
-                    assert (slas);
-                    return *slas;
-                },
-                // effect size == raw delta
-                [] (const auto &ev, const auto &simv) {
-                    return ev - *mean (simv);
-                },
-                sim_config
-            );
+
+            auto n_event_obs = altd.las.size();
+            if (mlas_popv.size() < (2 * n_event_obs)) {
+                mlas_sim.err = "INSUFF_BG";
+            } else {
+                std::uniform_int_distribution<size_t> rand_idx{0, mlas_popv.size() - 1};
+                mlas_sim = sim_to_bg (
+                    *mlas,
+                    n_event_obs,
+                    [&rng, &rand_idx, &mlas_popv] () {
+                        return mlas_popv[rand_idx(rng)];
+                    },
+                    [] (const std::vector<double> &v) {
+                        const auto slas = percentile (v, 0.5);
+                        assert (slas);
+                        return *slas;
+                    },
+                    // effect size == raw delta
+                    [] (const auto &ev, const auto &simv) {
+                        return ev - *mean (simv);
+                    }
+                );
+            }
         } else {
             mlas_sim.err = "INSUFF_OBS";
         }
@@ -768,9 +829,9 @@ int main (
             float val[3]{
                 static_cast<float> (*qpos_m1nn),
                 static_cast<float> (
-                    qpos_m1nn_sim.eff_sz.value_or (0.0)
+                    qpos_m1nn_bgsim.eff_sz.value_or (0.0)
                 ),
-                static_cast<float> (qpos_m1nn_sim.pval.value_or (1.0))
+                static_cast<float> (qpos_m1nn_bgsim.pval.value_or (1.0))
             };
             write_info (FIELD_INF.at ("QM1NN"), &val);
         }
@@ -800,15 +861,17 @@ int main (
                 "{}\t{}\t{}\t{}\t{}\t"
                 "{}\t{}\t{}\t{}\t{}\t"
                 "{}\t{}\t{}\t{}\t{}\t"
-                "{}",
+                "{}\t{}\t{}",
                 rid_name,
                 b1->pos + 1,
                 opt_to_str<double> (mlas, "NA", rdbl2),
                 opt_to_str<double> (mlas_sim.eff_sz, mlas_sim.err, rdbl2),
                 opt_to_str<double> (mlas_sim.pval, mlas_sim.err, rdbl4),
                 opt_to_str<double> (qpos_m1nn, "NA", rdbl2),
-                opt_to_str<double> (qpos_m1nn_sim.eff_sz, qpos_m1nn_sim.err, rdbl2),
-                opt_to_str<double> (qpos_m1nn_sim.pval, qpos_m1nn_sim.err, rdbl4),
+                opt_to_str<double> (qpos_m1nn_bgsim.eff_sz, qpos_m1nn_bgsim.err, rdbl2),
+                opt_to_str<double> (qpos_m1nn_bgsim.pval, qpos_m1nn_bgsim.err, rdbl4),
+                opt_to_str<double> (qpos_m1nn_unisim.eff_sz, qpos_m1nn_unisim.err, rdbl2),
+                opt_to_str<double> (qpos_m1nn_unisim.pval, qpos_m1nn_unisim.err, rdbl4),
                 opt_to_str<double> (te_m1nn, "NA", rdbl2),
                 opt_to_str<double> (te_m1nn_sim.eff_sz, te_m1nn_sim.err, rdbl2),
                 opt_to_str<double> (te_m1nn_sim.pval, te_m1nn_sim.err, rdbl4),
@@ -816,7 +879,7 @@ int main (
                 std::to_string(lmosttc),
                 std::to_string(rmosttc),
                 std::to_string (altd.nreads),     // n supporting reads
-                std::to_string (altd.nreads + vard.other.nreads)
+                std::to_string (altd.nreads + sample_pileup.other.nreads)
             ) << "\n";
         }
         // clang-format on
