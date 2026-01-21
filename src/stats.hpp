@@ -259,6 +259,10 @@ inline stat_eval_s sim_to_bg (
 }
 
 
+// +1 removes confusing values when 0,
+// log makes effect size symmetric around 0
+// log2 means -1 = half the size of background
+// +1 = double the size of background
 inline auto log2_effsz (const double &ev, const std::vector<double> &simv) {
     return log2 ((ev + 1) / (*mean (simv) + 1));
 }
