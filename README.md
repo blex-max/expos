@@ -64,8 +64,12 @@ Usage:
                           specified.
   -n, --normal arg        Alignment for use as additional background data
                           for simulation
+      --normal-only       Use only reads from the provided normal as
+                          background data, excluding non-supporting reads
+                          from the sample
   -r, --ref arg           Alignment Reference Fasta for optionally adding
-                          template complexity to statistics.
+                          reference complexity to statistics.
+      --seed arg          Set random seed. Default: 24601
   -u, --uncompressed      output uncompressed VCF
 ```
 basic usage then looks like:
