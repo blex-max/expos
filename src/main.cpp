@@ -642,19 +642,19 @@ int main (
                 const auto ret = medianNN (*pwds);
                 return ret;
             };
-            auto n_event_obs = altd.qp.size();
-            if (n_event_obs < 2) {
+            auto n_obs = altd.qp.size();
+            if (n_obs < 2) {
                 qpos_m1nn_bgsim.err = "INSUFF_OBS";
             }
-            else if (qpos_popv.size() < n_event_obs * 2) {
+            else if (qpos_popv.size() < n_obs * 2) {
                 // at a bare minimum, we want 2x more total samples than bg
                 qpos_m1nn_bgsim.err = "INSUFF_BG";
             }
             else {
                 qpos_m1nn_bgsim = sim_to_bg (
                     *qpos_m1nn,
-                    [&qpos_popv, &rng, n_event_obs] () {
-                        return subsample_wo_replace(qpos_popv, n_event_obs, rng);
+                    [&qpos_popv, &rng, n_obs] () {
+                        return subsample_wo_replace(qpos_popv, n_obs, rng);
                     },
                     stat_fn,
                     // +1 removes confusing values when 0,
@@ -669,9 +669,9 @@ int main (
             std::uniform_int_distribution<uint64_t> qpos_gen{0, read_len};
             qpos_m1nn_unisim = sim_to_bg(
                 *qpos_m1nn,
-                [&qpos_gen, &rng, n_event_obs] () {
+                [&qpos_gen, &rng, n_obs] () {
                     std::vector<uint64_t> rand_qpos;
-                    for (size_t i = 0; i < n_event_obs; ++i) {
+                    for (size_t i = 0; i < n_obs; ++i) {
                         rand_qpos.push_back(qpos_gen(rng));
                     }
                     return rand_qpos;
