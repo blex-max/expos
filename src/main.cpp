@@ -539,30 +539,30 @@ int main (
                 };
                 continue;
         }
-        auto sample_pileup = get_aln_data (
+
+        auto [sample_supporting_pileup, sample_total_pileup] = pileup_partition_and_anaylse (
             alnfh.get(),
             aln_idx.get(),
             b1.get(),
             mtype,
-            true,
             flag_inc,
             flag_exc
         );
-        std::optional<aln_obs> normal_pileup;
+        std::optional<PileupMetrics> normal_pileup;
         if (norm) {
-            normal_pileup = get_aln_data (
+            normal_pileup = pileup_analyse (
                 norm->first.get(),
                 norm->second.get(),
                 b1.get(),
-                mtype,
-                false,
                 flag_inc,
                 flag_exc
             );
         }
 
-        auto &altd = sample_pileup.alt;
-        if (altd.qp.empty() || altd.te.empty()) {
+        auto n_supporting_reads = sample_supporting_pileup.nreads;
+        auto n_supporting_templates = sample_supporting_pileup.template_endpoints.size();
+
+        if (n_supporting_reads == 0) {
             std::cerr << std::format (
                 "no supporting reads found for variant {} {} {}, "
                 "skipping.",
@@ -579,29 +579,55 @@ int main (
             continue;
         }
 
-        // --- CLUSTERING ANALYSIS (nearest neighbour) --- //
-        using Tqposv = decltype (altd.qp);
-        using Tqpos  = Tqposv::value_type;
-        using Ttev   = decltype (altd.te);
-        using Tte    = Ttev::value_type;
+        // TODO guard only relevant bits
+        if (sample_supporting_pileup.query_position.size() == 0 || sample_supporting_pileup.template_endpoints.size() == 0) {
+            std::cerr << std::format (
+                "no supporting reads found with usable metrics for variant {} {} {}, "
+                "skipping.",
+                b1->rid,     // TODO convert rid to user facing
+                b1->pos,     // ditto
+                b1->d.id
+            ) << std::endl;
+            if (bcf_write (ovcf.get(), ohdr.get(), b1.get()) != 0) {
+                std::cerr << std::format (
+                    "failed to write record to output VCF"
+                ) << std::endl;
+                return EXIT_FAILURE;
+            };
+            continue;
+        }
+        if (normal_pileup && normal_pileup->nreads == 0) {
+            std::cerr << std::format (
+                "Warning: no reads covering variant location foudn in normal for variant {} {} {}",
+                b1->rid,     // TODO convert rid to user facing
+                b1->pos,     // ditto
+                b1->d.id
+            ) << std::endl;
+        }
 
+        // --- CLUSTERING ANALYSIS (nearest neighbour) --- //
         // get pairwise distances
-        constexpr auto basic_dist = [] (const Tqpos &a,
-                                 const Tqpos &b) -> Tqpos {
+        // simple 1D dist for query position
+        constexpr auto dist_1D = [] (const auto &a,
+                                 const auto &b) {
             return (a > b) ? (a - b) : (b - a);
         };
         const auto qpos_pwd = PairMatrix::from_sample (
-            altd.qp,
-            basic_dist
+            sample_supporting_pileup.query_position,
+            dist_1D
         );     // empty if <2 samples
-        // manhattan distance
-        constexpr auto mannd = [] (const Tte &a,
-                                   const Tte &b) -> uint64_t {
+
+        // manhattan distance for template endpoints
+        constexpr auto mannd = [] (const auto &a,
+                                   const auto &b) {
             line_seg upper_pair{a.rmost, b.rmost};
             line_seg lower_pair{a.lmost, b.lmost};
             return upper_pair.diff() + lower_pair.diff();
         };
-        const auto te_pwd = PairMatrix::from_sample (altd.te, mannd);
+        const auto te_pwd = PairMatrix::from_sample (
+            sample_supporting_pileup.template_endpoints,
+            mannd
+        );
 
         // nearest neighbour monte carlo //
         std::optional<double> qpos_m1nn;
@@ -609,47 +635,42 @@ int main (
         stat_eval_s           qpos_m1nn_unisim; // compared to expected distribution
         if (qpos_pwd) {
             qpos_m1nn = medianNN (*qpos_pwd);
-            Tqposv qpos_popv;
+            decltype(sample_supporting_pileup.query_position) qpos_popv;
             if (!normal_only) {
-                qpos_popv.insert (
-                    qpos_popv.end(),
-                    begin (sample_pileup.alt.qp),
-                    end (sample_pileup.alt.qp)
-                );
-                qpos_popv.insert (
-                    qpos_popv.end(),
-                    begin (sample_pileup.other.qp),
-                    end (sample_pileup.other.qp)
-                );
-                if (normal_pileup) {     // ADD NORMAL OBS
-                    qpos_popv.insert (
-                        qpos_popv.end(),
-                        begin (normal_pileup->other.qp),
-                        end (normal_pileup->other.qp)
+                if (normal_pileup) { // ADD NORMAL OBS
+                    assert(normal_pileup);
+                    qpos_popv.insert(
+                        end(qpos_popv),
+                        begin(sample_total_pileup.query_position),
+                        end(sample_total_pileup.query_position)
                     );
+                    qpos_popv.insert (
+                        end(qpos_popv),
+                        begin (normal_pileup->query_position),
+                        end (normal_pileup->query_position)
+                    );
+                } else {  // total reads only
+                    qpos_popv = sample_total_pileup.query_position;
                 }
-            } else {
-                    qpos_popv.insert (
-                        qpos_popv.end(),
-                        begin (normal_pileup->other.qp),
-                        end (normal_pileup->other.qp)
-                    );
+            } else {  // reads from normal only
+                assert(normal_pileup);
+                qpos_popv = normal_pileup->query_position;
             }
 
-            auto stat_fn = [&basic_dist] (const Tqposv &v) {
-                const auto pwds = PairMatrix::from_sample (v, basic_dist);
+            auto stat_fn = [&dist_1D] (const auto &v) {
+                const auto pwds = PairMatrix::from_sample (v, dist_1D);
                 assert (pwds);
                 const auto ret = medianNN (*pwds);
                 return ret;
             };
-            auto n_obs = altd.qp.size();
+            auto n_obs = sample_supporting_pileup.query_position.size();
             if (n_obs < 2) {
                 qpos_m1nn_bgsim.err = "INSUFF_OBS";
             }
-            else if (qpos_popv.size() < n_obs * 2) {
+            else if (qpos_popv.size() < (n_obs * 2)) {
                 // at a bare minimum, we want 2x more total samples than bg
                 qpos_m1nn_bgsim.err = "INSUFF_BG";
-            }
+            }  // TODO if less than e.g. 5/10 report low power?
             else {
                 qpos_m1nn_bgsim = sim_to_bg (
                     *qpos_m1nn,
@@ -657,10 +678,6 @@ int main (
                         return subsample_wo_replace(qpos_popv, n_obs, rng);
                     },
                     stat_fn,
-                    // +1 removes confusing values when 0,
-                    // log makes effect size symmetric around 0
-                    // log2 means -1 = half the size of background
-                    // +1 = double the size of background
                     log2_effsz
                 );
             }
@@ -679,56 +696,49 @@ int main (
                 stat_fn,
                 log2_effsz
             );
-
         } else {
             qpos_m1nn_bgsim.err = "INSUFF_OBS";
+            qpos_m1nn_unisim.err = "INSUFF_OBS";
         }
 
         std::optional<double> te_m1nn;
         stat_eval_s           te_m1nn_sim;
         if (te_pwd) {
             te_m1nn = medianNN (*te_pwd);
-            Ttev te_popv;
+            decltype(sample_supporting_pileup.template_endpoints) te_popv;
             if (!normal_only) {
-                te_popv.insert (
-                    te_popv.end(),
-                    begin (sample_pileup.alt.te),
-                    end (sample_pileup.alt.te)
-                );
-                te_popv.insert (
-                    te_popv.end(),
-                    begin (sample_pileup.other.te),
-                    end (sample_pileup.other.te)
-                );
-                if (normal_pileup) {     // ADD NORMAL OBS
+                if (normal_pileup) {
+                    te_popv.insert(
+                        end(te_popv),
+                        begin(sample_total_pileup.template_endpoints),
+                        end(sample_total_pileup.template_endpoints)
+                    );
                     te_popv.insert (
                         te_popv.end(),
-                        begin (normal_pileup->other.te),
-                        end (normal_pileup->other.te)
+                        begin (normal_pileup->template_endpoints),
+                        end (normal_pileup->template_endpoints)
                     );
                 }
+                else {
+                    te_popv = sample_total_pileup.template_endpoints;
+                }
             } else {
-                te_popv.insert (
-                    te_popv.end(),
-                    begin (normal_pileup->other.te),
-                    end (normal_pileup->other.te)
-                );
+                te_popv = normal_pileup->template_endpoints;
             }
 
-            auto n_event_obs = altd.te.size();
-            if (n_event_obs < 2) {
+            if (n_supporting_templates < 2) {
                 te_m1nn_sim.err = "INSUFF_OBS";
             }
-            else if (te_popv.size() < n_event_obs * 2) {
+            else if (te_popv.size() < n_supporting_templates * 2) {
                 te_m1nn_sim.err = "INSUFF_BG";
             }
             else {
                 te_m1nn_sim = sim_to_bg (
                     *te_m1nn,
-                    [&rng, &te_popv, n_event_obs] () {
-                        return subsample_wo_replace(te_popv, n_event_obs, rng);
+                    [&rng, &te_popv, n_supporting_templates] () {
+                        return subsample_wo_replace(te_popv, n_supporting_templates, rng);
                     },
-                    [&mannd] (const Ttev &v) {
+                    [&mannd] (const auto &v) {
                         const auto pwds = PairMatrix::from_sample (
                             v,
                             mannd
@@ -747,48 +757,41 @@ int main (
         }
 
         // --- MEDIAN LENGTH-NORMALISED ALIGNMENT SCORE --- //
-        const auto  mlas = percentile (altd.las, 0.5);
+        const auto  mlas = percentile (sample_supporting_pileup.normalised_as, 0.5);
         stat_eval_s mlas_sim;
         if (mlas) {
-            std::vector<double> mlas_popv;
+            decltype(sample_supporting_pileup.normalised_as) mlas_popv;
             if (!normal_only) {
-                mlas_popv.insert (
-                    mlas_popv.end(),
-                    begin (sample_pileup.alt.las),
-                    end (sample_pileup.alt.las)
-                );
-                mlas_popv.insert (
-                    mlas_popv.end(),
-                    begin (sample_pileup.other.las),
-                    end (sample_pileup.other.las)
-                );
-                if (normal_pileup) {     // ADD NORMAL OBS
-                    mlas_popv.insert (
-                        mlas_popv.end(),
-                        begin (normal_pileup->other.las),
-                        end (normal_pileup->other.las)
+                if (normal_pileup) {
+                    mlas_popv.insert(
+                        end(mlas_popv),
+                        begin(sample_total_pileup.normalised_as),
+                        end(sample_total_pileup.normalised_as)
                     );
+                    mlas_popv.insert (
+                        end(mlas_popv),
+                        begin (normal_pileup->normalised_as),
+                        end (normal_pileup->normalised_as)
+                    );
+                } else {
+                    mlas_popv = sample_total_pileup.normalised_as;
                 }
             } else {
-                mlas_popv.insert (
-                    mlas_popv.end(),
-                    begin (normal_pileup->other.las),
-                    end (normal_pileup->other.las)
-                );
+                mlas_popv = normal_pileup->normalised_as;
             }
 
-            auto n_event_obs = altd.las.size();
-            if (n_event_obs < 2) {
+            auto n_obs = sample_supporting_pileup.normalised_as.size();
+            if (n_obs < 2) {
                 mlas_sim.err = "INSUFF_OBS";
             }
-            else if (mlas_popv.size() < (2 * n_event_obs)) {
+            else if (mlas_popv.size() < (2 * n_obs)) {
                 mlas_sim.err = "INSUFF_BG";
             }
             else {
                 mlas_sim = sim_to_bg (
                     *mlas,
-                    [&rng, &mlas_popv, n_event_obs] () {
-                        return subsample_wo_replace(mlas_popv, n_event_obs, rng);
+                    [&rng, &mlas_popv, n_obs] () {
+                        return subsample_wo_replace(mlas_popv, n_obs, rng);
                     },
                     [] (const std::vector<double> &v) {
                         const auto slas = percentile (v, 0.5);
@@ -809,7 +812,7 @@ int main (
         // NOTE guarded earlier
         uint64_t lmosttc = std::numeric_limits<uint64_t>::max();
         uint64_t rmosttc = 0ULL;
-        for (const auto &te : altd.te) {
+        for (const auto &te : sample_supporting_pileup.template_endpoints) {
             if (te.lmost < lmosttc)
                 lmosttc = te.lmost;
             if (te.rmost > rmosttc)
@@ -923,8 +926,8 @@ int main (
                 opt_to_str (kc, "NA"),
                 std::to_string(lmosttc),
                 std::to_string(rmosttc),
-                std::to_string (altd.nreads),     // n supporting reads
-                std::to_string (altd.nreads + sample_pileup.other.nreads)
+                std::to_string (n_supporting_reads),
+                std::to_string (sample_total_pileup.nreads)
             ) << "\n";
         }
         // clang-format on
