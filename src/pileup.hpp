@@ -3,14 +3,13 @@
 #include <algorithm>
 #include <cstdint>
 #include <format>
-#include <htslib/vcf.h>
-#include <iostream>
 #include <stdexcept>
 #include <unordered_set>
 #include <vector>
 
 #include <htslib/kstring.h>
 #include <htslib/sam.h>
+#include <htslib/vcf.h>
 
 #include "hts_ptr_t.hpp"
 #include "stats.hpp"
@@ -133,7 +132,6 @@ struct PileupMetrics {
     std::vector<double>   normalised_as;
     std::vector<line_seg> template_endpoints;
     size_t                nreads = 0;
-    size_t                ntemplates = 0;
 };
 inline PileupMetrics get_metrics (const PileupColumn &pc) {
     PileupMetrics out;
@@ -286,7 +284,7 @@ inline PileupMetrics pileup_analyse (
     int        sam_flag_exclude
 ) {
     auto [pileup_all,
-          read_iter,
+          aln_iter,
           pileup_buf] = get_pileup (
                 aln_fh,
                 aln_idx,
@@ -294,5 +292,8 @@ inline PileupMetrics pileup_analyse (
                 sam_flag_include,
                 sam_flag_exclude
             );
-    return get_metrics(pileup_all);
+    auto out = get_metrics(pileup_all);
+    hts_itr_destroy(aln_iter);  // TODO return to unique ptrs
+    bam_plp_destroy(pileup_buf);
+    return out;
 }

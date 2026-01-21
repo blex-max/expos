@@ -560,11 +560,29 @@ int main (
         }
 
         auto n_supporting_reads = sample_supporting_pileup.nreads;
-        auto n_supporting_templates = sample_supporting_pileup.ntemplates;
+        auto n_supporting_templates = sample_supporting_pileup.template_endpoints.size();
 
         if (n_supporting_reads == 0) {
             std::cerr << std::format (
                 "no supporting reads found for variant {} {} {}, "
+                "skipping.",
+                b1->rid,     // TODO convert rid to user facing
+                b1->pos,     // ditto
+                b1->d.id
+            ) << std::endl;
+            if (bcf_write (ovcf.get(), ohdr.get(), b1.get()) != 0) {
+                std::cerr << std::format (
+                    "failed to write record to output VCF"
+                ) << std::endl;
+                return EXIT_FAILURE;
+            };
+            continue;
+        }
+
+        // TODO guard only relevant bits
+        if (sample_supporting_pileup.query_position.size() == 0 || sample_supporting_pileup.template_endpoints.size() == 0) {
+            std::cerr << std::format (
+                "no supporting reads found with usable metrics for variant {} {} {}, "
                 "skipping.",
                 b1->rid,     // TODO convert rid to user facing
                 b1->pos,     // ditto
@@ -645,18 +663,19 @@ int main (
                 const auto ret = medianNN (*pwds);
                 return ret;
             };
-            if (n_supporting_reads < 2) {
+            auto n_obs = sample_supporting_pileup.query_position.size();
+            if (n_obs < 2) {
                 qpos_m1nn_bgsim.err = "INSUFF_OBS";
             }
-            else if (qpos_popv.size() < (n_supporting_reads * 2)) {
+            else if (qpos_popv.size() < (n_obs * 2)) {
                 // at a bare minimum, we want 2x more total samples than bg
                 qpos_m1nn_bgsim.err = "INSUFF_BG";
             }  // TODO if less than e.g. 5/10 report low power?
             else {
                 qpos_m1nn_bgsim = sim_to_bg (
                     *qpos_m1nn,
-                    [&qpos_popv, &rng, n_supporting_reads] () {
-                        return subsample_wo_replace(qpos_popv, n_supporting_reads, rng);
+                    [&qpos_popv, &rng, n_obs] () {
+                        return subsample_wo_replace(qpos_popv, n_obs, rng);
                     },
                     stat_fn,
                     log2_effsz
@@ -667,9 +686,9 @@ int main (
             std::uniform_int_distribution<uint64_t> qpos_gen{0, read_len};
             qpos_m1nn_unisim = sim_to_bg(
                 *qpos_m1nn,
-                [&qpos_gen, &rng, n_supporting_reads] () {
+                [&qpos_gen, &rng, n_obs] () {
                     std::vector<uint64_t> rand_qpos;
-                    for (size_t i = 0; i < n_supporting_reads; ++i) {
+                    for (size_t i = 0; i < n_obs; ++i) {
                         rand_qpos.push_back(qpos_gen(rng));
                     }
                     return rand_qpos;
@@ -692,7 +711,7 @@ int main (
                     te_popv.insert(
                         end(te_popv),
                         begin(sample_total_pileup.template_endpoints),
-                        end(sample_supporting_pileup.template_endpoints)
+                        end(sample_total_pileup.template_endpoints)
                     );
                     te_popv.insert (
                         te_popv.end(),
@@ -761,17 +780,18 @@ int main (
                 mlas_popv = normal_pileup->normalised_as;
             }
 
-            if (n_supporting_reads < 2) {
+            auto n_obs = sample_supporting_pileup.normalised_as.size();
+            if (n_obs < 2) {
                 mlas_sim.err = "INSUFF_OBS";
             }
-            else if (mlas_popv.size() < (2 * n_supporting_reads)) {
+            else if (mlas_popv.size() < (2 * n_obs)) {
                 mlas_sim.err = "INSUFF_BG";
             }
             else {
                 mlas_sim = sim_to_bg (
                     *mlas,
-                    [&rng, &mlas_popv, n_supporting_reads] () {
-                        return subsample_wo_replace(mlas_popv, n_supporting_reads, rng);
+                    [&rng, &mlas_popv, n_obs] () {
+                        return subsample_wo_replace(mlas_popv, n_obs, rng);
                     },
                     [] (const std::vector<double> &v) {
                         const auto slas = percentile (v, 0.5);
