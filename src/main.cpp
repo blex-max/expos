@@ -100,12 +100,16 @@ std::string rdbl4 (const double &a) {
 
 
 // TODO add record of command to VCF!
-// TODO fraction of supporting reads with soft clipping (better than number as CLPM!)
+// TODO fraction of supporting reads with soft clipping, eff sz, pval, and median number of clipped bases
+// in reads with soft clipping (CLPM)
+// TODO calculate average AS of all reads in sample region
 // TODO calculate ref statistics even if no supporting reads
-// TODO add consensus span region back to tsv
-// TODO options for calculating subset of data only
 // TODO options for more vcf data (e.g. REF,ALT) in TSV (if using expos as "genome browser by numbers")
-// NOTE could compare to uniform distribution (less valuable than background but possibly useful if e.g. not enough reads otherwise)
+// NOTE uniform sim added for qpos!
+// template endpoints is more complicated, they tend to show a right-skewed gaussian distribution
+// around a target fragment size - TODO
+// TODO allow option for only using normal as background - in progress
+// 
 int main (
     int   argc,
     char *argv[]
@@ -166,14 +170,14 @@ int main (
         ("n,normal",
          "Alignment for use as additional background data for simulation",
          cxxopts::value<fs::path>())
+        ("normal-only",
+         "Use only reads from the provided normal as background data, excluding non-supporting reads from the sample")
         ("r,ref",
          "Alignment Reference Fasta for optionally adding reference complexity to statistics.",
          cxxopts::value<fs::path>())
         ("seed",
         "Set random seed. Default: 24601",
         cxxopts::value<uint32_t>())
-        ("normal-only",
-         "Use only reads from the provided normal as background data, excluding non-supporting reads from the sample")
         ("u,uncompressed", "output uncompressed VCF");
     // clang-format on
 
@@ -245,6 +249,12 @@ int main (
         if (parsedargs.count ("normal")) {
             norm_path = parsedargs["normal"].as<fs::path>();
             std::cerr << "Using normal: " << norm_path << std::endl;
+        }
+        if (parsedargs.count ("normal-only")) {
+            if (norm_path.empty())
+                throw std::runtime_error("a normal must be provided if normal-only is set.");
+            std::cerr << "Using only normal data as background for simulation" << std::endl;
+            normal_only = true;
         }
 
         if (parsedargs.count ("uncompressed")) {
@@ -600,22 +610,30 @@ int main (
         if (qpos_pwd) {
             qpos_m1nn = medianNN (*qpos_pwd);
             Tqposv qpos_popv;
-            qpos_popv.insert (
-                qpos_popv.end(),
-                begin (sample_pileup.alt.qp),
-                end (sample_pileup.alt.qp)
-            );
-            qpos_popv.insert (
-                qpos_popv.end(),
-                begin (sample_pileup.other.qp),
-                end (sample_pileup.other.qp)
-            );
-            if (normal_pileup) {     // ADD NORMAL OBS
+            if (!normal_only) {
                 qpos_popv.insert (
                     qpos_popv.end(),
-                    begin (normal_pileup->other.qp),
-                    end (normal_pileup->other.qp)
+                    begin (sample_pileup.alt.qp),
+                    end (sample_pileup.alt.qp)
                 );
+                qpos_popv.insert (
+                    qpos_popv.end(),
+                    begin (sample_pileup.other.qp),
+                    end (sample_pileup.other.qp)
+                );
+                if (normal_pileup) {     // ADD NORMAL OBS
+                    qpos_popv.insert (
+                        qpos_popv.end(),
+                        begin (normal_pileup->other.qp),
+                        end (normal_pileup->other.qp)
+                    );
+                }
+            } else {
+                    qpos_popv.insert (
+                        qpos_popv.end(),
+                        begin (normal_pileup->other.qp),
+                        end (normal_pileup->other.qp)
+                    );
             }
 
             auto stat_fn = [&basic_dist] (const Tqposv &v) {
@@ -625,16 +643,16 @@ int main (
                 return ret;
             };
             auto n_event_obs = altd.qp.size();
-            // at a bare minimum, we want 2x more total samples than bg
-            if (
-                qpos_popv.size()
-                < n_event_obs * 2
-            ) {
+            if (n_event_obs < 2) {
+                qpos_m1nn_bgsim.err = "INSUFF_OBS";
+            }
+            else if (qpos_popv.size() < n_event_obs * 2) {
+                // at a bare minimum, we want 2x more total samples than bg
                 qpos_m1nn_bgsim.err = "INSUFF_BG";
-            } else {
+            }
+            else {
                 qpos_m1nn_bgsim = sim_to_bg (
                     *qpos_m1nn,
-                    n_event_obs,
                     [&qpos_popv, &rng, n_event_obs] () {
                         return subsample_wo_replace(qpos_popv, n_event_obs, rng);
                     },
@@ -651,7 +669,6 @@ int main (
             std::uniform_int_distribution<uint64_t> qpos_gen{0, read_len};
             qpos_m1nn_unisim = sim_to_bg(
                 *qpos_m1nn,
-                n_event_obs,
                 [&qpos_gen, &rng, n_event_obs] () {
                     std::vector<uint64_t> rand_qpos;
                     for (size_t i = 0; i < n_event_obs; ++i) {
@@ -672,17 +689,25 @@ int main (
         if (te_pwd) {
             te_m1nn = medianNN (*te_pwd);
             Ttev te_popv;
-            te_popv.insert (
-                te_popv.end(),
-                begin (sample_pileup.alt.te),
-                end (sample_pileup.alt.te)
-            );
-            te_popv.insert (
-                te_popv.end(),
-                begin (sample_pileup.other.te),
-                end (sample_pileup.other.te)
-            );
-            if (normal_pileup) {     // ADD NORMAL OBS
+            if (!normal_only) {
+                te_popv.insert (
+                    te_popv.end(),
+                    begin (sample_pileup.alt.te),
+                    end (sample_pileup.alt.te)
+                );
+                te_popv.insert (
+                    te_popv.end(),
+                    begin (sample_pileup.other.te),
+                    end (sample_pileup.other.te)
+                );
+                if (normal_pileup) {     // ADD NORMAL OBS
+                    te_popv.insert (
+                        te_popv.end(),
+                        begin (normal_pileup->other.te),
+                        end (normal_pileup->other.te)
+                    );
+                }
+            } else {
                 te_popv.insert (
                     te_popv.end(),
                     begin (normal_pileup->other.te),
@@ -691,15 +716,15 @@ int main (
             }
 
             auto n_event_obs = altd.te.size();
-            if (
-                te_popv.size()
-                < n_event_obs * 2
-            ) {
+            if (n_event_obs < 2) {
+                te_m1nn_sim.err = "INSUFF_OBS";
+            }
+            else if (te_popv.size() < n_event_obs * 2) {
                 te_m1nn_sim.err = "INSUFF_BG";
-            } else {
+            }
+            else {
                 te_m1nn_sim = sim_to_bg (
                     *te_m1nn,
-                    n_event_obs,
                     [&rng, &te_popv, n_event_obs] () {
                         return subsample_wo_replace(te_popv, n_event_obs, rng);
                     },
@@ -726,17 +751,25 @@ int main (
         stat_eval_s mlas_sim;
         if (mlas) {
             std::vector<double> mlas_popv;
-            mlas_popv.insert (
-                mlas_popv.end(),
-                begin (sample_pileup.alt.las),
-                end (sample_pileup.alt.las)
-            );
-            mlas_popv.insert (
-                mlas_popv.end(),
-                begin (sample_pileup.other.las),
-                end (sample_pileup.other.las)
-            );
-            if (normal_pileup) {     // ADD NORMAL OBS
+            if (!normal_only) {
+                mlas_popv.insert (
+                    mlas_popv.end(),
+                    begin (sample_pileup.alt.las),
+                    end (sample_pileup.alt.las)
+                );
+                mlas_popv.insert (
+                    mlas_popv.end(),
+                    begin (sample_pileup.other.las),
+                    end (sample_pileup.other.las)
+                );
+                if (normal_pileup) {     // ADD NORMAL OBS
+                    mlas_popv.insert (
+                        mlas_popv.end(),
+                        begin (normal_pileup->other.las),
+                        end (normal_pileup->other.las)
+                    );
+                }
+            } else {
                 mlas_popv.insert (
                     mlas_popv.end(),
                     begin (normal_pileup->other.las),
@@ -745,12 +778,15 @@ int main (
             }
 
             auto n_event_obs = altd.las.size();
-            if (mlas_popv.size() < (2 * n_event_obs)) {
+            if (n_event_obs < 2) {
+                mlas_sim.err = "INSUFF_OBS";
+            }
+            else if (mlas_popv.size() < (2 * n_event_obs)) {
                 mlas_sim.err = "INSUFF_BG";
-            } else {
+            }
+            else {
                 mlas_sim = sim_to_bg (
                     *mlas,
-                    n_event_obs,
                     [&rng, &mlas_popv, n_event_obs] () {
                         return subsample_wo_replace(mlas_popv, n_event_obs, rng);
                     },

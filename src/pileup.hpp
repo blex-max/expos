@@ -31,7 +31,7 @@ inline int pileup_func (
     bam1_t *b
 ) {
     pf_capture *d = (pf_capture *)(data);
-    int         ret;
+    int         ret=-1;
     uint16_t    flag;
     // find the next good read
     while (1) {

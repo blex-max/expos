@@ -215,7 +215,6 @@ requires
     >
 inline stat_eval_s sim_to_bg (
     StatT    ev_stat,
-    size_t   n_ev_obs,
     DrawFn &&drawfn,
     StatFn &&statfn,
     EffFn  &&efffn,
@@ -223,11 +222,6 @@ inline stat_eval_s sim_to_bg (
 ) {
     stat_eval_s res;
     assert (nsim > 0);
-    if (n_ev_obs < 2) {
-        res.err = "INSUFF_OBS";
-        return res;
-    }
-
     std::vector<ObsT> sim_obs;
 
     std::vector<StatT> draw_results;

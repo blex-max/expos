@@ -96,7 +96,6 @@ if(MAKE_TEST)
       -Wsign-conversion
       -Wfloat-equal
       -Wnon-virtual-dtor
-      -Wold-style-cast
       -Woverloaded-virtual
       -Wnull-dereference
       -Wdouble-promotion
@@ -130,7 +129,6 @@ if(MAKE_EXE)
     -Wsign-conversion
     -Wfloat-equal
     -Wnon-virtual-dtor
-    -Wold-style-cast
     -Woverloaded-virtual
     -Wnull-dereference
     -Wdouble-promotion
@@ -146,7 +144,6 @@ if(MAKE_EXE)
       -Wsign-conversion
       -Wfloat-equal
       -Wnon-virtual-dtor
-      -Wold-style-cast
       -Woverloaded-virtual
       -Wnull-dereference
       -Wdouble-promotion
