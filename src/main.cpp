@@ -540,7 +540,6 @@ int main (
                 continue;
         }
 
-        // SEGFAULT IN PILEUP FUNCS
         auto [sample_supporting_pileup, sample_total_pileup] = pileup_partition_and_anaylse (
             alnfh.get(),
             aln_idx.get(),
@@ -578,6 +577,14 @@ int main (
                 return EXIT_FAILURE;
             };
             continue;
+        }
+        if (normal_pileup && normal_pileup->nreads == 0) {
+            std::cerr << std::format (
+                "Warning: no reads covering variant location foudn in normal for variant {} {} {}",
+                b1->rid,     // TODO convert rid to user facing
+                b1->pos,     // ditto
+                b1->d.id
+            ) << std::endl;
         }
 
         // --- CLUSTERING ANALYSIS (nearest neighbour) --- //
