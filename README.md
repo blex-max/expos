@@ -16,11 +16,10 @@ but largely untested.
 Core functionality present but niceties and guard rails are not.
 Please report any bugs!
 
-#### TODO
+#### definite TODOs
  - report correct position in error messages - chrom and position are both
    off by one! (this affects error messages only, and has no impact on the output)
  - More extensive documentation
- - Possibly remove p-value for MLAS/ASRD, as it can be misleading
  - Add clip fraction/CLPM
  - record command used in VCF header
 
