@@ -46,6 +46,24 @@ struct field_s {
     int         type, nrec;
 };
 const std::unordered_map<std::string, field_s> FIELD_INF{
+    {"QM1NN",
+     {"QM1NN",
+      "Array detailing median nearest neighbour distance between mutant query positions and monte-carlo simulation results:"
+      "[0]calculated statistic;"
+      "[1]log2 ratio effect size from comparisons to simulation against all reads;"
+      "[2]two-sided P-value from comparisons to simulation against all reads;"
+      "[3]log2 ratio effect size from comparisons to simulation against uniform distribution;"
+      "[4]two-sided P-value from comparisons to simulation against uniform distribution",
+      BCF_HT_REAL,
+      5}},
+    {"TM1NN",
+     {"TM1NN",
+     "Array detailing median nearest neighbour distance between endpoints of supporting templates and monte-carlo simulation results:"
+      "[0]calculated statistic;"
+      "[1]log2 ratio effect size from comparisons to simulation against all reads;"
+      "[2]two-sided P-value from comparisons to simluation against all reads",
+      BCF_HT_REAL,
+      3}},
     {"MLAS",
      {"MLAS",
       "[0]Median read-Length-normalised Alignment Score (AS) of "
@@ -53,21 +71,6 @@ const std::unordered_map<std::string, field_s> FIELD_INF{
       "[1]delta (supporting - background) effect size and [2]two-sided P-value "
       "against "
       "background, from monte-carlo simulation",
-      BCF_HT_REAL,
-      3}},
-    {"QM1NN",
-     {"QM1NN",
-      "[0]Median nearest neighbour distance of variant query "
-      "position; [1]log2 ratio effect size and [2]two-sided P-value against "
-      "background, from monte-carlo simulation",
-      BCF_HT_REAL,
-      3}},
-    {"TM1NN",
-     {"TM1NN",
-      "[0]Median nearest neighbour distance of template endpoints "
-      "from read pairs supporting variant; [1]log2 ratio effect size "
-      "and [2]two-sided P-value against background, from "
-      "monte-carlo simulation",
       BCF_HT_REAL,
       3}},
     {"RCMPLX",
@@ -823,7 +826,7 @@ int main (
         // and that this is the correct reference
         // NOTE not all needed each loop
         auto rid_name = bcf_hdr_id2name (vcf_hdr.get(), b1->rid);
-        std::optional<uint> kc;
+        std::optional<uint> ref_entropy;
         if (reffh) {
             if (rid_name == NULL) {
                 std::cerr << std::format (
@@ -840,7 +843,7 @@ int main (
                 rmosttc
             );
             // TODO warn if all N
-            kc.emplace (
+            ref_entropy.emplace (
                 static_cast<uint> (round (entropy_lz76 (refs) * 100))
             );     // x100 scaling factor
         }
@@ -864,35 +867,35 @@ int main (
             }
         };
         // TODO should probably encode missingness into the vcf somehow... like an EXPOS_ERR info field
-        if (mlas) {
-            float val[3]{
-                static_cast<float> (*mlas),
-                static_cast<float> (mlas_sim.eff_sz.value_or (0.0)),
-                static_cast<float> (mlas_sim.pval.value_or (0.0))
-            };     // htslib requires conversion
-            // TODO rounding
-            write_info (FIELD_INF.at ("MLAS"), &val);
-        }
         if (qpos_m1nn) {
-            float val[3]{
-                static_cast<float> (*qpos_m1nn),
-                static_cast<float> (
-                    qpos_m1nn_bgsim.eff_sz.value_or (0.0)
-                ),
-                static_cast<float> (qpos_m1nn_bgsim.pval.value_or (1.0))
+            float val[5]{
+                (float) (*qpos_m1nn),
+                (float) (qpos_m1nn_bgsim.eff_sz.value_or (0.0)),
+                (float) (qpos_m1nn_bgsim.pval.value_or (1.0)),
+                (float) (qpos_m1nn_unisim.eff_sz.value_or(1.0)),
+                (float) (qpos_m1nn_unisim.pval.value_or (1.0)),
             };
             write_info (FIELD_INF.at ("QM1NN"), &val);
         }
         if (te_m1nn) {
             float val[3]{
-                static_cast<float> (*te_m1nn),
-                static_cast<float> (te_m1nn_sim.eff_sz.value_or (0.0)),
-                static_cast<float> (te_m1nn_sim.pval.value_or (1.0))
+                (float) (*te_m1nn),
+                (float) (te_m1nn_sim.eff_sz.value_or (0.0)),
+                (float) (te_m1nn_sim.pval.value_or (1.0))
             };
             write_info (FIELD_INF.at ("TM1NN"), &val);
         }
-        if (kc) {
-            const auto val = *kc;
+        if (mlas) {
+            float val[3]{
+                (float) (*mlas),
+                (float) (mlas_sim.eff_sz.value_or (0.0)),
+                (float) (mlas_sim.pval.value_or (0.0))
+            };
+            // TODO rounding
+            write_info (FIELD_INF.at ("MLAS"), &val);
+        }
+        if (ref_entropy) {
+            const auto val = *ref_entropy;
             write_info (FIELD_INF.at ("RCMPLX"), &val);
         }
 
@@ -923,7 +926,7 @@ int main (
                 opt_to_str<double> (te_m1nn, "NA", rdbl2),
                 opt_to_str<double> (te_m1nn_sim.eff_sz, te_m1nn_sim.err, rdbl2),
                 opt_to_str<double> (te_m1nn_sim.pval, te_m1nn_sim.err, rdbl4),
-                opt_to_str (kc, "NA"),
+                opt_to_str (ref_entropy, "NA"),
                 std::to_string(lmosttc),
                 std::to_string(rmosttc),
                 std::to_string (n_supporting_reads),
