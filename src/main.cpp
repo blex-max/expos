@@ -758,8 +758,14 @@ int main (
         }
 
         // --- MEDIAN LENGTH-NORMALISED ALIGNMENT SCORE --- //
-        const auto mlas_supporting = percentile (sample_supporting_pileup.normalised_as, 0.5);
-        const auto mlas_total = percentile (sample_total_pileup.normalised_as, 0.5);
+        const auto mlas_supporting = percentile (
+            sample_supporting_pileup.normalised_as,
+            0.5
+        );
+        const auto mlas_total = percentile (
+            sample_total_pileup.normalised_as,
+            0.5
+        );
 
         // consensus region of supporting templates
         // NOTE guarded earlier
@@ -836,7 +842,7 @@ int main (
             write_info (FIELD_INF.at ("TM1NN"), &val);
         }
         if (mlas_supporting) {
-            float val[3]{
+            float val[2]{
                 (float) (*mlas_supporting),
                 (float) (*mlas_total),
             };
