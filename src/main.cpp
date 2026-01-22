@@ -66,13 +66,11 @@ const std::unordered_map<std::string, field_s> FIELD_INF{
       3}},
     {"MLAS",
      {"MLAS",
-      "[0]Median read-Length-normalised Alignment Score (AS) of "
-      "reads supporting variant;"
-      "[1]delta (supporting - background) effect size and [2]two-sided P-value "
-      "against "
-      "background, from monte-carlo simulation",
+      "Array of median read-length normalised alignment scores:"
+      "[0]of reads supporting variant,"
+      "[1]of all queried reads covering the variant location in the sample alignment",
       BCF_HT_REAL,
-      3}},
+      2}},
     {"RCMPLX",
      {"RCMPLX",
       "Complexity (Lempel-Ziv estimated entropy rate) of region spanned by supporting "
@@ -760,56 +758,8 @@ int main (
         }
 
         // --- MEDIAN LENGTH-NORMALISED ALIGNMENT SCORE --- //
-        const auto  mlas = percentile (sample_supporting_pileup.normalised_as, 0.5);
-        stat_eval_s mlas_sim;
-        if (mlas) {
-            decltype(sample_supporting_pileup.normalised_as) mlas_popv;
-            if (!normal_only) {
-                if (normal_pileup) {
-                    mlas_popv.insert(
-                        end(mlas_popv),
-                        begin(sample_total_pileup.normalised_as),
-                        end(sample_total_pileup.normalised_as)
-                    );
-                    mlas_popv.insert (
-                        end(mlas_popv),
-                        begin (normal_pileup->normalised_as),
-                        end (normal_pileup->normalised_as)
-                    );
-                } else {
-                    mlas_popv = sample_total_pileup.normalised_as;
-                }
-            } else {
-                mlas_popv = normal_pileup->normalised_as;
-            }
-
-            auto n_obs = sample_supporting_pileup.normalised_as.size();
-            if (n_obs < 2) {
-                mlas_sim.err = "INSUFF_OBS";
-            }
-            else if (mlas_popv.size() < (2 * n_obs)) {
-                mlas_sim.err = "INSUFF_BG";
-            }
-            else {
-                mlas_sim = sim_to_bg (
-                    *mlas,
-                    [&rng, &mlas_popv, n_obs] () {
-                        return subsample_wo_replace(mlas_popv, n_obs, rng);
-                    },
-                    [] (const std::vector<double> &v) {
-                        const auto slas = percentile (v, 0.5);
-                        assert (slas);
-                        return *slas;
-                    },
-                    // effect size == raw delta
-                    [] (const auto &ev, const auto &simv) {
-                        return ev - *mean (simv);
-                    }
-                );
-            }
-        } else {
-            mlas_sim.err = "INSUFF_OBS";
-        }
+        const auto mlas_supporting = percentile (sample_supporting_pileup.normalised_as, 0.5);
+        const auto mlas_total = percentile (sample_total_pileup.normalised_as, 0.5);
 
         // consensus region of supporting templates
         // NOTE guarded earlier
@@ -824,7 +774,7 @@ int main (
 
         // TODO should really check if it's in bam header not just the vcf,
         // and that this is the correct reference
-        // NOTE not all needed each loop
+        // NOTE not all needed to be fetched each loop
         auto rid_name = bcf_hdr_id2name (vcf_hdr.get(), b1->rid);
         std::optional<uint> ref_entropy;
         if (reffh) {
@@ -885,11 +835,10 @@ int main (
             };
             write_info (FIELD_INF.at ("TM1NN"), &val);
         }
-        if (mlas) {
+        if (mlas_supporting) {
             float val[3]{
-                (float) (*mlas),
-                (float) (mlas_sim.eff_sz.value_or (0.0)),
-                (float) (mlas_sim.pval.value_or (0.0))
+                (float) (*mlas_supporting),
+                (float) (*mlas_total),
             };
             // TODO rounding
             write_info (FIELD_INF.at ("MLAS"), &val);
@@ -912,12 +861,11 @@ int main (
                 "{}\t{}\t{}\t{}\t{}\t"
                 "{}\t{}\t{}\t{}\t{}\t"
                 "{}\t{}\t{}\t{}\t{}\t"
-                "{}\t{}\t{}",
+                "{}\t{}",
                 rid_name,
                 b1->pos + 1,
-                opt_to_str<double> (mlas, "NA", rdbl2),
-                opt_to_str<double> (mlas_sim.eff_sz, mlas_sim.err, rdbl2),
-                opt_to_str<double> (mlas_sim.pval, mlas_sim.err, rdbl4),
+                opt_to_str<double> (mlas_supporting, "NA", rdbl2),
+                opt_to_str<double> (mlas_total, "NA", rdbl2),
                 opt_to_str<double> (qpos_m1nn, "NA", rdbl2),
                 opt_to_str<double> (qpos_m1nn_bgsim.eff_sz, qpos_m1nn_bgsim.err, rdbl2),
                 opt_to_str<double> (qpos_m1nn_bgsim.pval, qpos_m1nn_bgsim.err, rdbl4),
