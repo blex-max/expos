@@ -684,6 +684,15 @@ int main (
             }
 
             // simulate against uniform distribution
+            // NOTE:
+            // the same deviation from the null will always have the same
+            // p value for a fixed sample size and read length, therefore
+            // could precompute this and save wasted comuptation:
+            // scale/normalise the statistic
+            // S = (sample_size / read_length) * (median nearest neighbour d)
+            // Precompute one high-quality null CDF for S with a large sample size (>40)
+            // Use that CDF for all datasets with moderate/large n.
+            // for smaller n, use exactly stored CDF
             std::uniform_int_distribution<uint64_t> qpos_gen{0, read_len};
             qpos_m1nn_unisim = sim_to_bg(
                 *qpos_m1nn,
