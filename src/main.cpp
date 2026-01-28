@@ -172,10 +172,10 @@ int main (
         //  "Write specified field to output VCF. May be passed multiple times.",
         //  cxxopts::value<std::vector<std::string>>()->default_value("ALL"))
 
-        ("u,uncompressed", "output uncompressed VCF")
         ("t,tsv",
          "Write a tsv of extended statistics to file specified.",
          cxxopts::value<fs::path>())
+        ("u,uncompressed", "output uncompressed VCF")
         ("seed",
         "Set random seed. Default: 24601",
         cxxopts::value<uint32_t>());
@@ -403,14 +403,14 @@ int main (
                  "MLAS\t"
                  "MLAS_EFFSZ\t"
                  "MLAS_PVAL\t"
-                 "QPOS_M1NN\t"
-                 "QPOS_M1NN_EFFSZ_TO_BACKGROUND\t"
-                 "QPOS_M1NN_PVAL_TO_BACKGROUND\t"
-                 "QPOS_M1NN_EFFSZ_TO_UNIFORM\t"
-                 "QPOS_M1NN_PVAL_TO_UNIFORM\t"
-                 "TEMPL_M1NN\t"
-                 "TEMPL_M1NN_EFFSZ\t"
-                 "TEMPL_M1NN_PVAL\t"
+                 "QPOS_1NN_UQ\t"
+                 "QPOS_1NN_UQ_EFFSZ_TO_BACKGROUND\t"
+                 "QPOS_1NN_UQ_PVAL_TO_BACKGROUND\t"
+                 "QPOS_1NN_UQ_EFFSZ_TO_UNIFORM\t"
+                 "QPOS_1NN_UQ_PVAL_TO_UNIFORM\t"
+                 "TEMPL_1NN_UQ\t"
+                 "TEMPL_1NN_UQ_EFFSZ\t"
+                 "TEMPL_1NN_UQ_PVAL\t"
                  "CONSENSUS_CMPLXx100\t"
                  "LMOST_TEMPLATE_START\t"
                  "RMOST_TEMPLATE_END\t"
