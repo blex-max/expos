@@ -30,7 +30,7 @@ Please report any bugs and ask any questions!
  # from the cloned repo
  mkdir build
  cd build
- cmake ..
+ cmake .. -DCMAKE_BUILD_TYPE=Release
  cmake --build .
  ./expos --help
 ```
@@ -216,3 +216,17 @@ bcftools filter -Oz \
   -s QPOS_SPREAD \
   -e'INFO/Q1NN_UQ[1] >= 1.0 & INFO/Q1NN_UQ[2] < 0.05' > my.flagged.vcf.gz
 ```
+
+
+## Extras
+
+This repo also contains a daughter tool for estimating the entropy rate of strings
+in the same way as is done for assessing reference complexity. Useful if you're interested
+in assessing the complexity of sequence data from any source (or any string at all!).
+
+You can turn on compliation of `estimate-entropy` via
+```
+  cmake .. -DMAKE_DAUGHTER=ON
+```
+and then proceeding with compilation as normal.
+See `./estimate-entropy --help` for usage.
