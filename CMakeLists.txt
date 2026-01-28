@@ -12,7 +12,8 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 option(ENABLE_DEBUG_FLAGS "Enable extra debug compile options" OFF)
 option(MAKE_TEST "Compile tests binary" OFF)
-option(MAKE_EXE "Compile exe" ON)
+option(MAKE_MAIN "Compile main expos binary" ON)
+option(MAKE_DAUGHTER "Compile daughter tool binaries" OFF)
 
 # user paths to htslib if needed
 set(HTSLIB_INCLUDE_DIR "" CACHE PATH "Path to directory that contains htslib/hts.h")
@@ -71,6 +72,20 @@ if(NOT HTSLIB_TARGET)
 endif()
 # //--- end deps ---//
 
+
+
+set(COMMON_INCLUDES
+  ${CMAKE_CURRENT_SOURCE_DIR}/src
+)
+
+set(COMMON_WARNINGS
+  -Wall -Wextra -Wpedantic -Wshadow
+  -Wconversion -Wsign-conversion
+  -Wfloat-equal -Wnon-virtual-dtor
+  -Woverloaded-virtual -Wnull-dereference
+  -Wdouble-promotion -Wformat=2
+)
+
 # //--- testing ---//
 if(MAKE_TEST)
   message(STATUS "Finding catch2 for test binary")
@@ -86,29 +101,12 @@ if(MAKE_TEST)
 
   add_executable(test-expos tests/test.cpp)
 
-  if(ENABLE_DEBUG_FLAGS)
-    target_compile_options(test-expos PRIVATE
-      -Wall
-      -Wextra
-      -Wpedantic
-      -Wshadow
-      -Wconversion
-      -Wsign-conversion
-      -Wfloat-equal
-      -Wnon-virtual-dtor
-      -Woverloaded-virtual
-      -Wnull-dereference
-      -Wdouble-promotion
-      -Wformat=2
-      -fsanitize=address,undefined
-      -fno-omit-frame-pointer
-      -O0 -g
-    )
-    target_link_options(test-expos PRIVATE
-      -fsanitize=address,undefined
-    )
-  endif()
-  target_include_directories(test-expos PRIVATE src)
+  target_compile_options(test-expos PRIVATE
+    ${COMMON_WARNINGS}
+  )
+  target_include_directories(test-expos PRIVATE
+    ${COMMON_INCLUDES}
+  )
   target_link_libraries(test-expos PRIVATE
     Catch2::Catch2WithMain
   )
@@ -116,51 +114,36 @@ endif(MAKE_TEST)
 # //--- end testing ---//
 
 
-if(MAKE_EXE)
+if(MAKE_MAIN)
   add_executable(expos
-    src/main.cpp
+    src/expos/main.cpp
   )
   target_compile_options(expos PRIVATE
-    -Wall
-    -Wextra
-    -Wpedantic
-    -Wshadow
-    -Wconversion
-    -Wsign-conversion
-    -Wfloat-equal
-    -Wnon-virtual-dtor
-    -Woverloaded-virtual
-    -Wnull-dereference
-    -Wdouble-promotion
-    -Wformat=2
+    ${COMMON_WARNINGS}
   )
-  if(ENABLE_DEBUG_FLAGS)
-    target_compile_options(expos PRIVATE
-      -Wall
-      -Wextra
-      -Wpedantic
-      -Wshadow
-      -Wconversion
-      -Wsign-conversion
-      -Wfloat-equal
-      -Wnon-virtual-dtor
-      -Woverloaded-virtual
-      -Wnull-dereference
-      -Wdouble-promotion
-      -Wformat=2
-      -fsanitize=address,undefined
-      -fno-omit-frame-pointer
-      -O0 -g
-    )
-    target_link_options(expos PRIVATE
-      -fsanitize=address,undefined
-    )
-  endif()
-
-  target_include_directories(expos PRIVATE src)
+  target_include_directories(expos PRIVATE
+    ${COMMON_INCLUDES}
+  )
 
   target_link_libraries(expos
     cxxopts::cxxopts
     ${HTSLIB_TARGET}
   )
-endif(MAKE_EXE)
+endif(MAKE_MAIN)
+
+
+if(MAKE_DAUGHTER)
+  add_executable(estimate-entropy
+    src/estimate-entropy/main.cpp
+  )
+  target_compile_options(estimate-entropy PRIVATE
+    ${COMMON_WARNINGS}
+  )
+  target_include_directories(estimate-entropy PRIVATE
+    ${COMMON_INCLUDES}
+  )
+
+  target_link_libraries(estimate-entropy
+    cxxopts::cxxopts
+  )
+endif(MAKE_DAUGHTER)
