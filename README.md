@@ -130,6 +130,7 @@ These are the header lines from an output VCF describing the INFO fields added. 
   [0]of reads supporting variant,
   [1]of all queried reads covering the variant location in the sample alignment
   """>
+```
 
 log2-fold change scales such that no effect is 0, -1 means the statistic is 1/2 on supporting data compared background, -2 1/4, whereas an effect size of 1 means the statistic is 2x on supporting data compared to background, 2 4x. Practically this means that effect sizes below 0 indicate tighter clustering of observations as compared to background.
 
