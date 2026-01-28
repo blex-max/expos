@@ -162,12 +162,6 @@ int main (
         ("e,exclude",
          "Only operate on VCF records without this value present in FILTER. May be passed multiple times.",
          cxxopts::value<std::vector<std::string>>()) // multiple allowed
-        ("f,flag-include",
-         "Only consider reads with these bits set in the SAM flag. Applies to both target and background alignment data. Default: 3",
-         cxxopts::value<int>())
-        ("F,flag-exclude",
-         "Do not consider reads with these bits set in the SAM flag. Applies to both target and background alignment data. Default: 3852",
-         cxxopts::value<int>())
         // ("w,write",
         //  "Write specified field to output VCF. May be passed multiple times.",
         //  cxxopts::value<std::vector<std::string>>()->default_value("ALL"))
@@ -231,12 +225,6 @@ int main (
         }
         if (parsedargs.count ("exclude")) {
             flt_exc = parsedargs["exclude"].as<std::vector<std::string>>();
-        }
-        if (parsedargs.count ("flag-include")) {
-            flag_inc = parsedargs["flag-include"].as<int>();
-        }
-        if (parsedargs.count ("flag-exclude")) {
-            flag_exc = parsedargs["flag-exclude"].as<int>();
         }
         if (parsedargs.count ("seed")) {
             seed = parsedargs["seed"].as<uint32_t>();
