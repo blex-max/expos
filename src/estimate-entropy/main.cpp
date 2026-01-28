@@ -10,7 +10,8 @@ int main (int argc, char ** argv) {
   cxxopts::Options args (
     "estimate-entropy",
     "\n"
-    "lempel-ziv estimated entropy rate per character of input string"
+    "Lempel-Ziv estimated entropy rate per character of input string <STR>"
+    "\n"
   );
 
   args.add_options()
