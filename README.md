@@ -90,43 +90,43 @@ These are the header lines from an output VCF describing the INFO fields added. 
 >   Number=5,  
 >   Type=Float,  
 >   Description="""  
->   Array detailing the upper quartile of nearest neighbour distances
->   between mutant query positions and monte-carlo simulation results:
->   [0]calculated statistic;
->   [1]log2 ratio effect size from comparisons to simulation against all reads;
->   [2]two-sided P-value from comparisons to simulation against all reads;
->   [3]log2 ratio effect size from comparisons to simulation against uniform distribution;
->   [4]two-sided P-value from comparisons to simulation against uniform distribution
->   """>
-> 
-> ##INFO=<
->   ID=T1NN_UQ,
->   Number=3,
->   Type=Float,
->   Description="""
->   Array detailing the upper quartile of nearest neighbour distances
->   between endpoints of supporting templates and monte-carlo simulation results:
->   [0]calculated statistic;
->   [1]log2 ratio effect size from comparisons to simulation against all reads;
->   [2]two-sided P-value from comparisons to simluation against all reads
->   """>
-> 
-> ##INFO=<
->   ID=RCMPLX,
->   Number=1,
->   Type=Integer,
->   Description=
->   "Complexity (Lempel-Ziv estimated entropy rate) of region spanned by supporting templates, scaled by x100">
-> 
-> ##INFO=<
->   ID=MLAS,
->   Number=2,
->   Type=Float,
->   Description="""
->   Array of median read-length normalised alignment scores:
->   [0]of reads supporting variant,
->   [1]of all queried reads covering the variant location in the sample alignment
->   """>
+>   Array detailing the upper quartile of nearest neighbour distances  
+>   between mutant query positions and monte-carlo simulation results:  
+>   [0]calculated statistic;  
+>   [1]log2 ratio effect size from comparisons to simulation against all reads;  
+>   [2]two-sided P-value from comparisons to simulation against all reads;  
+>   [3]log2 ratio effect size from comparisons to simulation against uniform distribution;  
+>   [4]two-sided P-value from comparisons to simulation against uniform distribution  
+>   """>  
+>   
+> ##INFO=<  
+>   ID=T1NN_UQ,  
+>   Number=3,  
+>   Type=Float,  
+>   Description="""  
+>   Array detailing the upper quartile of nearest neighbour distances  
+>   between endpoints of supporting templates and monte-carlo simulation results:  
+>   [0]calculated statistic;  
+>   [1]log2 ratio effect size from comparisons to simulation against all reads;  
+>   [2]two-sided P-value from comparisons to simluation against all reads  
+>   """>  
+>   
+> ##INFO=<  
+>   ID=RCMPLX,  
+>   Number=1,  
+>   Type=Integer,  
+>   Description=  
+>   "Complexity (Lempel-Ziv estimated entropy rate) of region spanned by supporting templates, scaled by x100">  
+>   
+> ##INFO=<  
+>   ID=MLAS,  
+>   Number=2,  
+>   Type=Float,  
+>   Description="""  
+>   Array of median read-length normalised alignment scores:  
+>   [0]of reads supporting variant,  
+>   [1]of all queried reads covering the variant location in the sample alignment  
+>   """>  
 
 log2-fold change scales such that no effect is 0, -1 means the statistic is 1/2 on supporting data compared background, -2 1/4, whereas an effect size of 1 means the statistic is 2x on supporting data compared to background, 2 4x. Practically this means that effect sizes below 0 indicate tighter clustering of observations as compared to background.
 
