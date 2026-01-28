@@ -13,8 +13,9 @@ number of PCR cycles. Builds on Ellis et al. 2021, GATK ReadPosRankSum, amongst 
 For both SNVs and small indels. MNV handling logic is present,
 but largely untested.
 
+Alpha Software!
 Core functionality present but niceties and guard rails are not.
-Please report any bugs!
+Please report any bugs and ask any questions!
 
 #### definite TODOs
  - report correct position in error messages - chrom and position are both
@@ -79,7 +80,7 @@ expos my.vcf my.bam
 
 ## Assessments made
 
-Assessments of spatial clustering of mutant bases have been used to filter false-positive mutations which may otherwise be difficult to consistently detect (Ellis, Peter Cambpell, GATK ReadPosRankSum, others). The underlying hypothesis is that mutant reads should be drawn from the same spatial distribution as reference reads; if mutant reads differ significantly from reference reads, then the spatial process producing those reads deviates from the spatial process producing the reference reads. This may indicate that a non-biological process, or sequencing artefact, is responsible for the mutant reads since it would not be expected that mutant reads exhibit a unique preference for a particular region.
+Assessments of spatial clustering of mutant bases have been used to filter false-positive mutations which may otherwise be difficult to consistently detect (Ellis 2021, Cambpell Lab, GATK ReadPosRankSum, others). The underlying hypothesis is that mutant reads should be drawn from the same spatial distribution as reference reads; if mutant reads differ significantly from reference reads, then the spatial process producing those reads deviates from the spatial process producing the reference reads. This may indicate that a non-biological process, or sequencing artefact, is responsible for the mutant reads since it would not be expected that mutant reads exhibit a unique preference for a particular region.
 
 expos implements a nearest-neighbour algorithm (Cover, 1967) on two spatial properties of the set of mutant reads; the query position of the mutation on each read, and the endpoints of the inferred template from which each read was amplified. For each property, expos finds the distance to the single closest neighbour for each read, and reports the upper quartile of the set of these distances. Since the unit of these metrics is in sequence bases, they are readily interpretable as descriptive statistics – what is the average distance in bases to the closest neighboring observation? The inclusion of empirical two-tailed P values, and log2-fold change effect sizes, extend the metrics beyond descriptive statistics and allow for defensible flagging of variants on a sound statistical basis.
 
@@ -138,6 +139,10 @@ MLAS[0] is equivalent to ASRD as may be familiar to some users.
 
 ## Example
 
+This is fairly non-specific example showing the breadth of what
+one might do with the information encoded by expos - it's not
+strictly a recommendation, though it is statistically defensible.
+
 ```bash
  # example pipeline - Add some soft flags in the FILTER column
  # (or alternately, subset entirely with bcftools view instead of filter)
@@ -175,4 +180,39 @@ bcftools filter -Oz \
   --mode + \
   -s LOW_SUPPORTING_AS \
   -e'(INFO/MLAS[0] < 0.93)' > my.flagged.vcf.gz
+```
+
+A more targeted approach can inform you as to particular
+scenarios that may be strongly associated with false postive variants:
+
+```bash
+./path/to/expos -u --ref ref.fa my.vcf my.bam |
+bcftools filter -Oz \
+  --mode + \
+  -s LOW_CMPLX_CLUSTER \
+  -e'INFO/Q1NN_UQ[1] <= -1.0 & INFO/Q1NN_UQ[2] < 0.05 & INFO/RCMPLX < 150' > my.flagged.vcf.gz
+```
+at the cost of missing more generic variants with spurious looking spatial properties
+
+P-values and effect sizes can be modified
+```bash
+# relaxed p-val, very large effect size (8x as clustered)
+# an example of the concept, again not a recommendation per se
+./path/to/expos -u --ref ref.fa my.vcf my.bam |
+bcftools filter -Oz \
+  --mode + \
+  -s QPOS_CLUSTER_2 \
+  -e'INFO/Q1NN_UQ[1] <= -3.0 & INFO/Q1NN_UQ[2] < 0.1' > my.flagged.vcf.gz
+```
+
+Since the p-values are returned are two-tailed, you can also look
+at deviation in the other direction - though it is not intuitively obvious
+that this would be associated with a false positive variant
+```bash
+# at least twice as spread as expected, and statistically significant
+./path/to/expos -u --ref ref.fa my.vcf my.bam |
+bcftools filter -Oz \
+  --mode + \
+  -s QPOS_CLUSTER \
+  -e'INFO/Q1NN_UQ[1] >= 1.0 & INFO/Q1NN_UQ[2] < 0.05' > my.flagged.vcf.gz
 ```
