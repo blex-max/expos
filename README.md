@@ -48,29 +48,21 @@ added.
 Usage:
   expos [OPTION...] <VCF/BCF (- for stdin)> <ALN.(b/cr)am>
 
-  -h, --help              Print usage
-  -i, --include arg       Only operate on VCF records with this value
-                          present in FILTER. e.g. -i PASS. May be passed
-                          multiple times.
-  -e, --exclude arg       Only operate on VCF records without this value
-                          present in FILTER. May be passed multiple times.
-  -f, --flag-include arg  Only consider reads with these bits set in the
-                          SAM flag. Applies to both target and background
-                          alignment data. Default: 3
-  -F, --flag-exclude arg  Do not consider reads with these bits set in the
-                          SAM flag. Applies to both target and background
-                          alignment data. Default: 3852
-  -t, --tsv arg           Write a tsv of extended statistics to file
-                          specified.
-  -n, --normal arg        Alignment for use as additional background data
-                          for simulation
-      --normal-only       Use only reads from the provided normal as
-                          background data, excluding non-supporting reads
-                          from the sample
-  -r, --ref arg           Alignment Reference Fasta for optionally adding
-                          reference complexity to statistics.
-      --seed arg          Set random seed. Default: 24601
-  -u, --uncompressed      output uncompressed VCF
+  -h, --help          Print usage
+  -r, --ref arg       Alignment Reference Fasta for optionally adding
+                      reference complexity to statistics.
+  -n, --normal arg    Alignment for use as additional background data for
+                      simulation
+      --normal-only   Use only reads from the provided normal as background
+                      data, excluding non-supporting reads from the sample
+  -i, --include arg   Only operate on VCF records with this value present
+                      in FILTER. e.g. -i PASS. May be passed multiple
+                      times.
+  -e, --exclude arg   Only operate on VCF records without this value
+                      present in FILTER. May be passed multiple times.
+  -t, --tsv arg       Write a tsv of extended statistics to file specified.
+  -u, --uncompressed  output uncompressed VCF
+      --seed arg      Set random seed. Default: 24601
 ```
 basic usage then looks like:
 ```bash
