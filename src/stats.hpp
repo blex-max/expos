@@ -160,7 +160,7 @@ class PairMatrix {
 };
 
 
-inline double medianNN (const PairMatrix &pwd) {
+inline double upper_quartileNN (const PairMatrix &pwd) {
     assert (pwd.dim() > 1);
     std::vector<uint64_t> nndv;
     for (size_t row = 0; row < pwd.dim(); ++row) {
@@ -175,7 +175,7 @@ inline double medianNN (const PairMatrix &pwd) {
         }
         nndv.push_back (min_nnd);
     }
-    return *percentile (nndv, 0.5);     // median
+    return *percentile (nndv, 0.75);     // median
 }
 
 

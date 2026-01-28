@@ -46,9 +46,9 @@ struct field_s {
     int         type, nrec;
 };
 const std::unordered_map<std::string, field_s> FIELD_INF{
-    {"QM1NN",
-     {"QM1NN",
-      "Array detailing median nearest neighbour distance between mutant query positions and monte-carlo simulation results:"
+    {"Q1NN_UQ",
+     {"Q1NN_UQ",
+      "Array detailing the upper quartile of nearest neighbour distances between mutant query positions and monte-carlo simulation results:"
       "[0]calculated statistic;"
       "[1]log2 ratio effect size from comparisons to simulation against all reads;"
       "[2]two-sided P-value from comparisons to simulation against all reads;"
@@ -56,27 +56,27 @@ const std::unordered_map<std::string, field_s> FIELD_INF{
       "[4]two-sided P-value from comparisons to simulation against uniform distribution",
       BCF_HT_REAL,
       5}},
-    {"TM1NN",
-     {"TM1NN",
-     "Array detailing median nearest neighbour distance between endpoints of supporting templates and monte-carlo simulation results:"
+    {"T1NN_UQ",
+     {"T1NN_UQ",
+     "Array detailing the upper quartile of nearest neighbour distances between endpoints of supporting templates and monte-carlo simulation results:"
       "[0]calculated statistic;"
       "[1]log2 ratio effect size from comparisons to simulation against all reads;"
       "[2]two-sided P-value from comparisons to simluation against all reads",
       BCF_HT_REAL,
       3}},
+    {"RCMPLX",
+     {"RCMPLX",
+      "Complexity (Lempel-Ziv estimated entropy rate) of region spanned by supporting "
+      "templates, scaled by x100",
+      BCF_HT_INT,
+      1}},
     {"MLAS",
      {"MLAS",
       "Array of median read-length normalised alignment scores:"
       "[0]of reads supporting variant,"
       "[1]of all queried reads covering the variant location in the sample alignment",
       BCF_HT_REAL,
-      2}},
-    {"RCMPLX",
-     {"RCMPLX",
-      "Complexity (Lempel-Ziv estimated entropy rate) of region spanned by supporting "
-      "templates, scaled by x100",
-      BCF_HT_INT,
-      1}}     // NOTE -- kc is optional
+      2}}
 };
 
 
@@ -103,14 +103,11 @@ std::string rdbl4 (const double &a) {
 // TODO add record of command to VCF!
 // TODO fraction of supporting reads with soft clipping, eff sz, pval, and median number of clipped bases
 // in reads with soft clipping (CLPM)
-// TODO calculate average AS of all reads in sample region
 // TODO calculate ref statistics even if no supporting reads
 // TODO options for more vcf data (e.g. REF,ALT) in TSV (if using expos as "genome browser by numbers")
 // NOTE uniform sim added for qpos!
 // template endpoints is more complicated, they tend to show a right-skewed gaussian distribution
 // around a target fragment size - TODO
-// TODO allow option for only using normal as background - in progress
-// 
 int main (
     int   argc,
     char *argv[]
@@ -150,6 +147,15 @@ int main (
         ("aln", "Sample BAM", cxxopts::value<fs::path>())
 
         // OPTS
+        ("r,ref",
+         "Alignment Reference Fasta for optionally adding reference complexity to statistics.",
+         cxxopts::value<fs::path>())
+        ("n,normal",
+         "Alignment for use as additional background data for simulation",
+         cxxopts::value<fs::path>())
+        ("normal-only",
+         "Use only reads from the provided normal as background data, excluding non-supporting reads from the sample")
+
         ("i,include",
          "Only operate on VCF records with this value present in FILTER. e.g. -i PASS. May be passed multiple times.",
          cxxopts::value<std::vector<std::string>>()) // multiple allowed
@@ -165,21 +171,14 @@ int main (
         // ("w,write",
         //  "Write specified field to output VCF. May be passed multiple times.",
         //  cxxopts::value<std::vector<std::string>>()->default_value("ALL"))
+
+        ("u,uncompressed", "output uncompressed VCF")
         ("t,tsv",
          "Write a tsv of extended statistics to file specified.",
          cxxopts::value<fs::path>())
-        ("n,normal",
-         "Alignment for use as additional background data for simulation",
-         cxxopts::value<fs::path>())
-        ("normal-only",
-         "Use only reads from the provided normal as background data, excluding non-supporting reads from the sample")
-        ("r,ref",
-         "Alignment Reference Fasta for optionally adding reference complexity to statistics.",
-         cxxopts::value<fs::path>())
         ("seed",
         "Set random seed. Default: 24601",
-        cxxopts::value<uint32_t>())
-        ("u,uncompressed", "output uncompressed VCF");
+        cxxopts::value<uint32_t>());
     // clang-format on
 
     options.parse_positional ({"vcf", "aln"});
@@ -613,6 +612,13 @@ int main (
                                  const auto &b) {
             return (a > b) ? (a - b) : (b - a);
         };
+        // using the pair matrix is possibly wasteful
+        // the nearest neighbour distance on a number line
+        // is just the minimum of the two spacings for each point
+        // so a sorted vector can be used instead like
+        // min(v[i] - v[i-1], v[i+1] - v[i])
+        // unless the sorting + spacings
+        // is actually slower than calculating the pair matrix
         const auto qpos_pwd = PairMatrix::from_sample (
             sample_supporting_pileup.query_position,
             dist_1D
@@ -635,7 +641,7 @@ int main (
         stat_eval_s           qpos_m1nn_bgsim;  // compared to all reads
         stat_eval_s           qpos_m1nn_unisim; // compared to expected distribution
         if (qpos_pwd) {
-            qpos_m1nn = medianNN (*qpos_pwd);
+            qpos_m1nn = upper_quartileNN (*qpos_pwd);
             decltype(sample_supporting_pileup.query_position) qpos_popv;
             if (!normal_only) {
                 if (normal_pileup) { // ADD NORMAL OBS
@@ -661,7 +667,7 @@ int main (
             auto stat_fn = [&dist_1D] (const auto &v) {
                 const auto pwds = PairMatrix::from_sample (v, dist_1D);
                 assert (pwds);
-                const auto ret = medianNN (*pwds);
+                const auto ret = upper_quartileNN (*pwds);
                 return ret;
             };
             auto n_obs = sample_supporting_pileup.query_position.size();
@@ -714,7 +720,7 @@ int main (
         std::optional<double> te_m1nn;
         stat_eval_s           te_m1nn_sim;
         if (te_pwd) {
-            te_m1nn = medianNN (*te_pwd);
+            te_m1nn = upper_quartileNN (*te_pwd);
             decltype(sample_supporting_pileup.template_endpoints) te_popv;
             if (!normal_only) {
                 if (normal_pileup) {
@@ -754,7 +760,7 @@ int main (
                             mannd
                         );
                         assert (pwds);
-                        const auto ret = medianNN (*pwds);
+                        const auto ret = upper_quartileNN (*pwds);
                         return ret;
                     },
                     [] (const auto &ev, const auto &simv) {
@@ -840,7 +846,7 @@ int main (
                 (float) (qpos_m1nn_unisim.eff_sz.value_or(1.0)),
                 (float) (qpos_m1nn_unisim.pval.value_or (1.0)),
             };
-            write_info (FIELD_INF.at ("QM1NN"), &val);
+            write_info (FIELD_INF.at ("Q1NN_UQ"), &val);
         }
         if (te_m1nn) {
             float val[3]{
@@ -848,19 +854,19 @@ int main (
                 (float) (te_m1nn_sim.eff_sz.value_or (0.0)),
                 (float) (te_m1nn_sim.pval.value_or (1.0))
             };
-            write_info (FIELD_INF.at ("TM1NN"), &val);
+            write_info (FIELD_INF.at ("T1NN_UQ"), &val);
         }
-        if (mlas_supporting) {
+        if (ref_entropy) {
+            const auto val = *ref_entropy;
+            write_info (FIELD_INF.at ("RCMPLX"), &val);
+        }
+        if (mlas_supporting) { // should still include total if no supporting, TODO
             float val[2]{
                 (float) (*mlas_supporting),
                 (float) (*mlas_total),
             };
             // TODO rounding
             write_info (FIELD_INF.at ("MLAS"), &val);
-        }
-        if (ref_entropy) {
-            const auto val = *ref_entropy;
-            write_info (FIELD_INF.at ("RCMPLX"), &val);
         }
 
         if (bcf_write (ovcf.get(), ohdr.get(), b1.get()) != 0) {

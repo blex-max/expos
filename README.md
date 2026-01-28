@@ -8,9 +8,9 @@ from a matched normal.
 
 Useful for inspecting and flagging false postive variants caused
 by a variety of processes most commonly associated with a high
-number of PCR cycles. Builds on Ellis et al. 2021, amongst others.
+number of PCR cycles. Builds on Ellis et al. 2021, GATK ReadPosRankSum, amongst others.
 
-For both SNVs and indels. MNV handling logic is present,
+For both SNVs and small indels. MNV handling logic is present,
 but largely untested.
 
 Core functionality present but niceties and guard rails are not.
@@ -81,16 +81,16 @@ expos my.vcf my.bam
 
 Assessments of spatial clustering of mutant bases have been used to filter false-positive mutations which may otherwise be difficult to consistently detect (Ellis, Peter Cambpell, GATK ReadPosRankSum, others). The underlying hypothesis is that mutant reads should be drawn from the same spatial distribution as reference reads; if mutant reads differ significantly from reference reads, then the spatial process producing those reads deviates from the spatial process producing the reference reads. This may indicate that a non-biological process, or sequencing artefact, is responsible for the mutant reads since it would not be expected that mutant reads exhibit a unique preference for a particular region.
 
-expos implements a nearest-neighbour algorithm (Cover, 1967) on two spatial properties of the set of mutant reads; the query position of the mutation on each read, and the endpoints of the inferred template from which each read was amplified. For each property, expos finds the distance to the single closest neighbour for each read, and reports the median of the set of these distances. Since the unit of these metrics is in sequence bases, they are readily interpretable as descriptive statistics – what is the average distance in bases to the closest neighboring observation? The inclusion of two-tailed rank-based P values, and effect sizes, extend the metrics beyond descriptive statistics and allow for defensible flagging of variants on a sound statistical basis.
+expos implements a nearest-neighbour algorithm (Cover, 1967) on two spatial properties of the set of mutant reads; the query position of the mutation on each read, and the endpoints of the inferred template from which each read was amplified. For each property, expos finds the distance to the single closest neighbour for each read, and reports the median of the set of these distances. Since the unit of these metrics is in sequence bases, they are readily interpretable as descriptive statistics – what is the average distance in bases to the closest neighboring observation? The inclusion of empirical two-tailed P values, and log2-fold change effect sizes, extend the metrics beyond descriptive statistics and allow for defensible flagging of variants on a sound statistical basis.
 
 These are the header lines from an output VCF describing the INFO fields added. The [] notation is used to indicate which element of the array holds the data in question where the INFO field added is an array.
 
+>##INFO=<ID=Q1NN_UQ,Number=5,Type=Float,Description="Array detailing the upper quartile of nearest neighbour distances between mutant query positions and monte-carlo simulation results:[0]calculated statistic;[1]log2 ratio effect size from comparisons to simulation against all reads;[2]two-sided P-value from comparisons to simulation against all reads;[3]log2 ratio effect size from comparisons to simulation against uniform distribution;[4]two-sided P-value from comparisons to simulation against uniform distribution">
+>##INFO=<ID=T1NN_UQ,Number=3,Type=Float,Description="Array detailing the upper quartile of nearest neighbour distances between endpoints of supporting templates and monte-carlo simulation results:[0]calculated statistic;[1]log2 ratio effect size from comparisons to simulation against all reads;[2]two-sided P-value from comparisons to simluation against all reads">
 >##INFO=<ID=RCMPLX,Number=1,Type=Integer,Description="Complexity (Lempel-Ziv estimated entropy rate) of region spanned by supporting templates, scaled by x100">
->##INFO=<ID=TM1NN,Number=3,Type=Float,Description="Array detailing median nearest neighbour distance between endpoints of supporting templates and monte-carlo simulation results:[0]calculated statistic;[1]log2 ratio effect size from comparisons to simulation against all reads;[2]two-sided P-value from comparisons to simluation against all reads">
->##INFO=<ID=QM1NN,Number=5,Type=Float,Description="Array detailing median nearest neighbour distance between mutant query positions and monte-carlo simulation results:[0]calculated statistic;[1]log2 ratio effect size from comparisons to simulation against all reads;[2]two-sided P-value from comparisons to simulation against all reads;[3]log2 ratio effect size from comparisons to simulation against uniform distribution;[4]two-sided P-value from comparisons to simulation against uniform distribution">
 >##INFO=<ID=MLAS,Number=2,Type=Float,Description="Array of median read-length normalised alignment scores:[0]of reads supporting variant,[1]of all queried reads covering the variant location in the sample alignment">
 
-log2 effect sizes scale such no effect is 0, -1 means the statistic is 1/2 on supporting data compared background, -2 1/4, whereas an effect size of 1 means the statistic 2x on supporting data compared to background, 2 4x. Practically this means that effect sizes below 0 indicate tighter clustering of observations as compared to background.
+log2-fold change scales such that no effect is 0, -1 means the statistic is 1/2 on supporting data compared background, -2 1/4, whereas an effect size of 1 means the statistic is 2x on supporting data compared to background, 2 4x. Practically this means that effect sizes below 0 indicate tighter clustering of observations as compared to background.
 
 MLAS[0] is equivalent to ASRD as may be familiar to some users.
 
@@ -105,33 +105,26 @@ MLAS[0] is equivalent to ASRD as may be familiar to some users.
 # 2: calculate statistics with expos, reading VCF from stdin (-), output uncompressed VCF to stdout.
 # note that for brevity no normal is provided, but providing a normal can add a lot of statistical power
 # if an appropriate normal is available.
-# 3, 4, 5, 6, 7: statisically-backed flagging on distribution/clustering stats;
+# 3, 4, 5: statisically-backed flagging on distribution/clustering stats;
 # flagging variants where observations are at least 2x as tightly clustered or spread as the background data,
 # and the difference is statistically significant (P <= 0.05).
-# 8: heuristic/rule-of-thumb on poor alignment score on supporting reads in regions
+# 6: heuristic/rule-of-thumb on poor alignment score on supporting reads in regions
 # of low reference complexity;
-# 9: heuristic/rule-of-thumb flagging on poor alignment score, and write to disk.
+# 7: heuristic/rule-of-thumb flagging on poor alignment score
+# and > write to disk.
 ./path/to/expos -u --ref ref.fa my.vcf my.bam |
 bcftools filter -Ov \
   --mode + \
   -s QPOS_CLUSTER \
-  -e'(INFO/QM1NN[1] <= -0.5 & INFO/QM1NN[2] < 0.1)' |
+  -e'(INFO/Q1NN_UQ[1] <= -1.0 & INFO/Q1NN_UQ[2] < 0.05)' |
 bcftools filter -Ov \
   --mode + \
   -s TEMPLATE_CLUSTER \
-  -e'(INFO/TM1NN[1] <= -0.5 & INFO/TM1NN[2] < 0.1)' |
-bcftools filter -Ov \
-  --mode + \
-  -s QPOS_SPREAD \
-  -e'(INFO/QM1NN[1] >= 0.5 & INFO/QM1NN[2] < 0.1)' |
-bcftools filter -Ov \
-  --mode + \
-  -s TEMPLATE_SPREAD \
-  -e'(INFO/TM1NN[1] >= 1 & INFO/TM1NN[2] < 0.1)' |
+  -e'(INFO/T1NN_UQ[1] <= -1.0 & INFO/T1NN_UQ[2] < 0.05)' |
 bcftools filter -Ov \
   --mode + \
   -s QPOS_NON_UNIFORM \
-  -e'((INFO/QM1NN[3] <= -1.0 | INFO/QM1NN[3] >= 1.0) & INFO/QM1NN[4] < 0.05)' |
+  -e'((INFO/Q1NN_UQ[3] <= -1.0 | INFO/Q1NN_UQ[3] >= 1.0) & INFO/Q1NN_UQ[4] < 0.05)' |
 bcftools filter -Ov \
   --mode + \
   -s POOR_ALN_REG \
