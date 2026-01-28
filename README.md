@@ -86,17 +86,17 @@ expos implements a nearest-neighbour algorithm (Cover, 1967) on two spatial prop
 These are the header lines from an output VCF describing the INFO fields added. The [] notation is used to indicate which element of the array holds the data in question where the INFO field added is an array.
 
 > ##INFO=<  
->   ID=Q1NN_UQ,  
->   Number=5,  
->   Type=Float,  
->   Description="""  
->   Array detailing the upper quartile of nearest neighbour distances  
->   between mutant query positions and monte-carlo simulation results:  
->   [0]calculated statistic;  
->   [1]log2 ratio effect size from comparisons to simulation against all reads;  
->   [2]two-sided P-value from comparisons to simulation against all reads;  
->   [3]log2 ratio effect size from comparisons to simulation against uniform distribution;  
->   [4]two-sided P-value from comparisons to simulation against uniform distribution  
+>     ID=Q1NN_UQ,  
+>     Number=5,  
+>     Type=Float,  
+>     Description="""  
+>     Array detailing the upper quartile of nearest neighbour distances  
+>     between mutant query positions and monte-carlo simulation results:  
+>     [0]calculated statistic;  
+>     [1]log2 ratio effect size from comparisons to simulation against all reads;  
+>     [2]two-sided P-value from comparisons to simulation against all reads;  
+>     [3]log2 ratio effect size from comparisons to simulation against uniform distribution;  
+>     [4]two-sided P-value from comparisons to simulation against uniform distribution  
 >   """>  
 >   
 > ##INFO=<  
