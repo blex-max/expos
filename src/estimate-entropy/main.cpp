@@ -25,7 +25,7 @@ int main (int argc, char ** argv) {
 
     if (parsedargs.count ("help")) {
         std::cout << args.help() << std::endl;
-        return 1;
+        return 0;
     }
 
     if (!parsedargs.count ("str")) {
