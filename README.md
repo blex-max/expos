@@ -192,9 +192,9 @@ bcftools filter -Oz \
   -s LOW_CMPLX_CLUSTER \
   -e'INFO/Q1NN_UQ[1] <= -1.0 & INFO/Q1NN_UQ[2] < 0.05 & INFO/RCMPLX < 150' > my.flagged.vcf.gz
 ```
-at the cost of missing more generic variants with spurious looking spatial properties
+at the cost of missing more generic variants with spurious looking spatial properties.
 
-P-values and effect sizes can be modified
+P-values and effect sizes can be modified:
 ```bash
 # relaxed p-val, very large effect size (8x as clustered)
 # an example of the concept, again not a recommendation per se
@@ -207,7 +207,7 @@ bcftools filter -Oz \
 
 Since the p-values are returned are two-tailed, you can also look
 at deviation in the other direction - though it is not intuitively obvious
-that this would be associated with a false positive variant
+that this would be associated with a false positive variant.
 ```bash
 # at least twice as spread as expected, and statistically significant
 ./path/to/expos -u --ref ref.fa my.vcf my.bam |
