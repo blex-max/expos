@@ -85,7 +85,7 @@ expos implements a nearest-neighbour algorithm (Cover, 1967) on two spatial prop
 
 These are the header lines from an output VCF describing the INFO fields added. The [] notation is used to indicate which element of the array holds the data in question where the INFO field added is an array.
 
-```
+```bash
 ##INFO=<
   ID=Q1NN_UQ,
   Number=5,
