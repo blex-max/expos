@@ -280,8 +280,7 @@ inline std::vector<T> subsample_wo_replace (
 
     // partial Fisher–Yates shuffle an index vector so that
     // idx[0..n] is a uniform sample without replacement.
-    std::vector<size_t> all_idx;
-    all_idx.resize(nobs);
+    std::vector<size_t> all_idx(nobs);
     std::iota(begin(all_idx), end(all_idx), 0);
 
     // shuffle
