@@ -48,7 +48,8 @@ struct field_s {
 const std::unordered_map<std::string, field_s> FIELD_INF{
     {"Q1NN_UQ",
      {"Q1NN_UQ",
-      "Array detailing the upper quartile of nearest neighbour distances between mutant query positions and monte-carlo simulation results:"
+      "Array detailing the upper quartile of nearest neighbour distances"
+      "between mutant query positions and monte-carlo simulation results:"
       "[0]calculated statistic;"
       "[1]log2 ratio effect size from comparisons to simulation against all reads;"
       "[2]two-sided P-value from comparisons to simulation against all reads;"
@@ -58,7 +59,8 @@ const std::unordered_map<std::string, field_s> FIELD_INF{
       5}},
     {"T1NN_UQ",
      {"T1NN_UQ",
-     "Array detailing the upper quartile of nearest neighbour distances between endpoints of supporting templates and monte-carlo simulation results:"
+     "Array detailing the upper quartile of nearest neighbour distances"
+      "between endpoints of supporting templates and monte-carlo simulation results:"
       "[0]calculated statistic;"
       "[1]log2 ratio effect size from comparisons to simulation against all reads;"
       "[2]two-sided P-value from comparisons to simluation against all reads",

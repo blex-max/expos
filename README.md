@@ -171,7 +171,7 @@ bcftools filter -Ov \
 bcftools filter -Ov \
   --mode + \
   -s QPOS_NON_UNIFORM \
-  -e'((INFO/Q1NN_UQ[3] <= -1.0 | INFO/Q1NN_UQ[3] >= 1.0) & INFO/Q1NN_UQ[4] < 0.05)' |
+  -e'(INFO/Q1NN_UQ[3] <= -1.0 & INFO/Q1NN_UQ[4] < 0.05)' |
 bcftools filter -Ov \
   --mode + \
   -s POOR_ALN_REG \
@@ -213,6 +213,6 @@ that this would be associated with a false positive variant
 ./path/to/expos -u --ref ref.fa my.vcf my.bam |
 bcftools filter -Oz \
   --mode + \
-  -s QPOS_CLUSTER \
+  -s QPOS_SPREAD \
   -e'INFO/Q1NN_UQ[1] >= 1.0 & INFO/Q1NN_UQ[2] < 0.05' > my.flagged.vcf.gz
 ```
