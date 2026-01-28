@@ -22,6 +22,7 @@ From: ubuntu:24.04
         -DMAKE_DAUGHTER=ON
     cmake --build /src/build -j
     install -m 0755 /src/build/expos /usr/local/bin/expos
+    install -m 0755 /src/build/estimate-entropy /usr/local/bin/estimate-entropy
 
 %runscript
     exec /usr/local/bin/expos "$@"
