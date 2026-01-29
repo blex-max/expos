@@ -160,22 +160,59 @@ class PairMatrix {
 };
 
 
-inline double upper_quartileNN (const PairMatrix &pwd) {
-    assert (pwd.dim() > 1);
-    std::vector<uint64_t> nndv;
-    for (size_t row = 0; row < pwd.dim(); ++row) {
-        auto min_nnd = std::numeric_limits<uint64_t>::max();
-        for (size_t col = 0; col < pwd.dim(); ++col) {
-            if (row == col)
+inline double two_stage_trimmed_means (const PairMatrix &pwd, double cutoff_pt) {
+    const auto n = pwd.dim();  // square matrix
+    assert(n > 1);
+    assert(cutoff_pt > 0.0 && cutoff_pt <= 1.0);
+
+    const auto tail_k = (n + 2) / 4;  // 25% smallest observations of a vector of size n - 1
+
+    std::vector<double> lower_tail_means;
+    std::vector<uint64_t> row_dists;
+    row_dists.reserve(n - 1);
+    uint64_t dist_sum= 0;
+    for (size_t row = 0; row < n; ++row) {
+        row_dists.clear();
+        for (size_t col = 0; col < n; ++col) {
+            if (row == col) {
                 continue;     // skip self-self
-            const auto nnd = pwd.get (row, col);
-            if (nnd < min_nnd) {
-                min_nnd = nnd;
             }
+            row_dists.push_back(pwd.get(row, col));
         }
-        nndv.push_back (min_nnd);
+        std::nth_element(
+            begin(row_dists),
+            begin(row_dists) + (tail_k - 1),
+            end(row_dists)
+        );
+
+        dist_sum = 0;
+        for (size_t i = 0; i < tail_k; ++i) {
+            dist_sum += row_dists[i];
+        }
+        lower_tail_means.push_back(
+            static_cast<double>(dist_sum)
+            / static_cast<double>(tail_k)
+        );
     }
-    return *percentile (nndv, 0.75);     // median
+
+    {
+        const auto cutoff_k =
+            static_cast<size_t>(
+                ceil(
+                    static_cast<double>(n * cutoff_pt)
+                ));
+        std::nth_element(
+            begin(lower_tail_means),
+            begin(lower_tail_means) + (cutoff_k - 1),
+            end(lower_tail_means)
+        );
+
+        double sum = 0;
+        for (size_t i = 0; i < cutoff_k; ++i) {
+            sum += lower_tail_means[i];
+        }
+        return sum / static_cast<double>(cutoff_k);
+    }
 }
 
 

@@ -102,11 +102,14 @@ std::string rdbl4 (const double &a) {
 }
 
 
+// TODO ---> TWO STAGE QUANTILES rather than single nearest neighbour distance to avoid saturation at high n, and use more of the distances to get a more balanced result. basically kNN with scaling of k by number of observations. mean of the lower quartile (or lower half? Possibly unneeded) of distances of each points neighbours, then >=0.75th percentile of those to see if ~all neighbours dense. Not using kNN directly because of wanting to work for low sample sizes, so can't fix k (this is interpolating instead basically) and can't use Ripley's because I don't want to define radius thresholds.
 // TODO add record of command to VCF!
 // TODO fraction of supporting reads with soft clipping, eff sz, pval, and median number of clipped bases
 // in reads with soft clipping (CLPM)
 // TODO calculate ref statistics even if no supporting reads
 // TODO options for more vcf data (e.g. REF,ALT) in TSV (if using expos as "genome browser by numbers")
+// TODO assessment of cigar complexity/edit distance to ref of supporting reads
+// compared to total population accounting for variant.
 // NOTE uniform sim added for qpos!
 // template endpoints is more complicated, they tend to show a right-skewed gaussian distribution
 // around a target fragment size - TODO
@@ -631,7 +634,7 @@ int main (
         stat_eval_s           qpos_m1nn_bgsim;  // compared to all reads
         stat_eval_s           qpos_m1nn_unisim; // compared to expected distribution
         if (qpos_pwd) {
-            qpos_m1nn = upper_quartileNN (*qpos_pwd);
+            qpos_m1nn = upper_quartile_of_lower_means (*qpos_pwd);
             decltype(sample_supporting_pileup.query_position) qpos_popv;
             if (!normal_only) {
                 if (normal_pileup) { // ADD NORMAL OBS
@@ -657,7 +660,7 @@ int main (
             auto stat_fn = [&dist_1D] (const auto &v) {
                 const auto pwds = PairMatrix::from_sample (v, dist_1D);
                 assert (pwds);
-                const auto ret = upper_quartileNN (*pwds);
+                const auto ret = upper_quartile_of_lower_means (*pwds);
                 return ret;
             };
             auto n_obs = sample_supporting_pileup.query_position.size();
@@ -667,7 +670,7 @@ int main (
             else if (qpos_popv.size() < (n_obs * 2)) {
                 // at a bare minimum, we want 2x more total samples than bg
                 qpos_m1nn_bgsim.err = "INSUFF_BG";
-            }  // TODO if less than e.g. 5/10 report low power?
+            }  // TODO if less than e.g. 5x report low power?
             else {
                 qpos_m1nn_bgsim = sim_to_bg (
                     *qpos_m1nn,
@@ -710,7 +713,7 @@ int main (
         std::optional<double> te_m1nn;
         stat_eval_s           te_m1nn_sim;
         if (te_pwd) {
-            te_m1nn = upper_quartileNN (*te_pwd);
+            te_m1nn = upper_quartile_of_lower_means (*te_pwd);
             decltype(sample_supporting_pileup.template_endpoints) te_popv;
             if (!normal_only) {
                 if (normal_pileup) {
@@ -750,7 +753,7 @@ int main (
                             mannd
                         );
                         assert (pwds);
-                        const auto ret = upper_quartileNN (*pwds);
+                        const auto ret = upper_quartile_of_lower_means (*pwds);
                         return ret;
                     },
                     [] (const auto &ev, const auto &simv) {
