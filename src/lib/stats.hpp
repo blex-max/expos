@@ -160,6 +160,11 @@ class PairMatrix {
 };
 
 
+// Two-stage trimmed mean to assess local spatial structure.
+// What is the average local density among the densest <second_cutoff_pt> of points?
+// Where local density is defined as the mean of distances to the 0.25*n closest
+// neigbhours of a given point (excluding self-self).
+// The cutoff parameter allows tuning the weighting of the least crowded observations
 inline double trimmed_mean_of_lower_tails (const PairMatrix &pwd, double second_cutoff_pt) {
     const auto n = pwd.dim();  // square matrix
     assert(n > 1);

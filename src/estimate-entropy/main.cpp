@@ -10,7 +10,7 @@ int main (int argc, char ** argv) {
   cxxopts::Options args (
     "estimate-entropy",
     "\n"
-    "Lempel-Ziv estimated entropy rate per character of input string <STR>"
+    "Lempel-Ziv (1976) estimated entropy rate per character of input string <STR>"
     "\n"
   );
 
