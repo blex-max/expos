@@ -160,7 +160,7 @@ class PairMatrix {
 };
 
 
-inline double two_stage_trimmed_means (const PairMatrix &pwd, double cutoff_pt) {
+inline double trimmed_mean_of_lower_tails (const PairMatrix &pwd, double second_cutoff_pt) {
     const auto n = pwd.dim();  // square matrix
     assert(n > 1);
     assert(cutoff_pt > 0.0 && cutoff_pt <= 1.0);
@@ -199,7 +199,7 @@ inline double two_stage_trimmed_means (const PairMatrix &pwd, double cutoff_pt) 
         const auto cutoff_k =
             static_cast<size_t>(
                 ceil(
-                    static_cast<double>(n * cutoff_pt)
+                    static_cast<double>(n * second_cutoff_pt)
                 ));
         std::nth_element(
             begin(lower_tail_means),

@@ -634,7 +634,7 @@ int main (
         stat_eval_s           qpos_m1nn_bgsim;  // compared to all reads
         stat_eval_s           qpos_m1nn_unisim; // compared to expected distribution
         if (qpos_pwd) {
-            qpos_m1nn = upper_quartile_of_lower_means (*qpos_pwd);
+            qpos_m1nn = trimmed_mean_of_lower_tails (*qpos_pwd, 0.75);
             decltype(sample_supporting_pileup.query_position) qpos_popv;
             if (!normal_only) {
                 if (normal_pileup) { // ADD NORMAL OBS
@@ -660,7 +660,7 @@ int main (
             auto stat_fn = [&dist_1D] (const auto &v) {
                 const auto pwds = PairMatrix::from_sample (v, dist_1D);
                 assert (pwds);
-                const auto ret = upper_quartile_of_lower_means (*pwds);
+                const auto ret = trimmed_mean_of_lower_tails (*pwds, 0.75);
                 return ret;
             };
             auto n_obs = sample_supporting_pileup.query_position.size();
@@ -713,7 +713,7 @@ int main (
         std::optional<double> te_m1nn;
         stat_eval_s           te_m1nn_sim;
         if (te_pwd) {
-            te_m1nn = upper_quartile_of_lower_means (*te_pwd);
+            te_m1nn = trimmed_mean_of_lower_tails (*te_pwd, 0.75);
             decltype(sample_supporting_pileup.template_endpoints) te_popv;
             if (!normal_only) {
                 if (normal_pileup) {
@@ -753,7 +753,7 @@ int main (
                             mannd
                         );
                         assert (pwds);
-                        const auto ret = upper_quartile_of_lower_means (*pwds);
+                        const auto ret = trimmed_mean_of_lower_tails (*pwds, 0.75);
                         return ret;
                     },
                     [] (const auto &ev, const auto &simv) {
