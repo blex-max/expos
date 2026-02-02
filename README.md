@@ -23,7 +23,6 @@ Please report any bugs and ask any questions!
  - More extensive documentation
  - Add clip fraction/CLPM
  - Record command used in VCF header
- - general code cleanup
 
 ## Installation
 
