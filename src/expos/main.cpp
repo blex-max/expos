@@ -29,9 +29,9 @@
 #include <stdexcept>
 #include <unordered_map>
 
-#include "lib/hts_ptr_t.hpp"
-#include "lib/pileup.hpp"
-#include "lib/stats.hpp"
+#include "hts_ptr_t.hpp"
+#include "pileup.hpp"
+#include "lib-stats/stats.hpp"
 
 constexpr std::string PROG_NAME = "expos";
 constexpr std::string VERSION   = "0.0.0";
@@ -750,9 +750,7 @@ int main (
                         const auto ret = trimmed_mean_of_lower_tails (*pwds, 0.75);
                         return ret;
                     },
-                    [] (const auto &ev, const auto &simv) {
-                        return log2 ((ev + 1) / (*mean (simv) + 1));
-                    }
+                    log2_effsz
                 );
             }
         } else {

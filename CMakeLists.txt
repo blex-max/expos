@@ -72,8 +72,6 @@ if(NOT HTSLIB_TARGET)
 endif()
 # //--- end deps ---//
 
-
-
 set(COMMON_INCLUDES
   ${CMAKE_CURRENT_SOURCE_DIR}/src
 )
@@ -84,6 +82,13 @@ set(COMMON_WARNINGS
   -Wfloat-equal -Wnon-virtual-dtor
   -Woverloaded-virtual -Wnull-dereference
   -Wdouble-promotion -Wformat=2
+)
+
+# //--- internal libs ---//
+add_library(lib_stats INTERFACE)
+
+target_include_directories(lib_stats INTERFACE
+  ${CMAKE_CURRENT_SOURCE_DIR}/src
 )
 
 # //--- testing ---//
@@ -126,6 +131,7 @@ if(MAKE_MAIN)
   )
 
   target_link_libraries(expos
+    lib_stats
     cxxopts::cxxopts
     ${HTSLIB_TARGET}
   )
@@ -144,6 +150,7 @@ if(MAKE_DAUGHTER)
   )
 
   target_link_libraries(estimate-entropy
+    lib_stats
     cxxopts::cxxopts
   )
 endif(MAKE_DAUGHTER)

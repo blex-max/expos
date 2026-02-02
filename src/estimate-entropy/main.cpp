@@ -2,7 +2,7 @@
 
 #include <cxxopts.hpp>
 
-#include "lib/stats.hpp"
+#include "lib-stats/stats.hpp"
 
 int main (int argc, char ** argv) {
   std::string input;

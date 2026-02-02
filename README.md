@@ -18,11 +18,12 @@ Core functionality present but niceties and guard rails are not.
 Please report any bugs and ask any questions!
 
 #### definite TODOs
- - report correct position in error messages - chrom and position are both
+ - Report correct position in error messages - chrom and position are both
    off by one! (this affects error messages only, and has no impact on the output)
  - More extensive documentation
  - Add clip fraction/CLPM
- - record command used in VCF header
+ - Record command used in VCF header
+ - general code cleanup
 
 ## Installation
 
