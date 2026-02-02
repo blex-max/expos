@@ -74,17 +74,15 @@ expos my.vcf my.bam
 
 Assessments of spatial clustering of mutant bases have been used to filter false-positive mutations which may otherwise be difficult to consistently detect (Ellis 2021, Cambpell Lab, GATK ReadPosRankSum, others). The underlying hypothesis is that mutant reads should be drawn from the same spatial distribution as reference reads; if mutant reads differ significantly from reference reads, then the spatial process producing those reads deviates from the spatial process producing the reference reads. This may indicate that a non-biological process, or sequencing artefact, is responsible for the mutant reads since it would not be expected that mutant reads exhibit a unique preference for a particular region.
 
-expos implements a nearest-neighbour algorithm (Cover, 1967) on two spatial properties of the set of mutant reads; the query position of the mutation on each read, and the endpoints of the inferred template from which each read was amplified. For each property, expos finds the distance to the single closest neighbour for each read, and reports the upper quartile of the set of these distances. Since the unit of these metrics is in sequence bases, they are readily interpretable as descriptive statistics – what is the average distance in bases to the closest neighboring observation? The inclusion of empirical two-tailed P values, and log2-fold change effect sizes, extend the metrics beyond descriptive statistics and allow for defensible flagging of variants on a sound statistical basis.
-
 These are the header lines from an output VCF describing the INFO fields added. The [] notation is used to indicate which element of the array holds the data in question where the INFO field added is an array.
 
 ```bash
 ##INFO=<
-  ID=Q1NN_UQ,
+  ID=QkNN,
   Number=5,
   Type=Float,
   Description="""
-  Array detailing the upper quartile of nearest neighbour distances
+  Array detailing the trimmed mean of the per-point mean of the 25% nearest neighbour distances
   between mutant query positions and monte-carlo simulation results:
   [0]calculated statistic;
   [1]log2 ratio effect size from comparisons to simulation against all reads;
@@ -94,11 +92,11 @@ These are the header lines from an output VCF describing the INFO fields added. 
   """>
 
 ##INFO=<
-  ID=T1NN_UQ,
+  ID=TkNN,
   Number=3,
   Type=Float,
   Description="""
-  Array detailing the upper quartile of nearest neighbour distances
+  Array detailing the trimmed mean of the per-point mean of the 25% nearest neighbour distances
   between endpoints of supporting templates and monte-carlo simulation results:
   [0]calculated statistic;
   [1]log2 ratio effect size from comparisons to simulation against all reads;
@@ -145,7 +143,7 @@ strictly a recommendation, though it is statistically defensible.
 # note that for brevity no normal is provided, but providing a normal can add a lot of statistical power
 # if an appropriate normal is available.
 # 3, 4, 5: statisically-backed flagging on distribution/clustering stats;
-# flagging variants where observations are at least 2x as tightly clustered or spread as the background data,
+# flagging variants where observations are at least 2x as tightly clustered as the background
 # and the difference is statistically significant (P <= 0.05).
 # 6: heuristic/rule-of-thumb on poor alignment score on supporting reads in regions
 # of low reference complexity;
@@ -155,15 +153,15 @@ strictly a recommendation, though it is statistically defensible.
 bcftools filter -Ov \
   --mode + \
   -s QPOS_CLUSTER \
-  -e'(INFO/Q1NN_UQ[1] <= -1.0 & INFO/Q1NN_UQ[2] < 0.05)' |
+  -e'(INFO/QkNN[1] <= -1.0 & INFO/QkNN[2] < 0.05)' |
 bcftools filter -Ov \
   --mode + \
   -s TEMPLATE_CLUSTER \
-  -e'(INFO/T1NN_UQ[1] <= -1.0 & INFO/T1NN_UQ[2] < 0.05)' |
+  -e'(INFO/TkNN[1] <= -1.0 & INFO/TkNN[2] < 0.05)' |
 bcftools filter -Ov \
   --mode + \
   -s QPOS_NON_UNIFORM \
-  -e'(INFO/Q1NN_UQ[3] <= -1.0 & INFO/Q1NN_UQ[4] < 0.05)' |
+  -e'(INFO/QkNN[3] <= -1.0 & INFO/QkNN[4] < 0.05)' |
 bcftools filter -Ov \
   --mode + \
   -s POOR_ALN_REG \
@@ -182,7 +180,7 @@ scenarios that may be strongly associated with false postive variants:
 bcftools filter -Oz \
   --mode + \
   -s LOW_CMPLX_CLUSTER \
-  -e'INFO/Q1NN_UQ[1] <= -1.0 & INFO/Q1NN_UQ[2] < 0.05 & INFO/RCMPLX < 150' > my.flagged.vcf.gz
+  -e'INFO/QkNN[1] <= -1.0 & INFO/QkNN[2] < 0.05 & INFO/RCMPLX < 150' > my.flagged.vcf.gz
 ```
 at the cost of missing more generic variants with spurious looking spatial properties.
 
@@ -194,7 +192,7 @@ P-values and effect sizes can be modified:
 bcftools filter -Oz \
   --mode + \
   -s QPOS_CLUSTER_2 \
-  -e'INFO/Q1NN_UQ[1] <= -3.0 & INFO/Q1NN_UQ[2] < 0.1' > my.flagged.vcf.gz
+  -e'INFO/QkNN[1] <= -3.0 & INFO/QkNN[2] < 0.1' > my.flagged.vcf.gz
 ```
 
 Since the p-values are returned are two-tailed, you can also look
@@ -206,7 +204,7 @@ that this would be associated with a false positive variant.
 bcftools filter -Oz \
   --mode + \
   -s QPOS_SPREAD \
-  -e'INFO/Q1NN_UQ[1] >= 1.0 & INFO/Q1NN_UQ[2] < 0.05' > my.flagged.vcf.gz
+  -e'INFO/QkNN[1] >= 1.0 & INFO/QkNN[2] < 0.05' > my.flagged.vcf.gz
 ```
 
 

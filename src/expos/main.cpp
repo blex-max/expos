@@ -11,11 +11,6 @@
 
 // NOTE: qpos clustering is equivalent to read endpoint clustering iff read lengths are ~all the same
 // which they are for short read seq
-// template clustering, via five number summary of the template endpoint chebyshev distance MST edges
-// NOTE:
-// distribution of supporting data must not be meaningfully
-// different to a random sampling of the total data
-// if nothing odd is going on
 
 #include <algorithm>
 #include <cstdint>
@@ -46,9 +41,9 @@ struct field_s {
     int         type, nrec;
 };
 const std::unordered_map<std::string, field_s> FIELD_INF{
-    {"Q1NN_UQ",
-     {"Q1NN_UQ",
-      "Array detailing the upper quartile of nearest neighbour distances"
+    {"QkNN",
+     {"QkNN",
+      "Array detailing the trimmed mean of the per-point mean of the 25% nearest neighbour distances"
       "between mutant query positions and monte-carlo simulation results:"
       "[0]calculated statistic;"
       "[1]log2 ratio effect size from comparisons to simulation against all reads;"
@@ -57,9 +52,9 @@ const std::unordered_map<std::string, field_s> FIELD_INF{
       "[4]two-sided P-value from comparisons to simulation against uniform distribution",
       BCF_HT_REAL,
       5}},
-    {"T1NN_UQ",
-     {"T1NN_UQ",
-     "Array detailing the upper quartile of nearest neighbour distances"
+    {"TkNN",
+     {"TkNN",
+      "Array detailing the trimmed mean of the per-point mean of the 25% nearest neighbour distances"
       "between endpoints of supporting templates and monte-carlo simulation results:"
       "[0]calculated statistic;"
       "[1]log2 ratio effect size from comparisons to simulation against all reads;"
@@ -102,7 +97,6 @@ std::string rdbl4 (const double &a) {
 }
 
 
-// TODO ---> TWO STAGE QUANTILES rather than single nearest neighbour distance to avoid saturation at high n, and use more of the distances to get a more balanced result. basically kNN with scaling of k by number of observations. mean of the lower quartile (or lower half? Possibly unneeded) of distances of each points neighbours, then >=0.75th percentile of those to see if ~all neighbours dense. Not using kNN directly because of wanting to work for low sample sizes, so can't fix k (this is interpolating instead basically) and can't use Ripley's because I don't want to define radius thresholds.
 // TODO add record of command to VCF!
 // TODO fraction of supporting reads with soft clipping, eff sz, pval, and median number of clipped bases
 // in reads with soft clipping (CLPM)
@@ -839,7 +833,7 @@ int main (
                 (float) (qpos_m1nn_unisim.eff_sz.value_or(1.0)),
                 (float) (qpos_m1nn_unisim.pval.value_or (1.0)),
             };
-            write_info (FIELD_INF.at ("Q1NN_UQ"), &val);
+            write_info (FIELD_INF.at ("QkNN"), &val);
         }
         if (te_m1nn) {
             float val[3]{
@@ -847,7 +841,7 @@ int main (
                 (float) (te_m1nn_sim.eff_sz.value_or (0.0)),
                 (float) (te_m1nn_sim.pval.value_or (1.0))
             };
-            write_info (FIELD_INF.at ("T1NN_UQ"), &val);
+            write_info (FIELD_INF.at ("TkNN"), &val);
         }
         if (ref_entropy) {
             const auto val = *ref_entropy;
