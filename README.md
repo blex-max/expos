@@ -78,12 +78,12 @@ These are the header lines from an output VCF describing the INFO fields added. 
 
 ```bash
 ##INFO=<
-  ID=QkNN,
+  ID=QRL,
   Number=5,
   Type=Float,
   Description="""
-  Array detailing the trimmed mean of the per-point mean of the 25% nearest neighbour distances
-  between mutant query positions and monte-carlo simulation results:
+  Array detailing Ripley's L for mutant query position, 
+  and monte-carlo simulation results:
   [0]calculated statistic;
   [1]log2 ratio effect size from comparisons to simulation against all reads;
   [2]two-sided P-value from comparisons to simulation against all reads;
@@ -92,12 +92,12 @@ These are the header lines from an output VCF describing the INFO fields added. 
   """>
 
 ##INFO=<
-  ID=TkNN,
+  ID=TRL,
   Number=3,
   Type=Float,
   Description="""
-  Array detailing the trimmed mean of the per-point mean of the 25% nearest neighbour distances
-  between endpoints of supporting templates and monte-carlo simulation results:
+  Array detailing Ripley's L for endpoints for supporting templates, 
+  and monte-carlo simulation results:
   [0]calculated statistic;
   [1]log2 ratio effect size from comparisons to simulation against all reads;
   [2]two-sided P-value from comparisons to simluation against all reads
@@ -153,15 +153,15 @@ strictly a recommendation, though it is statistically defensible.
 bcftools filter -Ov \
   --mode + \
   -s QPOS_CLUSTER \
-  -e'(INFO/QkNN[1] <= -1.0 & INFO/QkNN[2] < 0.05)' |
+  -e'(INFO/QRL[1] <= -1.0 & INFO/QRL[2] < 0.05)' |
 bcftools filter -Ov \
   --mode + \
   -s TEMPLATE_CLUSTER \
-  -e'(INFO/TkNN[1] <= -1.0 & INFO/TkNN[2] < 0.05)' |
+  -e'(INFO/TRL[1] <= -1.0 & INFO/TRL[2] < 0.05)' |
 bcftools filter -Ov \
   --mode + \
   -s QPOS_NON_UNIFORM \
-  -e'(INFO/QkNN[3] <= -1.0 & INFO/QkNN[4] < 0.05)' |
+  -e'(INFO/QRL[3] <= -1.0 & INFO/QRL[4] < 0.05)' |
 bcftools filter -Ov \
   --mode + \
   -s POOR_ALN_REG \
@@ -180,7 +180,7 @@ scenarios that may be strongly associated with false postive variants:
 bcftools filter -Oz \
   --mode + \
   -s LOW_CMPLX_CLUSTER \
-  -e'INFO/QkNN[1] <= -1.0 & INFO/QkNN[2] < 0.05 & INFO/RCMPLX < 150' > my.flagged.vcf.gz
+  -e'INFO/QRL[1] <= -1.0 & INFO/QRL[2] < 0.05 & INFO/RCMPLX < 150' > my.flagged.vcf.gz
 ```
 at the cost of missing more generic variants with spurious looking spatial properties.
 
@@ -192,7 +192,7 @@ P-values and effect sizes can be modified:
 bcftools filter -Oz \
   --mode + \
   -s QPOS_CLUSTER_2 \
-  -e'INFO/QkNN[1] <= -3.0 & INFO/QkNN[2] < 0.1' > my.flagged.vcf.gz
+  -e'INFO/QRL[1] <= -3.0 & INFO/QRL[2] < 0.1' > my.flagged.vcf.gz
 ```
 
 Since the p-values are returned are two-tailed, you can also look
@@ -204,7 +204,7 @@ that this would be associated with a false positive variant.
 bcftools filter -Oz \
   --mode + \
   -s QPOS_SPREAD \
-  -e'INFO/QkNN[1] >= 1.0 & INFO/QkNN[2] < 0.05' > my.flagged.vcf.gz
+  -e'INFO/QRL[1] >= 1.0 & INFO/QRL[2] < 0.05' > my.flagged.vcf.gz
 ```
 
 

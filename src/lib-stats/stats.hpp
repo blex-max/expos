@@ -328,62 +328,80 @@ inline std::vector<T> subsample_wo_replace (
     return out;
 }
 
+
+// no edge correction - fine if only comparing to monte carlo the same way
+inline double ripley_k (const PairMatrix &pwd, uint64_t t, double point_intensity) {
+    const auto n = pwd.dim();  // square matrix
+    const auto intensity_factor = 1 / point_intensity;
+
+    size_t lt_sum = 0;
+    for (size_t row = 0; row < n; ++row) {
+        size_t lt_count = 0;
+        for (size_t col = 0; col < n; ++col) {
+            if (row == col) continue;
+            if (pwd.get(row, col) < t) {
+                ++lt_count;
+            }
+        }
+        lt_sum += lt_count;
+    }
+
+    const auto mean_lt = static_cast<double>(lt_sum) / static_cast<double>(n);
+    return intensity_factor * mean_lt;
+}
+
+// -t to center, not done here because it messes with log2fold change
+inline double ripley_l_1D (double rk) {
+    return (rk / 2.0);
+}
+inline double ripley_l_2D (double rk) {
+    return std::sqrt((rk / M_PI));
+}
+
+
 // FOR REF COMPLEXITY
 // lempel-ziv 76 entropy rate (bits per base)
-inline double entropy_lz76 (const std::string &s) {
-    assert (!s.empty());
-    size_t slen = s.size();
-    size_t n_phrase = 1;     // number of phrases (complexity), starts at 1 (first char is a phrase)
-    size_t frontier_i = 1;     // start index of current phrase in s
-    size_t memory_search_i = 0;     // index over already processed length of s
-    size_t match_len = 1;
-    size_t max_match_len = 1;     // maximum match length for phrase so far
-    bool stop = false;
+inline double entropy_lz76 (std::string_view s) {
+    const auto nchar = s.size();
+    if (nchar == 0) return 0;
+    if (nchar == 1) return 1;
 
-    if (slen < 2)
-        stop = true;
-
-    while (!stop) {
-        // compare chars
-        if (s[frontier_i + match_len - 1]
-            != s[memory_search_i + match_len - 1]) {     // mismatch
-
-            if (match_len > max_match_len) {
-                max_match_len = match_len;
+    size_t i = 0;            // index into prefix substring
+    size_t lz_cmplx = 1;     // phrase count
+    size_t prefix_len = 1;   // length of substring which has been assessed and is now memory
+    size_t comp_len = 1;     // length of the candidate substring component
+    size_t cycle_max = comp_len;  // longest match for a cycle
+    while (prefix_len + comp_len <= nchar) {
+        if (s[i + comp_len - 1] == s[prefix_len + comp_len - 1])
+        {  // char at prefix == char at frontier
+            ++comp_len;
+        }
+        else  // mismatch
+        {
+            cycle_max = std::max(comp_len, cycle_max);
+            ++i;
+            if (i == prefix_len)
+            {  // memory completely searched
+                ++lz_cmplx;
+                prefix_len = prefix_len + cycle_max;
+                comp_len = 1;
+                i = 0;
+                cycle_max = comp_len;
             }
-
-            ++memory_search_i;     // next memory char
-
-            if (memory_search_i == frontier_i) {     // search complete
-
-                ++n_phrase;
-                frontier_i += max_match_len;     // jump to start of next phrase
-
-                if (frontier_i + 1 > slen) {
-                    stop = true;
-                } else {
-                    // reset
-                    memory_search_i = 0;
-                    match_len       = 1;
-                    max_match_len   = 1;
-                }
-            } else {
-                // restart search for matches from next memory position (++memory_search_i)
-                match_len = 1;
-            }
-        } else {             // match
-            ++match_len;     // extend current match
-
-            if (frontier_i + match_len > slen) {     // reached end
-                ++n_phrase;
-                stop = true;
+            else
+            {
+                comp_len = 1;
             }
         }
     }
 
-    // *log2(n) == kolmogorov complexity
-    // / length normalise
+    // final phrase on loop exit
+    if (comp_len != 1) {
+        ++lz_cmplx;
+    }
+
+    // length normalise
     // result is bits (entropy) per character
-    return (static_cast<double> (n_phrase) * log2 (slen))
-           / static_cast<double> (slen);
+    return (static_cast<double> (lz_cmplx) * log2 (nchar))
+           / static_cast<double> (nchar);
 }

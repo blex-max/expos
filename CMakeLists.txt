@@ -151,6 +151,5 @@ if(MAKE_DAUGHTER)
 
   target_link_libraries(estimate-entropy
     lib_stats
-    cxxopts::cxxopts
   )
 endif(MAKE_DAUGHTER)
