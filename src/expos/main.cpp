@@ -63,8 +63,8 @@ const std::unordered_map<std::string, field_s> FIELD_INF{
       3}},
     {"RCMPLX",
      {"RCMPLX",
-      "Complexity (Lempel-Ziv estimated entropy rate) of region spanned by supporting "
-      "templates, scaled by x100",
+      "Mean 100-base window complexity (Lempel-Ziv estimated entropy rate) of region "
+      "spanned by supporting templates, scaled by x100",
       BCF_HT_INT,
       1}},
     {"MLAS",
@@ -97,7 +97,7 @@ std::string rdbl4 (const double &a) {
 }
 
 
-// TODO multiple and adjustable t for clustering assessment
+// TODO multiple and adjustable t for clustering assessment - and encode in info field name
 // TODO tail mean of top 10% worst/longest of run length encoded reference span - great for slippage/complexity (will also need a slide to account for diff lengths)
 // TODO add record of command to VCF!
 // TODO fraction of supporting reads with soft clipping, eff sz, pval, and median number of clipped bases

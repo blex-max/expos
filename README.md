@@ -108,8 +108,8 @@ These are the header lines from an output VCF describing the INFO fields added. 
   Number=1,
   Type=Integer,
   Description="""
-  Complexity (Lempel-Ziv estimated entropy rate)
-  of region spanned by supporting templates, scaled by x100
+  Mean 100-base window complexity (Lempel-Ziv estimated entropy rate)
+  of region spanned by supporting templates, scaled by x100,
   """>
 
 ##INFO=<
@@ -123,7 +123,7 @@ These are the header lines from an output VCF describing the INFO fields added. 
   """>
 ```
 
-log2-fold change scales such that no effect is 0, -1 means the statistic is 1/2 on supporting data compared background, -2 1/4, whereas an effect size of 1 means the statistic is 2x on supporting data compared to background, 2 4x. Practically this means that effect sizes below 0 indicate tighter clustering of observations as compared to background.
+log2-fold change scales such that no effect is 0.0, 1.0 means the statistic is 2x on supporting data compared background, 2.0 == 4x. Practically this means that effect sizes greater than 0 indicate tighter clustering of observations as compared to background.
 
 MLAS[0] is equivalent to ASRD as may be familiar to some users.
 
@@ -153,15 +153,15 @@ strictly a recommendation, though it is statistically defensible.
 bcftools filter -Ov \
   --mode + \
   -s QPOS_CLUSTER \
-  -e'(INFO/QRL[1] <= -1.0 & INFO/QRL[2] < 0.05)' |
+  -e'(INFO/QRL[1] >= 1.0 & INFO/QRL[2] < 0.05)' |
 bcftools filter -Ov \
   --mode + \
   -s TEMPLATE_CLUSTER \
-  -e'(INFO/TRL[1] <= -1.0 & INFO/TRL[2] < 0.05)' |
+  -e'(INFO/TRL[1] >= 1.0 & INFO/TRL[2] < 0.05)' |
 bcftools filter -Ov \
   --mode + \
   -s QPOS_NON_UNIFORM \
-  -e'(INFO/QRL[3] <= -1.0 & INFO/QRL[4] < 0.05)' |
+  -e'(INFO/QRL[3] >= 1.0 & INFO/QRL[4] < 0.05)' |
 bcftools filter -Ov \
   --mode + \
   -s POOR_ALN_REG \
@@ -180,7 +180,7 @@ scenarios that may be strongly associated with false postive variants:
 bcftools filter -Oz \
   --mode + \
   -s LOW_CMPLX_CLUSTER \
-  -e'INFO/QRL[1] <= -1.0 & INFO/QRL[2] < 0.05 & INFO/RCMPLX < 150' > my.flagged.vcf.gz
+  -e'INFO/QRL[1] >= 1.0 & INFO/QRL[2] < 0.05 & INFO/RCMPLX < 150' > my.flagged.vcf.gz
 ```
 at the cost of missing more generic variants with spurious looking spatial properties.
 
@@ -192,7 +192,7 @@ P-values and effect sizes can be modified:
 bcftools filter -Oz \
   --mode + \
   -s QPOS_CLUSTER_2 \
-  -e'INFO/QRL[1] <= -3.0 & INFO/QRL[2] < 0.1' > my.flagged.vcf.gz
+  -e'INFO/QRL[1] >= 3.0 & INFO/QRL[2] < 0.1' > my.flagged.vcf.gz
 ```
 
 Since the p-values are returned are two-tailed, you can also look
@@ -204,7 +204,7 @@ that this would be associated with a false positive variant.
 bcftools filter -Oz \
   --mode + \
   -s QPOS_SPREAD \
-  -e'INFO/QRL[1] >= 1.0 & INFO/QRL[2] < 0.05' > my.flagged.vcf.gz
+  -e'INFO/QRL[1] <= -1.0 & INFO/QRL[2] < 0.05' > my.flagged.vcf.gz
 ```
 
 
