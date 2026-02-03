@@ -40,6 +40,7 @@ struct field_s {
     std::string desc;
     int         type, nrec;
 };
+// TODO sub in search radius
 const std::unordered_map<std::string, field_s> FIELD_INF{
     {"QRL",
      {"QRL",
@@ -97,8 +98,9 @@ std::string rdbl4 (const double &a) {
 }
 
 
-// TODO multiple and adjustable t for clustering assessment - and encode in info field name
-// TODO tail mean of top 10% worst/longest of run length encoded reference span - great for slippage/complexity (will also need a slide to account for diff lengths)
+// TODO encode in info field name like QRL-3
+// TODO consider multiple and adjustable t for clustering assessment
+// TODO tail mean of top 10% worst/longest of run length encoded reference span - great for slippage/complexity (will also need a slide to account for diff lengths) - less important now lz76 is sliding window but still worthwhile
 // TODO add record of command to VCF!
 // TODO fraction of supporting reads with soft clipping, eff sz, pval, and median number of clipped bases
 // in reads with soft clipping (CLPM)
@@ -120,7 +122,7 @@ int main (
     std::vector<std::string> flt_inc;
     std::vector<std::string> flt_exc;
     uint32_t                 seed = 24601;
-    size_t                   read_len = 150;
+    size_t                   exp_read_len = 150;
     int                      flag_inc = 3;
     int                      flag_exc = 3852;
     bool                     no_gz = false;
@@ -145,6 +147,9 @@ int main (
         ("aln", "Sample BAM", cxxopts::value<fs::path>())
 
         // OPTS
+        ("l,expected-read-len",
+         "Sequencing read length. Default: 150",
+         cxxopts::value<size_t>())
         ("r,ref",
          "Alignment Reference Fasta for optionally adding reference complexity to statistics.",
          cxxopts::value<fs::path>())
@@ -198,16 +203,14 @@ int main (
             );
         }
 
-        std::cerr << "Using VCF: " << vcf_path << std::endl;
-
         if (!fs::exists (aln_path)) {
             throw std::runtime_error (
                 "Alignment file not found: " + aln_path.string()
             );
         }
 
+        std::cerr << "Using VCF: " << vcf_path << std::endl;
         std::cerr << "Using aln: " << aln_path << std::endl;
-
         if (parsedargs.count ("ref")) {
             ref_path = parsedargs["ref"].as<fs::path>();
             if (!fs::exists (ref_path)) {
@@ -216,6 +219,14 @@ int main (
                 );
             }
             std::cerr << "Using ref: " << ref_path << std::endl;
+        }
+
+        if (parsedargs.count ("expected-read-len")) {
+            exp_read_len = parsedargs["expected-read-len"].as<size_t>();
+        } else {
+            std::cerr <<
+            std::format("Read length not provided, assuming {}", exp_read_len)
+            << std::endl;
         }
 
         if (parsedargs.count ("include")) {
@@ -389,14 +400,14 @@ int main (
                  "MLAS\t"
                  "MLAS_EFFSZ\t"
                  "MLAS_PVAL\t"
-                 "QPOS_1NN_UQ\t"
-                 "QPOS_1NN_UQ_EFFSZ_TO_BACKGROUND\t"
-                 "QPOS_1NN_UQ_PVAL_TO_BACKGROUND\t"
-                 "QPOS_1NN_UQ_EFFSZ_TO_UNIFORM\t"
-                 "QPOS_1NN_UQ_PVAL_TO_UNIFORM\t"
-                 "TEMPL_1NN_UQ\t"
-                 "TEMPL_1NN_UQ_EFFSZ\t"
-                 "TEMPL_1NN_UQ_PVAL\t"
+                 "QPOS_RIPLEY\t"
+                 "QPOS_RIPLEY_EFFSZ_TO_BACKGROUND\t"
+                 "QPOS_RIPLEY_PVAL_TO_BACKGROUND\t"
+                 "QPOS_RIPLEY_EFFSZ_TO_UNIFORM\t"
+                 "QPOS_RIPLEY_PVAL_TO_UNIFORM\t"
+                 "TEMPL_RIPLEY\t"
+                 "TEMPL_RIPLEY_EFFSZ\t"
+                 "TEMPL_RIPLEY_PVAL\t"
                  "CONSENSUS_CMPLXx100\t"
                  "LMOST_TEMPLATE_START\t"
                  "RMOST_TEMPLATE_END\t"
@@ -404,7 +415,6 @@ int main (
                  "NTOTAL_READS"
               << "\n";
     }
-
 
     std::mt19937 rng{};
     rng.seed(seed);
@@ -584,27 +594,68 @@ int main (
         }
         if (normal_pileup && normal_pileup->nreads == 0) {
             std::cerr << std::format (
-                "Warning: no reads covering variant location foudn in normal for variant {} {} {}",
+                "Warning: no reads covering variant location found in normal for variant {} {} {}",
                 b1->rid,     // TODO convert rid to user facing
                 b1->pos,     // ditto
                 b1->d.id
             ) << std::endl;
         }
 
-        // --- CLUSTERING ANALYSIS (nearest neighbour) --- //
+        // --- REF COMPLEXITY --- //
+        // consensus region of supporting templates
+        uint64_t lmosttc = std::numeric_limits<uint64_t>::max();
+        uint64_t rmosttc = 0ULL;
+        for (const auto &te : sample_supporting_pileup.template_endpoints) {
+            if (te.lmost < lmosttc)
+                lmosttc = te.lmost;
+            if (te.rmost > rmosttc)
+                rmosttc = te.rmost;
+        }
+        const auto span_length = rmosttc - lmosttc;
+
+        // TODO should really check if it's in bam header not just the vcf,
+        // and that this is the correct reference
+        // NOTE not all needed to be fetched each loop
+        auto rid_name = bcf_hdr_id2name (vcf_hdr.get(), b1->rid);
+        std::optional<uint> ref_entropy;
+        if (reffh) {
+            if (rid_name == NULL) {
+                std::cerr << std::format (
+                    "Could not find reference ID {} in VCF header "
+                    "- VCF "
+                    "misformatted?",
+                    b1->rid
+                ) << std::endl;
+            }
+            std::string refs = fai_autofetch (
+                reffh.get(),
+                rid_name,
+                lmosttc,
+                rmosttc
+            );
+            // transform to ignore masks
+            transform(begin(refs), end(refs), begin(refs), ::toupper);
+            if (refs.find("N") == std::string::npos) {  // No Ns
+                const size_t window_size = 100;
+                double cmplx_sum = 0;
+                size_t n_win = 0;
+                for (;(n_win + window_size) <= refs.size(); ++n_win) {   // ++n_win == step of 1
+                    cmplx_sum += entropy_lz76(refs.substr(n_win, window_size));
+                }
+                const auto mean_window_entropy = static_cast<double> (cmplx_sum) / static_cast<double> (n_win);
+                ref_entropy.emplace (
+                    round (mean_window_entropy * 100)
+                );     // x100 scaling factor
+            }
+        }
+
+        // --- CLUSTERING ANALYSIS - RIPLEY'S L --- //
         // get pairwise distances
         // simple 1D dist for query position
         constexpr auto dist_1D = [] (const auto &a,
                                  const auto &b) {
             return (a > b) ? (a - b) : (b - a);
         };
-        // using the pair matrix is possibly wasteful
-        // the nearest neighbour distance on a number line
-        // is just the minimum of the two spacings for each point
-        // so a sorted vector can be used instead like
-        // min(v[i] - v[i-1], v[i+1] - v[i])
-        // unless the sorting + spacings
-        // is actually slower than calculating the pair matrix
         const auto qpos_pwd = PairMatrix::from_sample (
             sample_supporting_pileup.query_position,
             dist_1D
@@ -622,17 +673,17 @@ int main (
             mannd
         );
 
-        // nearest neighbour monte carlo //
         std::optional<double> qpos_rl;
         stat_eval_s           qpos_rl_bgsim;  // compared to all reads
         stat_eval_s           qpos_rl_unisim; // compared to expected distribution
         if (qpos_pwd) {
-            const size_t search_radius = 5;
+            const size_t search_radius = 5; // bases. Sensible values << read length.
             qpos_rl = ripley_l_1D(
                 ripley_k(
                     *qpos_pwd,
                     search_radius,
-                    static_cast<double>(qpos_pwd->dim()) / 150.0  // read len
+                    static_cast<double>(qpos_pwd->dim())
+                    / static_cast<double> (exp_read_len)
                 )
             );
             decltype(sample_supporting_pileup.query_position) qpos_popv;
@@ -693,11 +744,11 @@ int main (
             // p value for a fixed sample size and read length, therefore
             // could precompute this and save wasted comuptation:
             // scale/normalise the statistic
-            // S = (sample_size / read_length) * (median nearest neighbour d)
+            // S = (sample_size / read_length) * (Ripley)
             // Precompute one high-quality null CDF for S with a large sample size (>40)
             // Use that CDF for all datasets with moderate/large n.
             // for smaller n, use exactly stored CDF
-            std::uniform_int_distribution<uint64_t> qpos_gen{0, read_len};
+            std::uniform_int_distribution<uint64_t> qpos_gen{0, exp_read_len};
             qpos_rl_unisim = sim_to_bg(
                 *qpos_rl,
                 [&qpos_gen, &rng, n_obs] () {
@@ -715,26 +766,15 @@ int main (
             qpos_rl_unisim.err = "INSUFF_OBS";
         }
 
-        // consensus region of supporting templates
-        // NOTE guarded earlier
-        uint64_t lmosttc = std::numeric_limits<uint64_t>::max();
-        uint64_t rmosttc = 0ULL;
-        for (const auto &te : sample_supporting_pileup.template_endpoints) {
-            if (te.lmost < lmosttc)
-                lmosttc = te.lmost;
-            if (te.rmost > rmosttc)
-                rmosttc = te.rmost;
-        }
-        const auto span_length = rmosttc - lmosttc;
-
         std::optional<double> te_rl;
         stat_eval_s           te_rl_sim;
         if (te_pwd) {
+            const size_t search_radius = 6;
             const auto unit_area = span_length * span_length;
             te_rl = ripley_l_2D(
                 ripley_k(
                     *te_pwd,
-                    6,
+                    search_radius,
                     static_cast<double>(te_pwd->dim()) / static_cast<double>(unit_area)
                 )
             );
@@ -780,7 +820,7 @@ int main (
                         return ripley_l_2D(
                             ripley_k(
                                 *pwds,
-                                6,
+                                search_radius,
                                 static_cast<double>(pwds->dim()) / static_cast<double>(unit_area)
                             )
                         );
@@ -801,42 +841,6 @@ int main (
             sample_total_pileup.normalised_as,
             0.5
         );
-
-        // TODO should really check if it's in bam header not just the vcf,
-        // and that this is the correct reference
-        // NOTE not all needed to be fetched each loop
-        auto rid_name = bcf_hdr_id2name (vcf_hdr.get(), b1->rid);
-        std::optional<uint> ref_entropy;
-        if (reffh) {
-            if (rid_name == NULL) {
-                std::cerr << std::format (
-                    "Could not find reference ID {} in VCF header "
-                    "- VCF "
-                    "misformatted?",
-                    b1->rid
-                ) << std::endl;
-            }
-            std::string refs = fai_autofetch (
-                reffh.get(),
-                rid_name,
-                lmosttc,
-                rmosttc
-            );
-            // transform to ignore masks
-            transform(begin(refs), end(refs), begin(refs), ::toupper);
-            if (refs.find("N") == std::string::npos) {  // No Ns
-                const size_t window_size = 100;
-                double cmplx_sum = 0;
-                size_t n_win = 0;
-                for (;(n_win + window_size) < refs.size(); ++n_win) {   // ++n_win == step of 1
-                    cmplx_sum += entropy_lz76(refs.substr(n_win, window_size));
-                }
-                const auto mean_window_entropy = static_cast<double> (cmplx_sum) / static_cast<double> (n_win);
-                ref_entropy.emplace (
-                    round (mean_window_entropy * 100)
-                );     // x100 scaling factor
-            }
-        }
 
         // encode to vcf
         auto write_info = [&] (field_s i, const void *val) {
