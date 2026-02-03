@@ -97,8 +97,8 @@ std::string rdbl4 (const double &a) {
 }
 
 
-// TODO tail mean of top 10% worst/longest of run length encoded reference span - great for slippage/complexity
-// TODO consider sliding window of lz76
+// TODO multiple and adjustable t for clustering assessment
+// TODO tail mean of top 10% worst/longest of run length encoded reference span - great for slippage/complexity (will also need a slide to account for diff lengths)
 // TODO add record of command to VCF!
 // TODO fraction of supporting reads with soft clipping, eff sz, pval, and median number of clipped bases
 // in reads with soft clipping (CLPM)
@@ -106,9 +106,6 @@ std::string rdbl4 (const double &a) {
 // TODO options for more vcf data (e.g. REF,ALT) in TSV (if using expos as "genome browser by numbers")
 // TODO assessment of cigar complexity/edit distance to ref of supporting reads
 // compared to total population accounting for variant.
-// NOTE uniform sim added for qpos!
-// template endpoints is more complicated, they tend to show a right-skewed gaussian distribution
-// around a target fragment size - TODO
 int main (
     int   argc,
     char *argv[]
@@ -825,10 +822,20 @@ int main (
                 lmosttc,
                 rmosttc
             );
-            // TODO warn if all N
-            ref_entropy.emplace (
-                static_cast<uint> (round (entropy_lz76 (refs) * 100))
-            );     // x100 scaling factor
+            // transform to ignore masks
+            transform(begin(refs), end(refs), begin(refs), ::toupper);
+            if (refs.find("N") == std::string::npos) {  // No Ns
+                const size_t window_size = 100;
+                double cmplx_sum = 0;
+                size_t n_win = 0;
+                for (;(n_win + window_size) < refs.size(); ++n_win) {   // ++n_win == step of 1
+                    cmplx_sum += entropy_lz76(refs.substr(n_win, window_size));
+                }
+                const auto mean_window_entropy = static_cast<double> (cmplx_sum) / static_cast<double> (n_win);
+                ref_entropy.emplace (
+                    round (mean_window_entropy * 100)
+                );     // x100 scaling factor
+            }
         }
 
         // encode to vcf
