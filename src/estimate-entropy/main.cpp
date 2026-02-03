@@ -2,7 +2,7 @@
 #include <cstdlib>
 #include <string>
 
-#include "lib-stats/stats.hpp"
+#include "lib-stats/string.hpp"
 
 constexpr std::size_t MAX_STDIN_BYTES = 1000;  // max input chars per line
 
@@ -62,7 +62,7 @@ int main (int argc, char ** argv) {
       std::cout << line;
       std::cout << "\t";
     }
-    std::cout << std::to_string(entropy_lz76(line)) << std::endl;
+    std::cout << std::to_string(string_stats::entropy_lz76(line)) << std::endl;
     input_found = true;
   }
 

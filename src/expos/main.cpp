@@ -30,8 +30,9 @@
 #include <unordered_map>
 
 #include "hts_ptr_t.hpp"
+#include "lib-stats/monte-carlo.hpp"
 #include "pileup.hpp"
-#include "lib-stats/stats.hpp"
+#include "lib-stats/string.hpp"
 
 constexpr std::string PROG_NAME = "expos";
 constexpr std::string VERSION   = "0.0.0";
@@ -640,7 +641,7 @@ int main (
                 double cmplx_sum = 0;
                 size_t n_win = 0;
                 for (;(n_win + window_size) <= refs.size(); ++n_win) {   // ++n_win == step of 1
-                    cmplx_sum += entropy_lz76(refs.substr(n_win, window_size));
+                    cmplx_sum += string_stats::entropy_lz76(refs.substr(n_win, window_size));
                 }
                 const auto mean_window_entropy = static_cast<double> (cmplx_sum) / static_cast<double> (n_win);
                 ref_entropy.emplace (
@@ -656,7 +657,7 @@ int main (
                                  const auto &b) {
             return (a > b) ? (a - b) : (b - a);
         };
-        const auto qpos_pwd = PairMatrix::from_sample (
+        const auto qpos_pwd = spatial::PairMatrix::from_sample (
             sample_supporting_pileup.query_position,
             dist_1D
         );     // empty if <2 samples
@@ -664,22 +665,22 @@ int main (
         // manhattan distance for template endpoints
         constexpr auto mannd = [] (const auto &a,
                                    const auto &b) {
-            line_seg upper_pair{a.rmost, b.rmost};
-            line_seg lower_pair{a.lmost, b.lmost};
+            spatial::line_seg upper_pair{a.rmost, b.rmost};
+            spatial::line_seg lower_pair{a.lmost, b.lmost};
             return upper_pair.diff() + lower_pair.diff();
         };
-        const auto te_pwd = PairMatrix::from_sample (
+        const auto te_pwd = spatial::PairMatrix::from_sample (
             sample_supporting_pileup.template_endpoints,
             mannd
         );
 
         std::optional<double> qpos_rl;
-        stat_eval_s           qpos_rl_bgsim;  // compared to all reads
-        stat_eval_s           qpos_rl_unisim; // compared to expected distribution
+        monte_carlo::stat_eval_s           qpos_rl_bgsim;  // compared to all reads
+        monte_carlo::stat_eval_s           qpos_rl_unisim; // compared to expected distribution
         if (qpos_pwd) {
             const size_t search_radius = 5; // bases. Sensible values << read length.
-            qpos_rl = ripley_l_1D(
-                ripley_k(
+            qpos_rl = spatial::ripley_l_1D(
+                spatial::ripley_k(
                     *qpos_pwd,
                     search_radius,
                     static_cast<double>(qpos_pwd->dim())
@@ -709,10 +710,10 @@ int main (
             }
 
             auto stat_fn = [&dist_1D] (const auto &v) {
-                const auto pwds = PairMatrix::from_sample (v, dist_1D);
+                const auto pwds = spatial::PairMatrix::from_sample (v, dist_1D);
                 assert (pwds);
-                return ripley_l_1D(
-                    ripley_k(
+                return spatial::ripley_l_1D(
+                    spatial::ripley_k(
                         *pwds,
                         search_radius,
                         static_cast<double>(v.size()) / 150.0  // read len
@@ -728,13 +729,13 @@ int main (
                 qpos_rl_bgsim.err = "INSUFF_BG";
             }  // TODO if less than e.g. 5x report low power?
             else {
-                qpos_rl_bgsim = sim_to_bg (
+                qpos_rl_bgsim = monte_carlo::sim_to_bg (
                     *qpos_rl,
                     [&qpos_popv, &rng, n_obs] () {
-                        return subsample_wo_replace(qpos_popv, n_obs, rng);
+                        return monte_carlo::subsample_wo_replace(qpos_popv, n_obs, rng);
                     },
                     stat_fn,
-                    log2_effsz
+                    monte_carlo::log2_effsz
                 );
             }
 
@@ -749,7 +750,7 @@ int main (
             // Use that CDF for all datasets with moderate/large n.
             // for smaller n, use exactly stored CDF
             std::uniform_int_distribution<uint64_t> qpos_gen{0, exp_read_len};
-            qpos_rl_unisim = sim_to_bg(
+            qpos_rl_unisim = monte_carlo::sim_to_bg(
                 *qpos_rl,
                 [&qpos_gen, &rng, n_obs] () {
                     std::vector<uint64_t> rand_qpos;
@@ -759,7 +760,7 @@ int main (
                     return rand_qpos;
                 },
                 stat_fn,
-                log2_effsz
+                monte_carlo::log2_effsz
             );
         } else {
             qpos_rl_bgsim.err = "INSUFF_OBS";
@@ -767,12 +768,12 @@ int main (
         }
 
         std::optional<double> te_rl;
-        stat_eval_s           te_rl_sim;
+        monte_carlo::stat_eval_s           te_rl_sim;
         if (te_pwd) {
             const size_t search_radius = 6;
             const auto unit_area = span_length * span_length;
-            te_rl = ripley_l_2D(
-                ripley_k(
+            te_rl = spatial::ripley_l_2D(
+                spatial::ripley_k(
                     *te_pwd,
                     search_radius,
                     static_cast<double>(te_pwd->dim()) / static_cast<double>(unit_area)
@@ -806,26 +807,26 @@ int main (
                 te_rl_sim.err = "INSUFF_BG";
             }
             else {
-                te_rl_sim = sim_to_bg (
+                te_rl_sim = monte_carlo::sim_to_bg (
                     *te_rl,
                     [&rng, &te_popv, n_supporting_templates] () {
-                        return subsample_wo_replace(te_popv, n_supporting_templates, rng);
+                        return monte_carlo::subsample_wo_replace(te_popv, n_supporting_templates, rng);
                     },
                     [&mannd, unit_area] (const auto &v) {
-                        const auto pwds = PairMatrix::from_sample (
+                        const auto pwds = spatial::PairMatrix::from_sample (
                             v,
                             mannd
                         );
                         assert (pwds);
-                        return ripley_l_2D(
-                            ripley_k(
+                        return spatial::ripley_l_2D(
+                            spatial::ripley_k(
                                 *pwds,
                                 search_radius,
                                 static_cast<double>(pwds->dim()) / static_cast<double>(unit_area)
                             )
                         );
                     },
-                    log2_effsz
+                    monte_carlo::log2_effsz
                 );
             }
         } else {
@@ -833,11 +834,11 @@ int main (
         }
 
         // --- MEDIAN LENGTH-NORMALISED ALIGNMENT SCORE --- //
-        const auto mlas_supporting = percentile (
+        const auto mlas_supporting = summary::percentile (
             sample_supporting_pileup.normalised_as,
             0.5
         );
-        const auto mlas_total = percentile (
+        const auto mlas_total = summary::percentile (
             sample_total_pileup.normalised_as,
             0.5
         );

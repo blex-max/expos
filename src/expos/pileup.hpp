@@ -12,9 +12,9 @@
 #include <htslib/vcf.h>
 
 #include "hts_ptr_t.hpp"
+#include "lib-stats/spatial.hpp"
 #include "variant.hpp"
 #include "util.hpp"
-#include "lib-stats/stats.hpp"
 
 // nothing but C please
 extern "C" {
@@ -131,7 +131,7 @@ inline PileupColumn partition_supporting (const PileupColumn &pc, const bcf1_t *
 struct PileupMetrics {
     std::vector<uint64_t> query_position;
     std::vector<double>   normalised_as;
-    std::vector<line_seg> template_endpoints;
+    std::vector<spatial::line_seg> template_endpoints;
     size_t                nreads = 0;
 };
 inline PileupMetrics get_metrics (const PileupColumn &pc) {
