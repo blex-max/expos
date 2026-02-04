@@ -117,12 +117,5 @@ inline double ripley_k (const PairMatrix &pwd, uint64_t t, double point_intensit
     return intensity_factor * mean_lt;
 }
 
-// -t to center, not done here because it messes with log2fold change
-inline double ripley_l_1D (double rk) {
-    return (rk / 2.0);
-}
-inline double ripley_l_2D (double rk) {
-    return sqrt((rk / M_PI));
-}
 
 }  // end namespace

@@ -43,9 +43,9 @@ struct field_s {
 };
 // TODO sub in search radius
 const std::unordered_map<std::string, field_s> FIELD_INF{
-    {"QRL",
-     {"QRL",
-      "Array detailing Ripley's L for mutant query position, "
+    {"QRK",
+     {"QRK",
+      "Array detailing Ripley's K for mutant query position, "
       "and monte-carlo simulation results:"
       "[0]calculated statistic;"
       "[1]log2 ratio effect size from comparisons to simulation against all reads;"
@@ -54,13 +54,13 @@ const std::unordered_map<std::string, field_s> FIELD_INF{
       "[4]two-sided P-value from comparisons to simulation against uniform distribution",
       BCF_HT_REAL,
       5}},
-    {"TRL",
-     {"TRL",
-      "Array detailing Ripley's L for endpoints of supporting templates, "
+    {"TRK",
+     {"TRK",
+      "Array detailing Ripley's K for endpoints of supporting templates, "
       "and monte-carlo simulation results:"
       "[0]calculated statistic;"
       "[1]log2 ratio effect size from comparisons to simulation against all reads;"
-      "[2]two-sided P-value from comparisons to simluation against all reads",
+      "[2]two-sided P-value from comparisons to simluation against all reads.",
       BCF_HT_REAL,
       3}},
     {"RCMPLX",
@@ -99,9 +99,9 @@ std::string rdbl4 (const double &a) {
 }
 
 
-// TODO encode in info field name like QRL-3
+// TODO encode in info field name like QRK-3
 // TODO consider multiple and adjustable t for clustering assessment
-// TODO tail mean of top 10% worst/longest of run length encoded reference span - great for slippage/complexity (will also need a slide to account for diff lengths) - less important now lz76 is sliding window but still worthwhile
+// TODO max and tail mean of top 10% worst/longest of run length encoded reference span - great for slippage/complexity (will also need a slide to account for diff lengths) - less important now lz76 is sliding window but still worthwhile
 // TODO add record of command to VCF!
 // TODO fraction of supporting reads with soft clipping, eff sz, pval, and median number of clipped bases
 // in reads with soft clipping (CLPM)
@@ -679,14 +679,13 @@ int main (
         monte_carlo::stat_eval_s           qpos_rl_unisim; // compared to expected distribution
         if (qpos_pwd) {
             const size_t search_radius = 5; // bases. Sensible values << read length.
-            qpos_rl = spatial::ripley_l_1D(
+            qpos_rl = 
                 spatial::ripley_k(
                     *qpos_pwd,
                     search_radius,
                     static_cast<double>(qpos_pwd->dim())
                     / static_cast<double> (exp_read_len)
-                )
-            );
+                );
             decltype(sample_supporting_pileup.query_position) qpos_popv;
             if (!normal_only) {
                 if (normal_pileup) { // ADD NORMAL OBS
@@ -712,13 +711,11 @@ int main (
             auto stat_fn = [&dist_1D] (const auto &v) {
                 const auto pwds = spatial::PairMatrix::from_sample (v, dist_1D);
                 assert (pwds);
-                return spatial::ripley_l_1D(
-                    spatial::ripley_k(
+                return spatial::ripley_k(
                         *pwds,
                         search_radius,
                         static_cast<double>(v.size()) / 150.0  // read len
-                    )
-                );
+                    );
             };
             auto n_obs = sample_supporting_pileup.query_position.size();
             if (n_obs < 2) {
@@ -771,13 +768,10 @@ int main (
         monte_carlo::stat_eval_s           te_rl_sim;
         if (te_pwd) {
             const size_t search_radius = 6;
-            const auto unit_area = span_length * span_length;
-            te_rl = spatial::ripley_l_2D(
-                spatial::ripley_k(
+            te_rl = spatial::ripley_k(
                     *te_pwd,
                     search_radius,
-                    static_cast<double>(te_pwd->dim()) / static_cast<double>(unit_area)
-                )
+                    static_cast<double>(te_pwd->dim()) / static_cast<double>(span_length)
             );
             decltype(sample_supporting_pileup.template_endpoints) te_popv;
             if (!normal_only) {
@@ -812,19 +806,16 @@ int main (
                     [&rng, &te_popv, n_supporting_templates] () {
                         return monte_carlo::subsample_wo_replace(te_popv, n_supporting_templates, rng);
                     },
-                    [&mannd, unit_area] (const auto &v) {
+                    [&mannd, span_length] (const auto &v) {
                         const auto pwds = spatial::PairMatrix::from_sample (
                             v,
                             mannd
                         );
                         assert (pwds);
-                        return spatial::ripley_l_2D(
-                            spatial::ripley_k(
+                        return spatial::ripley_k(
                                 *pwds,
                                 search_radius,
-                                static_cast<double>(pwds->dim()) / static_cast<double>(unit_area)
-                            )
-                        );
+                                static_cast<double>(pwds->dim()) / static_cast<double>(span_length));
                     },
                     monte_carlo::log2_effsz
                 );
@@ -870,7 +861,7 @@ int main (
                 (float) (qpos_rl_unisim.eff_sz.value_or(1.0)),
                 (float) (qpos_rl_unisim.pval.value_or (1.0)),
             };
-            write_info (FIELD_INF.at ("QRL"), &val);
+            write_info (FIELD_INF.at ("QRK"), &val);
         }
         if (te_rl) {
             float val[3]{
@@ -878,7 +869,7 @@ int main (
                 (float) (te_rl_sim.eff_sz.value_or (0.0)),
                 (float) (te_rl_sim.pval.value_or (1.0))
             };
-            write_info (FIELD_INF.at ("TRL"), &val);
+            write_info (FIELD_INF.at ("TRK"), &val);
         }
         if (ref_entropy) {
             const auto val = *ref_entropy;

@@ -27,32 +27,39 @@ TEST_CASE ("percentile") {
 TEST_CASE ("entropy") {
     using namespace string_stats;
 
-    std::string tlow ("AAAAAAAAAA");
-    std::string tmid ("ACGTACGTAC");     // repeated phrase
-    std::string thi ("ACAGTCAGGT");      // more disordered
+    std::string t_low ("AAAAAAAAAA");
+    std::string t_mid ("ACGTACGTAC");     // repeated phrase
+    std::string t_hi ("ACAGTCAGGT");      // more disordered
 
-    const double tsz = static_cast<double> (tlow.size());
+    const double tsz = static_cast<double> (t_low.size());
     const auto exp_cmp = (2 * log2 (tsz)) / (tsz);
-    const auto kclow = entropy_lz76 (tlow);
+    const auto lz_low = entropy_lz76 (t_low);
 
     REQUIRE (
-        std::fabs (kclow - exp_cmp) < 1e-6
+        std::fabs (lz_low - exp_cmp) < 1e-6
     );     // within float tolerance
 
-    const auto kcmid = entropy_lz76 (tmid);
-    const auto kchi  = entropy_lz76 (thi);
+    const auto lz_mid = entropy_lz76 (t_mid);
+    const auto lz_hi  = entropy_lz76 (t_hi);
 
     // approximate test
-    REQUIRE (kclow < kcmid);
-    REQUIRE (kcmid < kchi);
+    REQUIRE (lz_low < lz_mid);
+    REQUIRE (lz_mid < lz_hi);
 }
 
 
-TEST_CASE ("rle") {
+TEST_CASE ("periodic rle") {
     using namespace string_stats;
 
-    std::string runs ("AACCCCCCGTTTT");  // 2, 6, 1, 4
-    std::vector<size_t> expected_res {2, 6, 1, 4};
+    {
+        std::string runs ("CTCTCTAAA");
+        std::vector<size_t> expected_res {6, 3};
+        REQUIRE (periodic_rle(runs, 6) == expected_res);
+    }
 
-    REQUIRE (rle(runs) == expected_res);
+    {
+        std::string runs ("CTCTCTAAAAAAAATAAATAAATC");
+        std::vector<size_t> expected_res {6, 8, 8, 1, 1};
+        REQUIRE (periodic_rle(runs, 6) == expected_res);
+    }
 }

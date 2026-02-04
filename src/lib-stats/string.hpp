@@ -7,6 +7,7 @@
 #include <vector>
 
 namespace string_stats {
+
 // lempel-ziv 76 entropy rate (bits per char)
 // used for calculating reference complexity
 inline double entropy_lz76 (std::string_view s) {
@@ -55,27 +56,70 @@ inline double entropy_lz76 (std::string_view s) {
 }
 
 
-inline std::vector<size_t> rle (std::string_view s) {
-  std::vector<size_t> out;
+/*
+periodic_rle: greedy segmentation of a string into maximal exact tandem-repeat
+segments with bounded period.
 
-  size_t nchar = s.size();
-  size_t i = 0;
-  size_t run_len = 1;
-  for (;(i + run_len) < nchar;) {
-    if (s[i + run_len] == s[i]) {
-      ++run_len;
-    } else {
-      out.push_back (run_len);
-      i += run_len; // next char
-      run_len = 1;
+Intent:
+- Partition the string left-to-right into contiguous segments.
+- At each segment start i, consider exact tandem repeats whose period k is in
+  [1, max_k].
+- Choose the period that maximizes contiguous repeat length in bases
+  (run_period * k), and emit that length as the segment size.
+- Length-1 segments are intentional and represent explicit breaks in periodic
+  structure at the tested scale.
+
+Assumptions / scope:
+- Repeats are exact and phase-anchored at the segment start i.
+- Only low-period structure (k ≤ max_k) is considered; longer-period duplication
+  is ignored by design.
+- Greedy tiling is used; overlapping or alternative coverings are not explored.
+
+Invariants:
+- Segment lengths are positive and sum to ≤ string length.
+- Candidate comparisons are bounds-safe: full k-length units are always tested.
+- “Best” is defined in base pairs, not repeat units, avoiding bias toward small k.
+
+Edge behavior:
+- Final segment is always emitted, with any ongoing run accounted for.
+*/
+inline std::vector<size_t> periodic_rle(const std::string& s, size_t max_k)
+{
+    std::vector<size_t> seg_lens;
+    const size_t n = static_cast<size_t>(s.size());
+    if (n == 0) return seg_lens;
+
+    size_t i = 0;
+    while (i < n) {
+        size_t best_run_bp = 1;                 // default: 1 bp break
+        const size_t k_limit = std::min(max_k, n - i);
+
+        for (size_t k = 1; k <= k_limit; ++k) {
+            const std::string unit = s.substr(i, k);
+
+            size_t run_period = 1;
+            while (i + (run_period + 1) * k <= n) {
+                const std::string cand = s.substr(i + run_period * k, k);
+                if (cand == unit) ++run_period;
+                else break;
+            }
+
+            if (run_period >= 2) {
+                const auto run_bp = run_period * k;
+                if (run_bp > best_run_bp) best_run_bp = run_bp;
+            }
+        }
+
+        seg_lens.push_back(best_run_bp);
+        i += best_run_bp;
     }
-  }
 
-  // handle final
-  out.push_back (run_len);
-
-  return out;
+    return seg_lens;
 }
+
+
+
+
 
 } // end namespace
 
