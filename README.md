@@ -112,8 +112,10 @@ These are the header lines from an output VCF describing the INFO fields added. 
   Number=1,
   Type=Integer,
   Description="""
-  Mean 100-base window complexity (Lempel-Ziv estimated entropy rate)
-  of region spanned by supporting templates, scaled by x100,
+  Array detailing complexity of the region of supporting templates: 
+  [0]Mean 100-base window complexity (Lempel-Ziv estimated entropy rate), scaled by x100
+  [1]Mean length of the top 10% longest runs of repeated motifs of period 1-5
+  [2]Longest run of a repeated motif of period 1-5
   """>
 
 ##INFO=<

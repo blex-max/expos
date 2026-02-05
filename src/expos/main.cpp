@@ -65,10 +65,12 @@ const std::unordered_map<std::string, field_s> FIELD_INF{
       3}},
     {"RCMPLX",
      {"RCMPLX",
-      "Mean 100-base window complexity (Lempel-Ziv estimated entropy rate) of region "
-      "spanned by supporting templates, scaled by x100",
-      BCF_HT_INT,
-      1}},
+      "Array detailing complexity of the region of supporting templates: "
+      "[0]Mean 100-base window complexity (Lempel-Ziv estimated entropy rate), scaled by x100"
+      "[1]Mean length of the top 10% longest runs of repeated motifs of period 1-5"
+      "[2]Longest run of a repeated motif of period 1-5",
+      BCF_HT_REAL,
+      3}},
     {"MLAS",
      {"MLAS",
       "Array of median read-length normalised alignment scores:"
@@ -99,9 +101,9 @@ std::string rdbl4 (const double &a) {
 }
 
 
-// TODO encode in info field name like QRK-3
-// TODO consider multiple and adjustable t for clustering assessment
-// TODO max and tail mean of top 10% worst/longest of run length encoded reference span - great for slippage/complexity (will also need a slide to account for diff lengths) - less important now lz76 is sliding window but still worthwhile
+// TODO consider multiple and adjustable t for clustering assessment -- if so encode t in field name like QRK-5
+// TODO sim str run stats against reshuffled region
+// TODO consider MFE/n as report for secondary structure propensity
 // TODO add record of command to VCF!
 // TODO fraction of supporting reads with soft clipping, eff sz, pval, and median number of clipped bases
 // in reads with soft clipping (CLPM)
@@ -410,6 +412,8 @@ int main (
                  "TEMPL_RIPLEY_EFFSZ\t"
                  "TEMPL_RIPLEY_PVAL\t"
                  "CONSENSUS_CMPLXx100\t"
+                 "REF_TOP10_STR_RUN_MEAN\t"
+                 "REF_TOP_STR_RUN_LEN\t"
                  "LMOST_TEMPLATE_START\t"
                  "RMOST_TEMPLATE_END\t"
                  "NALT_READS\t"
@@ -618,7 +622,9 @@ int main (
         // and that this is the correct reference
         // NOTE not all needed to be fetched each loop
         auto rid_name = bcf_hdr_id2name (vcf_hdr.get(), b1->rid);
-        std::optional<uint> ref_entropy;
+        std::optional<size_t> ref_entropy;
+        std::optional<size_t> run_max;
+        std::optional<double> run_mean;
         if (reffh) {
             if (rid_name == NULL) {
                 std::cerr << std::format (
@@ -637,6 +643,7 @@ int main (
             // transform to ignore masks
             transform(begin(refs), end(refs), begin(refs), ::toupper);
             if (refs.find("N") == std::string::npos) {  // No Ns
+                // lz complexity
                 const size_t window_size = 100;
                 double cmplx_sum = 0;
                 size_t n_win = 0;
@@ -647,10 +654,30 @@ int main (
                 ref_entropy.emplace (
                     round (mean_window_entropy * 100)
                 );     // x100 scaling factor
+
+                auto str_runs = string_stats::periodic_rle(refs, 5);
+                auto str_runs_n = str_runs.size();
+                auto top10_i = static_cast<size_t> (floor(static_cast<double>(str_runs.size()) * 0.9));
+                auto top10_n = str_runs_n - top10_i;
+                std::nth_element(
+                    begin(str_runs),
+                    begin(str_runs) + static_cast<long> (top10_i), 
+                    end(str_runs)
+                );
+                decltype(str_runs)::value_type str_run_max=0, top10_run_sum=0;
+                for (size_t i = top10_i; i < str_runs_n; ++i) {
+                    const auto e = str_runs[i];
+                    if (e > str_run_max) {
+                        str_run_max = e;
+                    }
+                    top10_run_sum += e;
+                }
+                run_max = str_run_max;
+                run_mean = static_cast<double> (top10_run_sum) / static_cast<double> (top10_n);
             }
         }
 
-        // --- CLUSTERING ANALYSIS - RIPLEY'S L --- //
+        // --- CLUSTERING ANALYSIS - RIPLEY'S K --- //
         // get pairwise distances
         // simple 1D dist for query position
         constexpr auto dist_1D = [] (const auto &a,
@@ -855,30 +882,34 @@ int main (
         // TODO should probably encode missingness into the vcf somehow... like an EXPOS_ERR info field
         if (qpos_rl) {
             float val[5]{
-                (float) (*qpos_rl),
-                (float) (qpos_rl_bgsim.eff_sz.value_or (0.0)),
-                (float) (qpos_rl_bgsim.pval.value_or (1.0)),
-                (float) (qpos_rl_unisim.eff_sz.value_or(1.0)),
-                (float) (qpos_rl_unisim.pval.value_or (1.0)),
+                static_cast<float> (*qpos_rl),
+                static_cast<float> (qpos_rl_bgsim.eff_sz.value_or (0.0)),
+                static_cast<float> (qpos_rl_bgsim.pval.value_or (1.0)),
+                static_cast<float> (qpos_rl_unisim.eff_sz.value_or(1.0)),
+                static_cast<float> (qpos_rl_unisim.pval.value_or (1.0)),
             };
             write_info (FIELD_INF.at ("QRK"), &val);
         }
         if (te_rl) {
             float val[3]{
-                (float) (*te_rl),
-                (float) (te_rl_sim.eff_sz.value_or (0.0)),
-                (float) (te_rl_sim.pval.value_or (1.0))
+                static_cast<float> (*te_rl),
+                static_cast<float> (te_rl_sim.eff_sz.value_or (0.0)),
+                static_cast<float> (te_rl_sim.pval.value_or (1.0))
             };
             write_info (FIELD_INF.at ("TRK"), &val);
         }
         if (ref_entropy) {
-            const auto val = *ref_entropy;
+            float val[3] {
+                static_cast<float> (*ref_entropy),
+                static_cast<float> (*run_mean),
+                static_cast<float> (*run_max)
+            };
             write_info (FIELD_INF.at ("RCMPLX"), &val);
         }
         if (mlas_supporting) { // should still include total if no supporting, TODO
             float val[2]{
-                (float) (*mlas_supporting),
-                (float) (*mlas_total),
+                static_cast<float> (*mlas_supporting),
+                static_cast<float> (*mlas_total),
             };
             // TODO rounding
             write_info (FIELD_INF.at ("MLAS"), &val);
@@ -897,7 +928,7 @@ int main (
                 "{}\t{}\t{}\t{}\t{}\t"
                 "{}\t{}\t{}\t{}\t{}\t"
                 "{}\t{}\t{}\t{}\t{}\t"
-                "{}\t{}",
+                "{}\t{}\t{}\t{}",
                 rid_name,
                 b1->pos + 1,
                 opt_to_str<double> (mlas_supporting, "NA", rdbl2),
@@ -911,6 +942,8 @@ int main (
                 opt_to_str<double> (te_rl_sim.eff_sz, te_rl_sim.err, rdbl2),
                 opt_to_str<double> (te_rl_sim.pval, te_rl_sim.err, rdbl4),
                 opt_to_str (ref_entropy, "NA"),
+                opt_to_str (run_mean, "NA"),
+                opt_to_str (run_max, "NA"),
                 std::to_string(lmosttc),
                 std::to_string(rmosttc),
                 std::to_string (n_supporting_reads),

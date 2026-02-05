@@ -1,5 +1,7 @@
 #include <catch2/catch_test_macros.hpp>
+#include <cstdint>
 
+#include "lib-stats/spatial.hpp"
 #include "lib-stats/summary.hpp"
 #include "lib-stats/string.hpp"
 
@@ -62,4 +64,27 @@ TEST_CASE ("periodic rle") {
         std::vector<size_t> expected_res {6, 8, 8, 1, 1};
         REQUIRE (periodic_rle(runs, 6) == expected_res);
     }
+}
+
+
+TEST_CASE ("Ripley's K") {
+    using namespace spatial;
+    
+    const double W = 100.0;
+    const std::vector<uint64_t> obs{1, 2, 3, 95, 96, 97};
+    const auto point_intensity = (static_cast<double> (obs.size()) / W);
+    const auto t = 5;  // search radius
+    const double exp_k = 2.0 * (1 / point_intensity); // given obs, we expect a mean of 2 points within t
+
+    const auto pwds = PairMatrix::from_sample(
+        obs,
+        [] (const auto &a, const auto &b)
+        { return (a > b) ? (a - b) : (b - a); }
+    );
+    const auto res = ripley_k(*pwds, t, point_intensity);
+
+    CAPTURE (pwds->get1D());
+    CAPTURE (res);
+    CAPTURE (exp_k);
+    REQUIRE (fabs(res - exp_k) < 1e-6);
 }
