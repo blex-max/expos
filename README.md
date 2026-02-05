@@ -112,10 +112,8 @@ These are the header lines from an output VCF describing the INFO fields added. 
   Number=1,
   Type=Integer,
   Description="""
-  Array detailing complexity of the region of supporting templates: 
-  [0]Mean 100-base window complexity (Lempel-Ziv estimated entropy rate), scaled by x100
-  [1]Mean length of the top 10% longest runs of repeated motifs of period 1-5
-  [2]Longest run of a repeated motif of period 1-5
+  Mean 100-base window complexity (Lempel-Ziv estimated entropy rate) of
+  the reference region spanned by supporting templates, scaled by x100
   """>
 
 ##INFO=<
@@ -131,7 +129,7 @@ These are the header lines from an output VCF describing the INFO fields added. 
 
 log2-fold change scales such that no effect is 0.0, 1.0 means the statistic is 2x on supporting data compared background, 2.0 == 4x. Practically this means that effect sizes greater than 0 indicate tighter clustering of observations as compared to background.
 
-MLAS[0] is equivalent to ASRD as may be familiar to some users.
+MLAS[0] is equivalent to ASRD as may be familiar to some users - thresholding on this value may be inadvisable for indels since a decrease in alignment score is confounded with the presence of the indel itself.
 
 ## Example
 

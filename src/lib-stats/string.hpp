@@ -60,7 +60,14 @@ inline double entropy_lz76 (std::string_view s) {
 periodic_rle: greedy segmentation of a string into maximal exact tandem-repeat
 segments with bounded period.
 
-Intent:
+*Currently unusued in main* - the idea is interesting but it's difficult to either to coerce
+the result into an interpretable statisic for threshold, or, alternatively,
+know which null would be appropriate such that meaningful devation is reported.
+However, it can be shown on test data that regions where the mean of the resulting
+vector is high are very strongly correlated with LZ plummeting, so it's a nice verification.
+Kept for potential future use for now.
+
+Intention:
 - Partition the string left-to-right into contiguous segments.
 - At each segment start i, consider exact tandem repeats whose period k is in
   [1, max_k].
@@ -80,8 +87,6 @@ Invariants:
 - Candidate comparisons are bounds-safe: full k-length units are always tested.
 - “Best” is defined in base pairs, not repeat units, avoiding bias toward small k.
 
-Edge behavior:
-- Final segment is always emitted, with any ongoing run accounted for.
 */
 inline std::vector<size_t> periodic_rle(const std::string& s, size_t max_k)
 {
