@@ -67,6 +67,14 @@ Usage:
                                specified.
   -u, --uncompressed           output uncompressed VCF
       --seed arg               Set random seed. Default: 24601
+      --uniform                additionally simulate against uniform null
+                               model for query position, and add result to
+                               --tsv output. For assessment of correlation
+                               with simulation against all-reads null.
+      --assess-microhomology   additionally assess STR and homopolymer
+                               content of reference regions, and add result
+                               to --tsv output. For assessment of
+                               correlation with drop in LZ.
 ```
 basic usage then looks like:
 ```bash
@@ -83,26 +91,20 @@ These are the header lines from an output VCF describing the INFO fields added. 
 ```bash
 ##INFO=<
   ID=QRK,
-  Number=5,
+  Number=2,
   Type=Float,
   Description="""
-  Array detailing Ripley's K for mutant query position, 
-  and monte-carlo simulation results:
-  [0]calculated statistic;
+  Array detailing monte-carlo simulation results for Ripley's K on mutant query position:
   [1]log2 ratio effect size from comparisons to simulation against all reads;
   [2]two-sided P-value from comparisons to simulation against all reads;
-  [3]log2 ratio effect size from comparisons to simulation against uniform distribution;
-  [4]two-sided P-value from comparisons to simulation against uniform distribution
   """>
 
 ##INFO=<
   ID=TRK,
-  Number=3,
+  Number=2,
   Type=Float,
   Description="""
-  Array detailing Ripley's K for endpoints for supporting templates, 
-  and monte-carlo simulation results:
-  [0]calculated statistic;
+  Array detailing Monte-Carlo simulation results for Ripley's K on endpoints of mutant templates:
   [1]log2 ratio effect size from comparisons to simulation against all reads;
   [2]two-sided P-value from comparisons to simluation against all reads
   """>
@@ -146,7 +148,7 @@ strictly a recommendation, though it is statistically defensible.
 # 2: calculate statistics with expos, reading VCF from stdin (-), output uncompressed VCF to stdout.
 # note that for brevity no normal is provided, but providing a normal can add a lot of statistical power
 # if an appropriate normal is available.
-# 3, 4, 5: statisically-backed flagging on distribution/clustering stats;
+# 3, 4: statisically-backed flagging on distribution/clustering stats;
 # flagging variants where observations are at least 2x as tightly clustered as the background
 # and the difference is statistically significant (P <= 0.05).
 # 6: heuristic/rule-of-thumb on poor alignment score on supporting reads in regions
@@ -157,15 +159,11 @@ strictly a recommendation, though it is statistically defensible.
 bcftools filter -Ov \
   --mode + \
   -s QPOS_CLUSTER \
-  -e'(INFO/QRK[1] >= 1.0 & INFO/QRK[2] < 0.05)' |
+  -e'(INFO/QRK[0] >= 1.0 & INFO/QRK[1] < 0.05)' |
 bcftools filter -Ov \
   --mode + \
   -s TEMPLATE_CLUSTER \
-  -e'(INFO/TRK[1] >= 1.0 & INFO/TRK[2] < 0.05)' |
-bcftools filter -Ov \
-  --mode + \
-  -s QPOS_NON_UNIFORM \
-  -e'(INFO/QRK[3] >= 1.0 & INFO/QRK[4] < 0.05)' |
+  -e'(INFO/TRK[0] >= 1.0 & INFO/TRK[1] < 0.05)' |
 bcftools filter -Ov \
   --mode + \
   -s POOR_ALN_REG \
@@ -184,7 +182,7 @@ scenarios that may be strongly associated with false postive variants:
 bcftools filter -Oz \
   --mode + \
   -s LOW_CMPLX_CLUSTER \
-  -e'INFO/QRK[1] >= 1.0 & INFO/QRK[2] < 0.05 & INFO/RCMPLX < 150' > my.flagged.vcf.gz
+  -e'INFO/QRK[0] >= 1.0 & INFO/QRK[1] < 0.05 & INFO/RCMPLX < 150' > my.flagged.vcf.gz
 ```
 at the cost of missing more generic variants with spurious looking spatial properties.
 
@@ -196,7 +194,7 @@ P-values and effect sizes can be modified:
 bcftools filter -Oz \
   --mode + \
   -s QPOS_CLUSTER_2 \
-  -e'INFO/QRK[1] >= 3.0 & INFO/QRK[2] < 0.1' > my.flagged.vcf.gz
+  -e'INFO/QRK[0] >= 3.0 & INFO/QRK[1] < 0.1' > my.flagged.vcf.gz
 ```
 
 Since the p-values are returned are two-tailed, you can also look
@@ -208,7 +206,7 @@ that this would be associated with a false positive variant.
 bcftools filter -Oz \
   --mode + \
   -s QPOS_SPREAD \
-  -e'INFO/QRK[1] <= -1.0 & INFO/QRK[2] < 0.05' > my.flagged.vcf.gz
+  -e'INFO/QRK[0] <= -1.0 & INFO/QRK[1] < 0.05' > my.flagged.vcf.gz
 ```
 
 

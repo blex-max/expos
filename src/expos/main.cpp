@@ -45,35 +45,29 @@ struct field_s {
 const std::unordered_map<std::string, field_s> FIELD_INF{
     {"QRK",
      {"QRK",
-      "Array detailing Ripley's K for mutant query position, "
-      "and monte-carlo simulation results:"
-      "[0]calculated statistic;"
+      "Array detailing Monte-Carlo simulation results for Ripley's K on mutant query position"
       "[1]log2 ratio effect size from comparisons to simulation against all reads;"
-      "[2]two-sided P-value from comparisons to simulation against all reads;"
-      "[3]log2 ratio effect size from comparisons to simulation against uniform distribution;"
-      "[4]two-sided P-value from comparisons to simulation against uniform distribution",
+      "[2]two-sided P-value from comparisons to simulation against all reads.",
       BCF_HT_REAL,
-      5}},
+      2}},
     {"TRK",
      {"TRK",
-      "Array detailing Ripley's K for endpoints of supporting templates, "
-      "and monte-carlo simulation results:"
-      "[0]calculated statistic;"
+      "Array detailing Monte-Carlo simulation results for Ripley's K on endpoints of mutant templates:"
       "[1]log2 ratio effect size from comparisons to simulation against all reads;"
       "[2]two-sided P-value from comparisons to simluation against all reads.",
       BCF_HT_REAL,
-      3}},
+      2}},
     {"RCMPLX",
      {"RCMPLX",
       "Mean 100-base window complexity (Lempel-Ziv estimated entropy rate) of "
-      "the reference region spanned by supporting templates, scaled by x100",
+      "the reference region spanned by supporting templates, scaled by x100.",
       BCF_HT_REAL,
       1}},
     {"MLAS",
      {"MLAS",
       "Array of median read-length normalised alignment scores:"
-      "[0]of reads supporting variant,"
-      "[1]of all queried reads covering the variant location in the sample alignment",
+      "[0]of reads supporting variant;"
+      "[1]of all queried reads covering the variant location in the sample alignment.",
       BCF_HT_REAL,
       2}}
 };
@@ -126,6 +120,8 @@ int main (
     int                      flag_exc = 3852;
     bool                     no_gz = false;
     bool                     normal_only = false;
+    bool                     uniform_sim = false;
+    bool                     assess_microhom = false;
     // std::vector<std::string> wfields;
 
     // clang-format off
@@ -174,7 +170,11 @@ int main (
         ("u,uncompressed", "output uncompressed VCF")
         ("seed",
         "Set random seed. Default: 24601",
-        cxxopts::value<uint32_t>());
+        cxxopts::value<uint32_t>())
+        ("uniform",
+        "additionally simulate against uniform null model for query position, and add result to --tsv output. For assessment of correlation with simulation against all-reads null.")
+        ("assess-microhomology",
+        "additionally assess STR and homopolymer content of reference regions, and add result to --tsv output. For assessment of correlation with drop in LZ.");
     // clang-format on
 
     options.parse_positional ({"vcf", "aln"});
@@ -252,9 +252,14 @@ int main (
             std::cerr << "Using only normal data as background for simulation" << std::endl;
             normal_only = true;
         }
-
         if (parsedargs.count ("uncompressed")) {
             no_gz = true;
+        }
+        if (parsedargs.count ("uniform")) {
+            uniform_sim = true;
+        }
+        if (parsedargs.count ("assess-microhomology")) {
+            assess_microhom = true;
         }
 
     } catch (const std::exception &e) {
@@ -407,9 +412,9 @@ int main (
                  "TEMPL_RIPLEY\t"
                  "TEMPL_RIPLEY_EFFSZ\t"
                  "TEMPL_RIPLEY_PVAL\t"
-                 "CONSENSUS_CMPLXx100\t"
-                 "REF_TOP10_STR_RUN_MEAN\t"
-                 "REF_TOP_STR_RUN_LEN\t"
+                 "REF_CMPLXx100\t"
+                 "REF_TOP_STR_RUN_MEAN\t"
+                 "REF_MAX_STR_RUN_LEN\t"
                  "LMOST_TEMPLATE_START\t"
                  "RMOST_TEMPLATE_END\t"
                  "NALT_READS\t"
@@ -619,6 +624,8 @@ int main (
         // NOTE not all needed to be fetched each loop
         auto rid_name = bcf_hdr_id2name (vcf_hdr.get(), b1->rid);
         std::optional<size_t> ref_entropy;
+        std::optional<double> run_mean;
+        std::optional<size_t> run_max;
         if (reffh) {
             if (rid_name == NULL) {
                 std::cerr << std::format (
@@ -648,6 +655,29 @@ int main (
                 ref_entropy.emplace (
                     round (mean_window_entropy * 100)
                 );     // x100 scaling factor
+            }
+
+            // quantify homopolymer & STR presence
+            if (assess_microhom) {
+                auto str_runs = string_stats::periodic_rle(refs, 5);
+                auto str_runs_n = str_runs.size();
+                auto top10_i = static_cast<size_t> (floor(static_cast<double>(str_runs.size()) * 0.9));
+                auto top10_n = str_runs_n - top10_i;
+                std::nth_element(
+                    begin(str_runs),
+                    begin(str_runs) + static_cast<long> (top10_i), 
+                    end(str_runs)
+                );
+                decltype(str_runs)::value_type str_run_max=0, top10_run_sum=0;
+                for (size_t i = top10_i; i < str_runs_n; ++i) {
+                    const auto e = str_runs[i];
+                    if (e > str_run_max) {
+                        str_run_max = e;
+                    }
+                    top10_run_sum += e;
+                }
+                run_max = str_run_max;
+                run_mean = static_cast<double> (top10_run_sum) / static_cast<double> (top10_n);
             }
         }
 
@@ -738,31 +768,35 @@ int main (
             }
 
             // simulate against uniform distribution
-            // NOTE:
-            // the same deviation from the null will always have the same
-            // p value for a fixed sample size and read length, therefore
-            // could precompute this and save wasted comuptation:
-            // scale/normalise the statistic
-            // S = (sample_size / read_length) * (Ripley)
-            // Precompute one high-quality null CDF for S with a large sample size (>40)
-            // Use that CDF for all datasets with moderate/large n.
-            // for smaller n, use exactly stored CDF
-            std::uniform_int_distribution<uint64_t> qpos_gen{0, exp_read_len};
-            qpos_rl_unisim = monte_carlo::sim_to_bg(
-                *qpos_rl,
-                [&qpos_gen, &rng, n_obs] () {
-                    std::vector<uint64_t> rand_qpos;
-                    for (size_t i = 0; i < n_obs; ++i) {
-                        rand_qpos.push_back(qpos_gen(rng));
-                    }
-                    return rand_qpos;
-                },
-                stat_fn,
-                monte_carlo::log2_effsz
-            );
+            if (uniform_sim) {
+                // NOTE:
+                // the same deviation from the null will always have the same
+                // p value for a fixed sample size and read length, therefore
+                // could precompute this and save wasted comuptation:
+                // scale/normalise the statistic
+                // S = (sample_size / read_length) * (Ripley)
+                // Precompute one high-quality null CDF for S with a large sample size (>40)
+                // Use that CDF for all datasets with moderate/large n.
+                // for smaller n, use exactly stored CDF
+                std::uniform_int_distribution<uint64_t> qpos_gen{0, exp_read_len};
+                qpos_rl_unisim = monte_carlo::sim_to_bg(
+                    *qpos_rl,
+                    [&qpos_gen, &rng, n_obs] () {
+                        std::vector<uint64_t> rand_qpos;
+                        for (size_t i = 0; i < n_obs; ++i) {
+                            rand_qpos.push_back(qpos_gen(rng));
+                        }
+                        return rand_qpos;
+                    },
+                    stat_fn,
+                    monte_carlo::log2_effsz
+                );
+            }
         } else {
             qpos_rl_bgsim.err = "INSUFF_OBS";
-            qpos_rl_unisim.err = "INSUFF_OBS";
+            if (uniform_sim) {
+                qpos_rl_unisim.err = "INSUFF_OBS";
+            }
         }
 
         std::optional<double> te_rl;
@@ -855,18 +889,14 @@ int main (
         };
         // TODO should probably encode missingness into the vcf somehow... like an EXPOS_ERR info field
         if (qpos_rl) {
-            float val[5]{
-                static_cast<float> (*qpos_rl),
+            float val[2]{
                 static_cast<float> (qpos_rl_bgsim.eff_sz.value_or (0.0)),
                 static_cast<float> (qpos_rl_bgsim.pval.value_or (1.0)),
-                static_cast<float> (qpos_rl_unisim.eff_sz.value_or(1.0)),
-                static_cast<float> (qpos_rl_unisim.pval.value_or (1.0)),
             };
             write_info (FIELD_INF.at ("QRK"), &val);
         }
         if (te_rl) {
-            float val[3]{
-                static_cast<float> (*te_rl),
+            float val[2]{
                 static_cast<float> (te_rl_sim.eff_sz.value_or (0.0)),
                 static_cast<float> (te_rl_sim.pval.value_or (1.0))
             };
@@ -898,7 +928,7 @@ int main (
                 "{}\t{}\t{}\t{}\t{}\t"
                 "{}\t{}\t{}\t{}\t{}\t"
                 "{}\t{}\t{}\t{}\t{}\t"
-                "{}\t{}",
+                "{}\t{}\t{}\t{}",
                 rid_name,
                 b1->pos + 1,
                 opt_to_str<double> (mlas_supporting, "NA", rdbl2),
@@ -912,6 +942,8 @@ int main (
                 opt_to_str<double> (te_rl_sim.eff_sz, te_rl_sim.err, rdbl2),
                 opt_to_str<double> (te_rl_sim.pval, te_rl_sim.err, rdbl4),
                 opt_to_str (ref_entropy, "NA"),
+                opt_to_str (run_mean, "NA"),
+                opt_to_str (run_max, "NA"),
                 std::to_string(lmosttc),
                 std::to_string(rmosttc),
                 std::to_string (n_supporting_reads),
