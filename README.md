@@ -22,6 +22,7 @@ Please report any bugs and ask any questions!
    off by one! (this affects error messages only, and has no impact on the output)
  - More extensive documentation
  - Add clip fraction/CLPM
+ - accept any number of alignment files as extra background
  - Record command used in VCF header
 
 ## Installation
