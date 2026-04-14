@@ -26,6 +26,8 @@ static void print_help() {
     << "  -h, --help    Print usage\n";
 }
 
+// TODO report % string in periodic repeats
+// TODO report MFE of string (if DNA)
 int main (int argc, char ** argv) {
   bool print_region=false;
 

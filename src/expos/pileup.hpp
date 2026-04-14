@@ -61,8 +61,6 @@ inline get_pileup (
     int        sam_flag_include,
     int        sam_flag_exclude
 ) {
-    // plausibly preferable to use unique pointers
-    // prepare to pileup
     auto aln_iter = sam_itr_queryi (
         aln_idx,
         var->rid,
@@ -137,16 +135,16 @@ struct PileupMetrics {
 inline PileupMetrics get_metrics (const PileupColumn &pc) {
     PileupMetrics out;
 
-    std::unordered_set<std::string> qnames;
+    std::unordered_set<const char*> qnames;
     std::array<int64_t, 4>          endpoints;
     bam1_upt                        mateb{bam_init1(), bam_destroy1};
     for (const auto p : pc) {
-        const std::string qname{bam_get_qname (p->b)};
+        const auto qname = bam_get_qname (p->b);
 
         // These are error states rather than skips
         // because if either occurs then something is fundamentally wrong
         // i.e. neither can occur during correct appcation of this function
-        auto raw_mc = bam_aux_get (p->b, "MC");
+        const auto raw_mc = bam_aux_get (p->b, "MC");
         if (raw_mc == NULL)
             throw std::runtime_error (
                 std::format ("no MC tag for read {}", qname)
@@ -161,8 +159,8 @@ inline PileupMetrics get_metrics (const PileupColumn &pc) {
                     qname
                 )
             );
-        const std::string mc{bam_aux2Z (raw_mc)};
-        if (bam_parse_cigar (mc.c_str(), NULL, mateb.get()) < 1) {
+        const auto mc{bam_aux2Z (raw_mc)};
+        if (bam_parse_cigar (mc, NULL, mateb.get()) < 1) {
             throw std::runtime_error (
                 std::format (
                     "unable to parse MC tag {} as cigar string "
@@ -178,8 +176,8 @@ inline PileupMetrics get_metrics (const PileupColumn &pc) {
             throw std::runtime_error (
                 std::format ("no AS tag for read {}", qname)
             );
-        const auto raw_AS_type = bam_aux_type (raw_AS);
-        if (raw_AS_type != 'i' && raw_AS_type != 'C')
+        const auto raw_AS_tag_type = bam_aux_type (raw_AS);
+        if (raw_AS_tag_type != 'i' && raw_AS_tag_type != 'C')
             throw std::runtime_error (
                 std::format (
                     "AS tag is not of type 'i' for read {}. "
@@ -191,13 +189,12 @@ inline PileupMetrics get_metrics (const PileupColumn &pc) {
 
         out.nreads++;
 
-        out.normalised_as.push_back (  // TODO guard
+        out.normalised_as.push_back (
             static_cast<double> (bam_aux2i (raw_AS))
             / static_cast<double> (p->b->core.l_qseq)
         );     // length-normalised alignment score
 
-        const auto l0 = p->b->core.pos;
-
+        // get qpos
         if (!(p->is_del || p->is_refskip || p->qpos < 0)) {
             out.query_position.emplace_back (as_uint (p->qpos));
         }
@@ -217,15 +214,14 @@ inline PileupMetrics get_metrics (const PileupColumn &pc) {
         }
 
         //--- get template region ---//
-        endpoints[0] = l0;
-        endpoints[1] = l0
+        endpoints[0] = p->b->core.pos;
+        endpoints[1] = endpoints[0]
                        + bam_cigar2rlen (
                            static_cast<int> (p->b->core.n_cigar),
                            bam_get_cigar (p->b)
                        );
-        const auto ml0 = p->b->core.mpos;     // leftmost mate coord
-        endpoints[2] = ml0;
-        endpoints[3] = ml0
+        endpoints[2] = p->b->core.mpos;  // leftmost mate coordinate
+        endpoints[3] = endpoints[2]
                        + bam_cigar2rlen (
                            static_cast<int> (mateb->core.n_cigar),
                            bam_get_cigar (mateb)
@@ -294,7 +290,7 @@ inline PileupMetrics pileup_analyse (
                 sam_flag_exclude
             );
     auto out = get_metrics(pileup_all);
-    hts_itr_destroy(aln_iter);  // TODO return to unique ptrs
+    hts_itr_destroy(aln_iter);
     bam_plp_destroy(pileup_buf);
     return out;
 }

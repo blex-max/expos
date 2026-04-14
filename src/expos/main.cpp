@@ -93,6 +93,7 @@ std::string rdbl4 (const double &a) {
 }
 
 
+// TODO optionally encode deviation from uniform to VCF
 // TODO consider multiple and adjustable t for clustering assessment -- if so encode t in field name like QRK-5
 // TODO consider MFE/n as report for secondary structure propensity
 // TODO add record of command to VCF!
@@ -354,7 +355,7 @@ int main (
     };     // stdout
     bcf_hdr_upt ohdr{bcf_hdr_dup (vcf_hdr.get()), bcf_hdr_destroy};
 
-    // ADD LINES TO HDR
+    // for adding to vcf header
     constexpr auto make_info_line = [] (field_s i) {
         std::string t2s[4];
         t2s[BCF_HT_INT]  = "Integer";
@@ -391,14 +392,11 @@ int main (
         throw std::runtime_error ("failed to write header");     // TODO
     };
 
-
     // optional tsv output
     std::optional<std::ofstream> otsv;
     if (!otsv_path.empty()) {
         otsv.emplace (otsv_path);
         // TODO -- pre-header comments explaining each field
-        // NOTE -- TSV header should always stay the same.
-        // Columns not calculated should simply be NA or other indicator
         *otsv << "CHROM\t"
                  "POS\t"
                  "MLAS\t"
@@ -581,7 +579,6 @@ int main (
             continue;
         }
 
-        // TODO guard only relevant bits
         if (sample_supporting_pileup.query_position.size() == 0 || sample_supporting_pileup.template_endpoints.size() == 0) {
             std::cerr << std::format (
                 "no supporting reads found with usable metrics for variant {} {} {}, "
@@ -635,7 +632,7 @@ int main (
                     b1->rid
                 ) << std::endl;
             }
-            std::string refs = fai_autofetch (
+            std::string refs = fai_fetch (
                 reffh.get(),
                 rid_name,
                 lmosttc,
@@ -668,7 +665,7 @@ int main (
                     begin(str_runs) + static_cast<long> (top10_i), 
                     end(str_runs)
                 );
-                decltype(str_runs)::value_type str_run_max=0, top10_run_sum=0;
+                decltype (str_runs)::value_type str_run_max=0, top10_run_sum=0;
                 for (size_t i = top10_i; i < str_runs_n; ++i) {
                     const auto e = str_runs[i];
                     if (e > str_run_max) {
@@ -705,19 +702,19 @@ int main (
             mannd
         );
 
-        std::optional<double> qpos_rl;
-        monte_carlo::stat_eval_s           qpos_rl_bgsim;  // compared to all reads
-        monte_carlo::stat_eval_s           qpos_rl_unisim; // compared to expected distribution
+        std::optional<double> qpos_K;
+        monte_carlo::stat_eval_s           qpos_K_bgsim;  // compared to all reads
+        monte_carlo::stat_eval_s           qpos_K_unisim; // compared to expected distribution
         if (qpos_pwd) {
             const size_t search_radius = 5; // bases. Sensible values << read length.
-            qpos_rl = 
+            qpos_K = 
                 spatial::ripley_k(
                     *qpos_pwd,
                     search_radius,
                     static_cast<double>(qpos_pwd->dim())
                     / static_cast<double> (exp_read_len)
                 );
-            decltype(sample_supporting_pileup.query_position) qpos_popv;
+            decltype (sample_supporting_pileup.query_position) qpos_popv;
             if (!normal_only) {
                 if (normal_pileup) { // ADD NORMAL OBS
                     assert(normal_pileup);
@@ -750,15 +747,15 @@ int main (
             };
             auto n_obs = sample_supporting_pileup.query_position.size();
             if (n_obs < 2) {
-                qpos_rl_bgsim.err = "INSUFF_OBS";
+                qpos_K_bgsim.err = "INSUFF_OBS";
             }
             else if (qpos_popv.size() < (n_obs * 2)) {
                 // at a bare minimum, we want 2x more total samples than bg
-                qpos_rl_bgsim.err = "INSUFF_BG";
+                qpos_K_bgsim.err = "INSUFF_BG";
             }  // TODO if less than e.g. 5x report low power?
             else {
-                qpos_rl_bgsim = monte_carlo::sim_to_bg (
-                    *qpos_rl,
+                qpos_K_bgsim = monte_carlo::sim_to_bg (
+                    *qpos_K,
                     [&qpos_popv, &rng, n_obs] () {
                         return monte_carlo::subsample_wo_replace(qpos_popv, n_obs, rng);
                     },
@@ -779,8 +776,8 @@ int main (
                 // Use that CDF for all datasets with moderate/large n.
                 // for smaller n, use exactly stored CDF
                 std::uniform_int_distribution<uint64_t> qpos_gen{0, exp_read_len};
-                qpos_rl_unisim = monte_carlo::sim_to_bg(
-                    *qpos_rl,
+                qpos_K_unisim = monte_carlo::sim_to_bg(
+                    *qpos_K,
                     [&qpos_gen, &rng, n_obs] () {
                         std::vector<uint64_t> rand_qpos;
                         for (size_t i = 0; i < n_obs; ++i) {
@@ -793,17 +790,17 @@ int main (
                 );
             }
         } else {
-            qpos_rl_bgsim.err = "INSUFF_OBS";
+            qpos_K_bgsim.err = "INSUFF_OBS";
             if (uniform_sim) {
-                qpos_rl_unisim.err = "INSUFF_OBS";
+                qpos_K_unisim.err = "INSUFF_OBS";
             }
         }
 
-        std::optional<double> te_rl;
-        monte_carlo::stat_eval_s           te_rl_sim;
+        std::optional<double> te_K;
+        monte_carlo::stat_eval_s te_K_bgsim;
         if (te_pwd) {
             const size_t search_radius = 6;
-            te_rl = spatial::ripley_k(
+            te_K = spatial::ripley_k(
                     *te_pwd,
                     search_radius,
                     static_cast<double>(te_pwd->dim()) / static_cast<double>(span_length)
@@ -830,14 +827,14 @@ int main (
             }
 
             if (n_supporting_templates < 2) {
-                te_rl_sim.err = "INSUFF_OBS";
+                te_K_bgsim.err = "INSUFF_OBS";
             }
             else if (te_popv.size() < n_supporting_templates * 2) {
-                te_rl_sim.err = "INSUFF_BG";
+                te_K_bgsim.err = "INSUFF_BG";
             }
             else {
-                te_rl_sim = monte_carlo::sim_to_bg (
-                    *te_rl,
+                te_K_bgsim = monte_carlo::sim_to_bg (
+                    *te_K,
                     [&rng, &te_popv, n_supporting_templates] () {
                         return monte_carlo::subsample_wo_replace(te_popv, n_supporting_templates, rng);
                     },
@@ -856,7 +853,7 @@ int main (
                 );
             }
         } else {
-            te_rl_sim.err = "INSUFF_OBS";
+            te_K_bgsim.err = "INSUFF_OBS";
         }
 
         // --- MEDIAN LENGTH-NORMALISED ALIGNMENT SCORE --- //
@@ -888,17 +885,17 @@ int main (
             }
         };
         // TODO should probably encode missingness into the vcf somehow... like an EXPOS_ERR info field
-        if (qpos_rl) {
+        if (qpos_K) {
             float val[2]{
-                static_cast<float> (qpos_rl_bgsim.eff_sz.value_or (0.0)),
-                static_cast<float> (qpos_rl_bgsim.pval.value_or (1.0)),
+                static_cast<float> (qpos_K_bgsim.eff_sz.value_or (0.0)),
+                static_cast<float> (qpos_K_bgsim.pval.value_or (1.0)),
             };
             write_info (FIELD_INF.at ("QRK"), &val);
         }
-        if (te_rl) {
+        if (te_K) {
             float val[2]{
-                static_cast<float> (te_rl_sim.eff_sz.value_or (0.0)),
-                static_cast<float> (te_rl_sim.pval.value_or (1.0))
+                static_cast<float> (te_K_bgsim.eff_sz.value_or (0.0)),
+                static_cast<float> (te_K_bgsim.pval.value_or (1.0))
             };
             write_info (FIELD_INF.at ("TRK"), &val);
         }
@@ -933,14 +930,14 @@ int main (
                 b1->pos + 1,
                 opt_to_str<double> (mlas_supporting, "NA", rdbl2),
                 opt_to_str<double> (mlas_total, "NA", rdbl2),
-                opt_to_str<double> (qpos_rl, "NA", rdbl2),
-                opt_to_str<double> (qpos_rl_bgsim.eff_sz, qpos_rl_bgsim.err, rdbl2),
-                opt_to_str<double> (qpos_rl_bgsim.pval, qpos_rl_bgsim.err, rdbl4),
-                opt_to_str<double> (qpos_rl_unisim.eff_sz, qpos_rl_unisim.err, rdbl2),
-                opt_to_str<double> (qpos_rl_unisim.pval, qpos_rl_unisim.err, rdbl4),
-                opt_to_str<double> (te_rl, "NA", rdbl2),
-                opt_to_str<double> (te_rl_sim.eff_sz, te_rl_sim.err, rdbl2),
-                opt_to_str<double> (te_rl_sim.pval, te_rl_sim.err, rdbl4),
+                opt_to_str<double> (qpos_K, "NA", rdbl2),
+                opt_to_str<double> (qpos_K_bgsim.eff_sz, qpos_K_bgsim.err, rdbl2),
+                opt_to_str<double> (qpos_K_bgsim.pval, qpos_K_bgsim.err, rdbl4),
+                opt_to_str<double> (qpos_K_unisim.eff_sz, qpos_K_unisim.err, rdbl2),
+                opt_to_str<double> (qpos_K_unisim.pval, qpos_K_unisim.err, rdbl4),
+                opt_to_str<double> (te_K, "NA", rdbl2),
+                opt_to_str<double> (te_K_bgsim.eff_sz, te_K_bgsim.err, rdbl2),
+                opt_to_str<double> (te_K_bgsim.pval, te_K_bgsim.err, rdbl4),
                 opt_to_str (ref_entropy, "NA"),
                 opt_to_str (run_mean, "NA"),
                 opt_to_str (run_max, "NA"),

@@ -102,13 +102,17 @@ inline auto log2_effsz (const double &ev, const std::vector<double> &simv) {
 
 
 // get a random sample without replacement of
-// size n from input obs vector.
+// size n from input obs vector using a partial
+// Fisher-Yates shuffle. Faster than Floyd
+// sampling when n is not << than Nobs -
+// the expected domain for low yield sequencing.
 template <typename T>
 inline std::vector<T> subsample_wo_replace (
     const std::vector<T>& obs,
     size_t n,
     std::mt19937 &rng
 ) {
+    std::vector<T> out;
     size_t nobs = obs.size();
     assert (n < nobs);
 
@@ -116,19 +120,13 @@ inline std::vector<T> subsample_wo_replace (
     // idx[0..n] is a uniform sample without replacement.
     std::vector<size_t> all_idx(nobs);
     std::iota(begin(all_idx), end(all_idx), 0);
-
-    // shuffle
     for (size_t i = 0; i < n; ++i) {
         std::uniform_int_distribution<size_t> dist(i, nobs - 1);
         size_t j = dist(rng);
         std::swap(all_idx[i], all_idx[j]);
+        out.push_back(obs[all_idx[i]]);
     }
 
-    // get obs
-    std::vector<T> out;
-    for (size_t k = 0; k < n; ++k) {
-        out.push_back(obs[all_idx[k]]);
-    }
     return out;
 }
 
