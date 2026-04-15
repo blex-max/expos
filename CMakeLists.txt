@@ -11,8 +11,9 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 option(ENABLE_DEBUG_FLAGS "Enable extra debug compile options" OFF)
-option(MAKE_TEST "Compile tests binary" OFF)
+
 option(MAKE_MAIN "Compile main expos binary" ON)
+option(MAKE_TEST "Compile tests binary" OFF)
 option(MAKE_DAUGHTER "Compile daughter tool binaries" OFF)
 
 # user paths to htslib if needed
@@ -25,7 +26,6 @@ find_package(PkgConfig QUIET)
 # //--- cxxopts ---//
 include(FetchContent)
 
-message(STATUS "Finding cxxopts")
 FetchContent_Declare(
   cxxopts
   GIT_REPOSITORY https://github.com/jarro2783/cxxopts.git
@@ -34,7 +34,6 @@ FetchContent_Declare(
 FetchContent_MakeAvailable(cxxopts)
 
 # ------- htslib -------
-message(STATUS "Finding htslib")
 set(HTSLIB_TARGET "")
 set(_htslib_inc "")
 set(_htslib_lib "")
@@ -122,6 +121,7 @@ endif(MAKE_TEST)
 if(MAKE_MAIN)
   add_executable(expos
     src/expos/main.cpp
+    src/expos/pileup.cpp
   )
   target_compile_options(expos PRIVATE
     ${COMMON_WARNINGS}
@@ -129,7 +129,6 @@ if(MAKE_MAIN)
   target_include_directories(expos PRIVATE
     ${COMMON_INCLUDES}
   )
-
   target_link_libraries(expos
     lib_stats
     cxxopts::cxxopts
@@ -148,7 +147,6 @@ if(MAKE_DAUGHTER)
   target_include_directories(estimate-entropy PRIVATE
     ${COMMON_INCLUDES}
   )
-
   target_link_libraries(estimate-entropy
     lib_stats
   )

@@ -3,6 +3,8 @@
 #include <algorithm>
 #include <cstdint>
 #include <format>
+#include <functional>
+#include <htslib/hts.h>
 #include <stdexcept>
 #include <unordered_set>
 #include <vector>
@@ -115,16 +117,8 @@ inline get_pileup (
     return {pv, aln_iter, pileup_iter};
 }
 
-
-inline PileupColumn partition_supporting (const PileupColumn &pc, const bcf1_t *var, int mutation_type) {
-    PileupColumn out;
-    for (const auto p : pc) {
-        if (evaluate_support(p, var, mutation_type)) {
-            out.push_back(p);
-        }
-    }
-    return out;
-}
+PileupColumn filter
+(const PileupColumn &pc, std::function<bool(const bam_pileup1_t*)> predicate_fn);
 
 struct PileupMetrics {
     std::vector<uint64_t> query_position;
@@ -260,7 +254,11 @@ inline std::pair<PileupMetrics, PileupMetrics> pileup_partition_and_anaylse (
                 sam_flag_include,
                 sam_flag_exclude
             );
-    auto pileup_supporting = partition_supporting(pileup_all, var, mutation_type);
+
+    auto match_fn = [&var, mutation_type] (const bam_pileup1_t* p1) {
+        return evaluate_support (p1, var, mutation_type);
+    };
+    auto pileup_supporting = filter (pileup_all, match_fn);
 
     // supporting, total
     std::pair<PileupMetrics, PileupMetrics> out;

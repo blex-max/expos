@@ -28,8 +28,6 @@ inline std::vector<bool> has_filters (
 }
 
 // TODO/FUTURE - evaulating variant support every time is unnecessary
-// I'd rather have specific callables or objects with a callable
-// for each mutation type
 // 
 // in caller, to assess type
 // bcf_has_variant_types (b, VCF_DEL | VCF_INS | VCF_SNP | VCF_MNP, bcf_variant_match::bcf_match_overlap)
