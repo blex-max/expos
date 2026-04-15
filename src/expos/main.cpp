@@ -155,12 +155,18 @@ int main (
         ("normal-only",
          "Use only reads from the provided normal as background data, excluding non-supporting reads from the sample")
 
-        ("i,include",
+        ("i,include-records",
          "Only operate on VCF records with this value present in FILTER. e.g. -i PASS. May be passed multiple times.",
          cxxopts::value<std::vector<std::string>>()) // multiple allowed
-        ("e,exclude",
+        ("e,exclude-records",
          "Only operate on VCF records without this value present in FILTER. May be passed multiple times.",
          cxxopts::value<std::vector<std::string>>()) // multiple allowed
+        ("I,include-reads",
+         "SAM flag: only include reads with all of these bits set. Default: 3",
+         cxxopts::value<int>())
+        ("E,exclude-reads",
+         "SAM flag: exclude reads with any of these bits set. Default: 3852",
+         cxxopts::value<int>())
         // ("w,write",
         //  "Write specified field to output VCF. May be passed multiple times.",
         //  cxxopts::value<std::vector<std::string>>()->default_value("ALL"))
@@ -229,11 +235,17 @@ int main (
             << std::endl;
         }
 
-        if (parsedargs.count ("include")) {
-            flt_inc = parsedargs["include"].as<std::vector<std::string>>();
+        if (parsedargs.count ("include-records")) {
+            flt_inc = parsedargs["include-records"].as<std::vector<std::string>>();
         }
-        if (parsedargs.count ("exclude")) {
-            flt_exc = parsedargs["exclude"].as<std::vector<std::string>>();
+        if (parsedargs.count ("exclude-records")) {
+            flt_exc = parsedargs["exclude-records"].as<std::vector<std::string>>();
+        }
+        if (parsedargs.count ("include-reads")) {
+            flag_inc = parsedargs["include-reads"].as<int>();
+        }
+        if (parsedargs.count ("exclude-reads")) {
+            flag_exc = parsedargs["exclude-reads"].as<int>();
         }
         if (parsedargs.count ("seed")) {
             seed = parsedargs["seed"].as<uint32_t>();
@@ -434,7 +446,7 @@ int main (
                     )
                     < 0) {
                     std::cerr << std::format (
-                        "Unknown --include filter {} not present in "
+                        "Unknown --include-records filter {} not present in "
                         "VCF",
                         f
                     ) << std::endl;     // unrecoverable
@@ -451,7 +463,7 @@ int main (
                     )
                     < 0) {
                     std::cerr << std::format (
-                        "Warning: Unknown --exclude filter {} not "
+                        "Warning: Unknown --exclude-records filter {} not "
                         "present in VCF, "
                         "ignoring",
                         f
