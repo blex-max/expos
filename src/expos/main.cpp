@@ -114,7 +114,7 @@ int main (
     // TODO verify paths
     fs::path                 vcf_path;
     fs::path                 aln_path;
-    fs::path                 norm_path;
+    std::vector<fs::path>    norm_paths;
     fs::path                 ref_path;
     fs::path                 otsv_path;
     std::vector<std::string> flt_inc;
@@ -155,8 +155,8 @@ int main (
          "Alignment Reference Fasta for optionally adding reference complexity to statistics.",
          cxxopts::value<fs::path>())
         ("n,normal",
-         "Alignment for use as additional background data for simulation",
-         cxxopts::value<fs::path>())
+         "Alignment for use as additional background data for simulation. May be passed multiple times.",
+         cxxopts::value<std::vector<fs::path>>())
         ("normal-only",
          "Use only reads from the provided normal as background data, excluding non-supporting reads from the sample")
 
@@ -263,11 +263,15 @@ int main (
         }
 
         if (parsedargs.count ("normal")) {
-            norm_path = parsedargs["normal"].as<fs::path>();
-            std::cerr << "Using normal: " << norm_path << std::endl;
+            norm_paths = parsedargs["normal"].as<std::vector<fs::path>>();
+            for (const auto &p : norm_paths) {
+                if (!fs::exists (p))
+                    throw std::runtime_error ("Normal file not found: " + p.string());
+                std::cerr << "Using normal: " << p << std::endl;
+            }
         }
         if (parsedargs.count ("normal-only")) {
-            if (norm_path.empty())
+            if (norm_paths.empty())
                 throw std::runtime_error("a normal must be provided if normal-only is set.");
             std::cerr << "Using only normal data as background for simulation" << std::endl;
             normal_only = true;
@@ -348,8 +352,8 @@ int main (
         }
     }
 
-    std::optional<std::pair<htsFile_upt, hts_idx_upt>> norm;
-    if (!norm_path.empty()) {
+    std::vector<std::pair<htsFile_upt, hts_idx_upt>> norms;
+    for (const auto &norm_path : norm_paths) {
         auto _nin{hts_open (norm_path.c_str(), "r")};
         if (_nin == NULL) {
             std::cerr << std::format (
@@ -367,7 +371,7 @@ int main (
             ) << std::endl;
             return EXIT_FAILURE;
         }
-        norm.emplace (
+        norms.emplace_back (
             htsFile_upt{std::move (_nin), hts_close},
             hts_idx_upt{std::move (_nixin), hts_idx_destroy}
         );
@@ -574,14 +578,11 @@ int main (
             flag_exc
         );
         std::optional<PileupMetrics> normal_pileup;
-        if (norm) {
-            normal_pileup = pileup_analyse (
-                norm->first.get(),
-                norm->second.get(),
-                b1.get(),
-                flag_inc,
-                flag_exc
-            );
+        for (auto &n : norms) {
+            auto pm = pileup_analyse (n.first.get(), n.second.get(), b1.get(), flag_inc, flag_exc);
+            normal_pileup = normal_pileup
+                ? merge_pileup_metrics (std::move (*normal_pileup), pm)
+                : pm;
         }
 
         auto n_supporting_reads = sample_supporting_pileup.nreads;

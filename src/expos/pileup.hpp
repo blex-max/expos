@@ -127,6 +127,13 @@ struct PileupMetrics {
     std::vector<spatial::line_seg> template_endpoints;
     size_t                nreads = 0;
 };
+inline PileupMetrics merge_pileup_metrics (PileupMetrics a, const PileupMetrics &b) {
+    a.nreads += b.nreads;
+    a.query_position.insert (end (a.query_position), begin (b.query_position), end (b.query_position));
+    a.normalised_as.insert (end (a.normalised_as), begin (b.normalised_as), end (b.normalised_as));
+    a.template_endpoints.insert (end (a.template_endpoints), begin (b.template_endpoints), end (b.template_endpoints));
+    return a;
+}
 inline PileupMetrics get_metrics (const PileupColumn &pc) {
     PileupMetrics out;
 

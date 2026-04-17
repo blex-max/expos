@@ -111,7 +111,10 @@ if(MAKE_TEST)
 
   FetchContent_MakeAvailable(Catch2)
 
-  add_executable(test-expos tests/test.cpp)
+  add_executable(test-expos
+    tests/test.cpp
+    tests/test_pileup.cpp
+  )
 
   target_compile_options(test-expos PRIVATE
     ${COMMON_WARNINGS}
@@ -121,6 +124,8 @@ if(MAKE_TEST)
   )
   target_link_libraries(test-expos PRIVATE
     Catch2::Catch2WithMain
+    plog::plog
+    ${HTSLIB_TARGET}
   )
 endif(MAKE_TEST)
 # //--- end testing ---//
