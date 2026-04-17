@@ -23,7 +23,6 @@ set(HTSLIB_LIBRARY "" CACHE FILEPATH "Absolute path to libhts.{so,dylib,a}")
 # //--- find deps ---//
 find_package(PkgConfig QUIET)
 
-# //--- cxxopts ---//
 include(FetchContent)
 
 FetchContent_Declare(
@@ -32,6 +31,15 @@ FetchContent_Declare(
   GIT_TAG        v3.3.1  # what I developed against, but any 3.x.x should be fine
 )
 FetchContent_MakeAvailable(cxxopts)
+
+set(CMAKE_POLICY_VERSION_MINIMUM 3.5)
+FetchContent_Declare(
+    plog
+    GIT_REPOSITORY https://github.com/SergiusTheBest/plog
+    GIT_TAG        1.1.10
+    GIT_SHALLOW    true
+)
+FetchContent_MakeAvailable(plog)
 
 # ------- htslib -------
 set(HTSLIB_TARGET "")
@@ -132,6 +140,7 @@ if(MAKE_MAIN)
   target_link_libraries(expos
     lib_stats
     cxxopts::cxxopts
+    plog::plog
     ${HTSLIB_TARGET}
   )
 endif(MAKE_MAIN)

@@ -22,6 +22,10 @@
 #include <iostream>
 
 #include <cxxopts.hpp>
+#include <plog/Appenders/ColorConsoleAppender.h>
+#include <plog/Formatters/TxtFormatter.h>
+#include <plog/Init.h>
+#include <plog/Log.h>
 #include <htslib/hts.h>
 #include <htslib/sam.h>
 #include <htslib/vcf.h>
@@ -123,6 +127,7 @@ int main (
     bool                     normal_only = false;
     bool                     uniform_sim = false;
     bool                     assess_microhom = false;
+    bool                     debug_mode = false;
     // std::vector<std::string> wfields;
 
     // clang-format off
@@ -162,7 +167,7 @@ int main (
          "Only operate on VCF records without this value present in FILTER. May be passed multiple times.",
          cxxopts::value<std::vector<std::string>>()) // multiple allowed
         ("I,include-reads",
-         "SAM flag: only include reads with all of these bits set. Default: 3",
+         "SAM flag: only include reads with all of these bits set. Set 0 to disable. Default: 3",
          cxxopts::value<int>())
         ("E,exclude-reads",
          "SAM flag: exclude reads with any of these bits set. Default: 3852",
@@ -182,6 +187,8 @@ int main (
         "additionally simulate against uniform null model for query position, and add result to --tsv output. For assessment of correlation with simulation against all-reads null.")
         ("assess-microhomology",
         "additionally assess STR and homopolymer content of reference regions, and add result to --tsv output. For assessment of correlation with drop in LZ.");
+
+    options.add_options("") ("debug", "Enable debug logging", cxxopts::value<bool>()->default_value("false"));
     // clang-format on
 
     options.parse_positional ({"vcf", "aln"});
@@ -274,12 +281,18 @@ int main (
         if (parsedargs.count ("assess-microhomology")) {
             assess_microhom = true;
         }
+        if (parsedargs["debug"].as<bool>()) {
+            debug_mode = true;
+        }
 
     } catch (const std::exception &e) {
         std::cerr << "Error parsing CLI options: " << e.what()
                   << "\nTry expos --help.";
         return EXIT_FAILURE;
     }
+
+    static plog::ColorConsoleAppender<plog::TxtFormatter> consoleAppender (plog::streamStdErr);
+    plog::init (debug_mode ? plog::debug : plog::none, &consoleAppender);
 
     // inputs
     auto _ain{hts_open (aln_path.c_str(), "r")};
@@ -748,13 +761,13 @@ int main (
                 qpos_popv = normal_pileup->query_position;
             }
 
-            auto stat_fn = [&dist_1D] (const auto &v) {
+            auto stat_fn = [&dist_1D, exp_read_len] (const auto &v) {
                 const auto pwds = spatial::PairMatrix::from_sample (v, dist_1D);
                 assert (pwds);
                 return spatial::ripley_k(
                         *pwds,
                         search_radius,
-                        static_cast<double>(v.size()) / 150.0  // read len
+                        static_cast<double>(v.size()) / static_cast<double> (exp_read_len)
                     );
             };
             auto n_obs = sample_supporting_pileup.query_position.size();
@@ -787,7 +800,7 @@ int main (
                 // Precompute one high-quality null CDF for S with a large sample size (>40)
                 // Use that CDF for all datasets with moderate/large n.
                 // for smaller n, use exactly stored CDF
-                std::uniform_int_distribution<uint64_t> qpos_gen{0, exp_read_len};
+                std::uniform_int_distribution<uint64_t> qpos_gen{0, exp_read_len - 1}; // inclusive ends
                 qpos_K_unisim = monte_carlo::sim_to_bg(
                     *qpos_K,
                     [&qpos_gen, &rng, n_obs] () {

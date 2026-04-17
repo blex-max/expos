@@ -6,12 +6,13 @@
 #include <functional>
 #include <htslib/hts.h>
 #include <stdexcept>
-#include <unordered_set>
 #include <vector>
+#include <unordered_set>
 
 #include <htslib/kstring.h>
 #include <htslib/sam.h>
 #include <htslib/vcf.h>
+#include <plog/Log.h>
 
 #include "hts_ptr_t.hpp"
 #include "lib-stats/spatial.hpp"
@@ -129,6 +130,8 @@ struct PileupMetrics {
 inline PileupMetrics get_metrics (const PileupColumn &pc) {
     PileupMetrics out;
 
+    PLOGD << "getting metrics for pileup";
+    PLOGD << "pileup size: " << pc.size();
     std::unordered_set<const char*> qnames;
     std::array<int64_t, 4>          endpoints;
     bam1_upt                        mateb{bam_init1(), bam_destroy1};
