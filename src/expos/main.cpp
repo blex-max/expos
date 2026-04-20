@@ -13,6 +13,7 @@
 // which they are for short read seq
 
 #include <algorithm>
+#include <chrono>
 #include <cstdint>
 #include <cstdlib>
 #include <format>
@@ -100,7 +101,6 @@ std::string rdbl4 (const double &a) {
 // TODO optionally encode deviation from uniform to VCF
 // TODO consider multiple and adjustable t for clustering assessment -- if so encode t in field name like QRK-5
 // TODO consider MFE/n as report for secondary structure propensity
-// TODO add record of command to VCF!
 // TODO fraction of supporting reads with soft clipping, eff sz, pval, and median number of clipped bases
 // in reads with soft clipping (CLPM)
 // TODO options for more vcf data (e.g. REF,ALT) in TSV (if using expos as "genome browser by numbers")
@@ -193,6 +193,14 @@ int main (
 
     options.parse_positional ({"vcf", "aln"});
     options.positional_help ("<VCF/BCF (- for stdin)> <ALN.(b/cr)am>");
+
+    std::string cmd_str;
+    for (int i = 0; i < argc; ++i) {
+        if (i) cmd_str += ' ';
+        cmd_str += argv[i];
+    }
+    auto now = std::chrono::system_clock::now();
+    std::string datetime_str = std::format ("{:%Y-%m-%dT%H:%M:%S}", now);
 
     try {
         auto parsedargs = options.parse (argc, argv);
@@ -413,6 +421,19 @@ int main (
                 )
             );
         }
+    }
+
+    if (bcf_hdr_append (
+            ohdr.get(),
+            std::format ("##source=\"expos v{} {}\"", VERSION, datetime_str).c_str()
+        ) != 0) {
+        throw std::runtime_error ("failed to append source to hdr");
+    }
+    if (bcf_hdr_append (
+            ohdr.get(),
+            std::format ("##expos_cmd=\"{}\"", cmd_str).c_str()
+        ) != 0) {
+        throw std::runtime_error ("failed to append expos_cmd to hdr");
     }
 
     if (bcf_hdr_sync (ohdr.get()) < 0) {
