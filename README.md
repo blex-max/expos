@@ -23,12 +23,8 @@ Core functionality present but niceties and guard rails are not.
 Please report any bugs and ask any questions!
 
 #### definite TODOs
- - Report correct position in error messages - chrom and position are both
-   off by one! (this affects error messages only, and has no impact on the output)
  - More extensive documentation
  - Add clip fraction/CLPM
- - accept any number of alignment files as extra background
- - Record command used in VCF header
 
 ## Installation
 
