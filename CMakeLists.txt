@@ -13,7 +13,7 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 option(ENABLE_DEBUG_FLAGS "Enable extra debug compile options" OFF)
 
 option(MAKE_MAIN "Compile main expos binary" ON)
-option(MAKE_TEST "Compile tests binary" OFF)
+option(MAKE_TEST "Compile tests binary" ON)
 option(MAKE_DAUGHTER "Compile daughter tool binaries" OFF)
 
 # user paths to htslib if needed
@@ -111,7 +111,10 @@ if(MAKE_TEST)
 
   FetchContent_MakeAvailable(Catch2)
 
-  add_executable(test-expos tests/test.cpp)
+  add_executable(test-expos
+    tests/test_stats.cpp
+    tests/test_pileup.cpp
+  )
 
   target_compile_options(test-expos PRIVATE
     ${COMMON_WARNINGS}
@@ -121,6 +124,8 @@ if(MAKE_TEST)
   )
   target_link_libraries(test-expos PRIVATE
     Catch2::Catch2WithMain
+    plog::plog
+    ${HTSLIB_TARGET}
   )
 endif(MAKE_TEST)
 # //--- end testing ---//

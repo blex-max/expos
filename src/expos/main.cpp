@@ -13,6 +13,7 @@
 // which they are for short read seq
 
 #include <algorithm>
+#include <chrono>
 #include <cstdint>
 #include <cstdlib>
 #include <format>
@@ -100,7 +101,6 @@ std::string rdbl4 (const double &a) {
 // TODO optionally encode deviation from uniform to VCF
 // TODO consider multiple and adjustable t for clustering assessment -- if so encode t in field name like QRK-5
 // TODO consider MFE/n as report for secondary structure propensity
-// TODO add record of command to VCF!
 // TODO fraction of supporting reads with soft clipping, eff sz, pval, and median number of clipped bases
 // in reads with soft clipping (CLPM)
 // TODO options for more vcf data (e.g. REF,ALT) in TSV (if using expos as "genome browser by numbers")
@@ -114,7 +114,7 @@ int main (
     // TODO verify paths
     fs::path                 vcf_path;
     fs::path                 aln_path;
-    fs::path                 norm_path;
+    std::vector<fs::path>    norm_paths;
     fs::path                 ref_path;
     fs::path                 otsv_path;
     std::vector<std::string> flt_inc;
@@ -155,8 +155,8 @@ int main (
          "Alignment Reference Fasta for optionally adding reference complexity to statistics.",
          cxxopts::value<fs::path>())
         ("n,normal",
-         "Alignment for use as additional background data for simulation",
-         cxxopts::value<fs::path>())
+         "Alignment for use as additional background data for simulation. May be passed multiple times.",
+         cxxopts::value<std::vector<fs::path>>())
         ("normal-only",
          "Use only reads from the provided normal as background data, excluding non-supporting reads from the sample")
 
@@ -193,6 +193,14 @@ int main (
 
     options.parse_positional ({"vcf", "aln"});
     options.positional_help ("<VCF/BCF (- for stdin)> <ALN.(b/cr)am>");
+
+    std::string cmd_str;
+    for (int i = 0; i < argc; ++i) {
+        if (i) cmd_str += ' ';
+        cmd_str += argv[i];
+    }
+    auto now = std::chrono::system_clock::now();
+    std::string datetime_str = std::format ("{:%Y-%m-%dT%H:%M:%S}", now);
 
     try {
         auto parsedargs = options.parse (argc, argv);
@@ -263,11 +271,15 @@ int main (
         }
 
         if (parsedargs.count ("normal")) {
-            norm_path = parsedargs["normal"].as<fs::path>();
-            std::cerr << "Using normal: " << norm_path << std::endl;
+            norm_paths = parsedargs["normal"].as<std::vector<fs::path>>();
+            for (const auto &p : norm_paths) {
+                if (!fs::exists (p))
+                    throw std::runtime_error ("Normal file not found: " + p.string());
+                std::cerr << "Using normal: " << p << std::endl;
+            }
         }
         if (parsedargs.count ("normal-only")) {
-            if (norm_path.empty())
+            if (norm_paths.empty())
                 throw std::runtime_error("a normal must be provided if normal-only is set.");
             std::cerr << "Using only normal data as background for simulation" << std::endl;
             normal_only = true;
@@ -348,8 +360,8 @@ int main (
         }
     }
 
-    std::optional<std::pair<htsFile_upt, hts_idx_upt>> norm;
-    if (!norm_path.empty()) {
+    std::vector<std::pair<htsFile_upt, hts_idx_upt>> norms;
+    for (const auto &norm_path : norm_paths) {
         auto _nin{hts_open (norm_path.c_str(), "r")};
         if (_nin == NULL) {
             std::cerr << std::format (
@@ -367,7 +379,7 @@ int main (
             ) << std::endl;
             return EXIT_FAILURE;
         }
-        norm.emplace (
+        norms.emplace_back (
             htsFile_upt{std::move (_nin), hts_close},
             hts_idx_upt{std::move (_nixin), hts_idx_destroy}
         );
@@ -399,6 +411,7 @@ int main (
     };
     for (const auto &l : FIELD_INF) {
         const auto &i = l.second;
+        if (i.name == "RCMPLX" && !reffh) continue;
         if (bcf_hdr_append (ohdr.get(), make_info_line (i).c_str())
             != 0) {
             throw std::runtime_error (
@@ -408,6 +421,19 @@ int main (
                 )
             );
         }
+    }
+
+    if (bcf_hdr_append (
+            ohdr.get(),
+            std::format ("##source=\"expos v{} {}\"", VERSION, datetime_str).c_str()
+        ) != 0) {
+        throw std::runtime_error ("failed to append source to hdr");
+    }
+    if (bcf_hdr_append (
+            ohdr.get(),
+            std::format ("##expos_cmd=\"{}\"", cmd_str).c_str()
+        ) != 0) {
+        throw std::runtime_error ("failed to append expos_cmd to hdr");
     }
 
     if (bcf_hdr_sync (ohdr.get()) < 0) {
@@ -525,8 +551,8 @@ int main (
                 "alleles. "
                 "Unnormalised variant calls are not supported. "
                 "Skipping.",
-                b1->rid,     // TODO convert rid to user facing
-                b1->pos,     // ditto
+                bcf_hdr_id2name (vcf_hdr.get(), b1->rid),
+                b1->pos + 1,
                 b1->d.id
             ) << std::endl;
             if (bcf_write (ovcf.get(), ohdr.get(), b1.get()) != 0) {
@@ -571,17 +597,15 @@ int main (
             b1.get(),
             mtype,
             flag_inc,
-            flag_exc
+            flag_exc,
+            vcf_hdr.get()
         );
         std::optional<PileupMetrics> normal_pileup;
-        if (norm) {
-            normal_pileup = pileup_analyse (
-                norm->first.get(),
-                norm->second.get(),
-                b1.get(),
-                flag_inc,
-                flag_exc
-            );
+        for (auto &n : norms) {
+            auto pm = pileup_analyse (n.first.get(), n.second.get(), b1.get(), flag_inc, flag_exc, vcf_hdr.get());
+            normal_pileup = normal_pileup
+                ? merge_pileup_metrics (std::move (*normal_pileup), pm)
+                : pm;
         }
 
         auto n_supporting_reads = sample_supporting_pileup.nreads;
@@ -591,8 +615,8 @@ int main (
             std::cerr << std::format (
                 "no supporting reads found for variant {} {} {}, "
                 "skipping.",
-                b1->rid,     // TODO convert rid to user facing
-                b1->pos,     // ditto
+                bcf_hdr_id2name (vcf_hdr.get(), b1->rid),
+                b1->pos + 1,
                 b1->d.id
             ) << std::endl;
             if (bcf_write (ovcf.get(), ohdr.get(), b1.get()) != 0) {
@@ -608,8 +632,8 @@ int main (
             std::cerr << std::format (
                 "no supporting reads found with usable metrics for variant {} {} {}, "
                 "skipping.",
-                b1->rid,     // TODO convert rid to user facing
-                b1->pos,     // ditto
+                bcf_hdr_id2name (vcf_hdr.get(), b1->rid),
+                b1->pos + 1,
                 b1->d.id
             ) << std::endl;
             if (bcf_write (ovcf.get(), ohdr.get(), b1.get()) != 0) {
@@ -623,8 +647,8 @@ int main (
         if (normal_pileup && normal_pileup->nreads == 0) {
             std::cerr << std::format (
                 "Warning: no reads covering variant location found in normal for variant {} {} {}",
-                b1->rid,     // TODO convert rid to user facing
-                b1->pos,     // ditto
+                bcf_hdr_id2name (vcf_hdr.get(), b1->rid),
+                b1->pos + 1,
                 b1->d.id
             ) << std::endl;
         }
@@ -909,31 +933,56 @@ int main (
                 ) << std::endl;
             }
         };
-        // TODO should probably encode missingness into the vcf somehow... like an EXPOS_ERR info field
         if (qpos_K) {
-            float val[2]{
-                static_cast<float> (qpos_K_bgsim.eff_sz.value_or (0.0)),
-                static_cast<float> (qpos_K_bgsim.pval.value_or (1.0)),
-            };
+            float val[2];
+            if (qpos_K_bgsim.eff_sz) {
+                val[0] = static_cast<float> (*qpos_K_bgsim.eff_sz);
+            }
+            else {
+                bcf_float_set_missing (val[0]);
+            }
+            if (qpos_K_bgsim.pval) {
+                val[1] = static_cast<float> (*qpos_K_bgsim.pval);
+            }
+            else {
+                bcf_float_set_missing (val[1]);
+            }
             write_info (FIELD_INF.at ("QRK"), &val);
         }
         if (te_K) {
-            float val[2]{
-                static_cast<float> (te_K_bgsim.eff_sz.value_or (0.0)),
-                static_cast<float> (te_K_bgsim.pval.value_or (1.0))
-            };
+            float val[2];
+            if (te_K_bgsim.eff_sz) {
+                val[0] = static_cast<float> (*te_K_bgsim.eff_sz);
+            }
+            else {
+                bcf_float_set_missing (val[0]);
+            }
+            if (te_K_bgsim.pval) {
+                val[1] = static_cast<float> (*te_K_bgsim.pval);
+            }
+            else {
+                bcf_float_set_missing (val[1]);
+            }
             write_info (FIELD_INF.at ("TRK"), &val);
         }
         if (ref_entropy) {
             float val = static_cast<float> (*ref_entropy);
             write_info (FIELD_INF.at ("RCMPLX"), &val);
         }
-        if (mlas_supporting) { // should still include total if no supporting, TODO
-            float val[2]{
-                static_cast<float> (*mlas_supporting),
-                static_cast<float> (*mlas_total),
-            };
-            // TODO rounding
+        if (mlas_supporting || mlas_total) {
+            float val[2];
+            if (mlas_supporting) {
+                val[0] = static_cast<float> (*mlas_supporting);
+            }
+            else {
+                bcf_float_set_missing (val[0]);
+            }
+            if (mlas_total) {
+                val[1] = static_cast<float> (*mlas_total);
+            }
+            else {
+                bcf_float_set_missing (val[1]);
+            }
             write_info (FIELD_INF.at ("MLAS"), &val);
         }
 

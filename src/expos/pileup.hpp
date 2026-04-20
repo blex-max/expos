@@ -58,11 +58,12 @@ using AlnItr = hts_itr_t *;
 using PileupItr = bam_plp_t;
 std::tuple<PileupColumn, AlnItr, PileupItr>
 inline get_pileup (
-    htsFile   *aln_fh,
-    hts_idx_t *aln_idx,
-    bcf1_t    *var,
-    int        sam_flag_include,
-    int        sam_flag_exclude
+    htsFile          *aln_fh,
+    hts_idx_t        *aln_idx,
+    bcf1_t           *var,
+    int               sam_flag_include,
+    int               sam_flag_exclude,
+    const bcf_hdr_t  *vcf_hdr
 ) {
     auto aln_iter = sam_itr_queryi (
         aln_idx,
@@ -70,14 +71,13 @@ inline get_pileup (
         var->pos,
         var->pos + var->rlen
     );
-    // TODO fix reported rid/positions to user expectations (and elsewhere)
     if (aln_iter == nullptr) {
         throw std::runtime_error (
             std::format (
                 "could not create iterator for {}:{}-{}",
-                var->rid,
-                var->pos,
-                var->pos + var->rlen
+                bcf_hdr_id2name (vcf_hdr, var->rid),
+                var->pos + 1,
+                var->pos + 1 + var->rlen
             )
         );
     }
@@ -127,6 +127,13 @@ struct PileupMetrics {
     std::vector<spatial::line_seg> template_endpoints;
     size_t                nreads = 0;
 };
+inline PileupMetrics merge_pileup_metrics (PileupMetrics a, const PileupMetrics &b) {
+    a.nreads += b.nreads;
+    a.query_position.insert (end (a.query_position), begin (b.query_position), end (b.query_position));
+    a.normalised_as.insert (end (a.normalised_as), begin (b.normalised_as), end (b.normalised_as));
+    a.template_endpoints.insert (end (a.template_endpoints), begin (b.template_endpoints), end (b.template_endpoints));
+    return a;
+}
 inline PileupMetrics get_metrics (const PileupColumn &pc) {
     PileupMetrics out;
 
@@ -241,12 +248,13 @@ inline PileupMetrics get_metrics (const PileupColumn &pc) {
 
 // returns metrics for supporting, and metrics for all
 inline std::pair<PileupMetrics, PileupMetrics> pileup_partition_and_anaylse (
-    htsFile   *aln_fh,
-    hts_idx_t *aln_idx,
-    bcf1_t    *var,
-    int        mutation_type,
-    int        sam_flag_include,
-    int        sam_flag_exclude
+    htsFile         *aln_fh,
+    hts_idx_t       *aln_idx,
+    bcf1_t          *var,
+    int              mutation_type,
+    int              sam_flag_include,
+    int              sam_flag_exclude,
+    const bcf_hdr_t *vcf_hdr
 ) {
     auto [pileup_all,
           aln_iter,
@@ -255,7 +263,8 @@ inline std::pair<PileupMetrics, PileupMetrics> pileup_partition_and_anaylse (
                 aln_idx,
                 var,
                 sam_flag_include,
-                sam_flag_exclude
+                sam_flag_exclude,
+                vcf_hdr
             );
 
     auto match_fn = [&var, mutation_type] (const bam_pileup1_t* p1) {
@@ -275,11 +284,12 @@ inline std::pair<PileupMetrics, PileupMetrics> pileup_partition_and_anaylse (
 }
 
 inline PileupMetrics pileup_analyse (
-    htsFile   *aln_fh,
-    hts_idx_t *aln_idx,
-    bcf1_t    *var,
-    int        sam_flag_include,
-    int        sam_flag_exclude
+    htsFile         *aln_fh,
+    hts_idx_t       *aln_idx,
+    bcf1_t          *var,
+    int              sam_flag_include,
+    int              sam_flag_exclude,
+    const bcf_hdr_t *vcf_hdr
 ) {
     auto [pileup_all,
           aln_iter,
@@ -288,7 +298,8 @@ inline PileupMetrics pileup_analyse (
                 aln_idx,
                 var,
                 sam_flag_include,
-                sam_flag_exclude
+                sam_flag_exclude,
+                vcf_hdr
             );
     auto out = get_metrics(pileup_all);
     hts_itr_destroy(aln_iter);
