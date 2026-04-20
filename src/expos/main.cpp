@@ -403,6 +403,7 @@ int main (
     };
     for (const auto &l : FIELD_INF) {
         const auto &i = l.second;
+        if (i.name == "RCMPLX" && !reffh) continue;
         if (bcf_hdr_append (ohdr.get(), make_info_line (i).c_str())
             != 0) {
             throw std::runtime_error (
@@ -529,8 +530,8 @@ int main (
                 "alleles. "
                 "Unnormalised variant calls are not supported. "
                 "Skipping.",
-                b1->rid,     // TODO convert rid to user facing
-                b1->pos,     // ditto
+                bcf_hdr_id2name (vcf_hdr.get(), b1->rid),
+                b1->pos + 1,
                 b1->d.id
             ) << std::endl;
             if (bcf_write (ovcf.get(), ohdr.get(), b1.get()) != 0) {
@@ -575,11 +576,12 @@ int main (
             b1.get(),
             mtype,
             flag_inc,
-            flag_exc
+            flag_exc,
+            vcf_hdr.get()
         );
         std::optional<PileupMetrics> normal_pileup;
         for (auto &n : norms) {
-            auto pm = pileup_analyse (n.first.get(), n.second.get(), b1.get(), flag_inc, flag_exc);
+            auto pm = pileup_analyse (n.first.get(), n.second.get(), b1.get(), flag_inc, flag_exc, vcf_hdr.get());
             normal_pileup = normal_pileup
                 ? merge_pileup_metrics (std::move (*normal_pileup), pm)
                 : pm;
@@ -592,8 +594,8 @@ int main (
             std::cerr << std::format (
                 "no supporting reads found for variant {} {} {}, "
                 "skipping.",
-                b1->rid,     // TODO convert rid to user facing
-                b1->pos,     // ditto
+                bcf_hdr_id2name (vcf_hdr.get(), b1->rid),
+                b1->pos + 1,
                 b1->d.id
             ) << std::endl;
             if (bcf_write (ovcf.get(), ohdr.get(), b1.get()) != 0) {
@@ -609,8 +611,8 @@ int main (
             std::cerr << std::format (
                 "no supporting reads found with usable metrics for variant {} {} {}, "
                 "skipping.",
-                b1->rid,     // TODO convert rid to user facing
-                b1->pos,     // ditto
+                bcf_hdr_id2name (vcf_hdr.get(), b1->rid),
+                b1->pos + 1,
                 b1->d.id
             ) << std::endl;
             if (bcf_write (ovcf.get(), ohdr.get(), b1.get()) != 0) {
@@ -624,8 +626,8 @@ int main (
         if (normal_pileup && normal_pileup->nreads == 0) {
             std::cerr << std::format (
                 "Warning: no reads covering variant location found in normal for variant {} {} {}",
-                b1->rid,     // TODO convert rid to user facing
-                b1->pos,     // ditto
+                bcf_hdr_id2name (vcf_hdr.get(), b1->rid),
+                b1->pos + 1,
                 b1->d.id
             ) << std::endl;
         }
@@ -910,31 +912,56 @@ int main (
                 ) << std::endl;
             }
         };
-        // TODO should probably encode missingness into the vcf somehow... like an EXPOS_ERR info field
         if (qpos_K) {
-            float val[2]{
-                static_cast<float> (qpos_K_bgsim.eff_sz.value_or (0.0)),
-                static_cast<float> (qpos_K_bgsim.pval.value_or (1.0)),
-            };
+            float val[2];
+            if (qpos_K_bgsim.eff_sz) {
+                val[0] = static_cast<float> (*qpos_K_bgsim.eff_sz);
+            }
+            else {
+                bcf_float_set_missing (val[0]);
+            }
+            if (qpos_K_bgsim.pval) {
+                val[1] = static_cast<float> (*qpos_K_bgsim.pval);
+            }
+            else {
+                bcf_float_set_missing (val[1]);
+            }
             write_info (FIELD_INF.at ("QRK"), &val);
         }
         if (te_K) {
-            float val[2]{
-                static_cast<float> (te_K_bgsim.eff_sz.value_or (0.0)),
-                static_cast<float> (te_K_bgsim.pval.value_or (1.0))
-            };
+            float val[2];
+            if (te_K_bgsim.eff_sz) {
+                val[0] = static_cast<float> (*te_K_bgsim.eff_sz);
+            }
+            else {
+                bcf_float_set_missing (val[0]);
+            }
+            if (te_K_bgsim.pval) {
+                val[1] = static_cast<float> (*te_K_bgsim.pval);
+            }
+            else {
+                bcf_float_set_missing (val[1]);
+            }
             write_info (FIELD_INF.at ("TRK"), &val);
         }
         if (ref_entropy) {
             float val = static_cast<float> (*ref_entropy);
             write_info (FIELD_INF.at ("RCMPLX"), &val);
         }
-        if (mlas_supporting) { // should still include total if no supporting, TODO
-            float val[2]{
-                static_cast<float> (*mlas_supporting),
-                static_cast<float> (*mlas_total),
-            };
-            // TODO rounding
+        if (mlas_supporting || mlas_total) {
+            float val[2];
+            if (mlas_supporting) {
+                val[0] = static_cast<float> (*mlas_supporting);
+            }
+            else {
+                bcf_float_set_missing (val[0]);
+            }
+            if (mlas_total) {
+                val[1] = static_cast<float> (*mlas_total);
+            }
+            else {
+                bcf_float_set_missing (val[1]);
+            }
             write_info (FIELD_INF.at ("MLAS"), &val);
         }
 
