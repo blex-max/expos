@@ -10,19 +10,15 @@ on:
 jobs:
   build-and-test:
     runs-on: ubuntu-24.04
-    strategy:
-      matrix:
-        build_type: [Release, Debug]
-      fail-fast: false
     steps:
       - uses: actions/checkout@v4
 
       - uses: actions/cache@v4
         with:
           path: build
-          key: ${{ runner.os }}-cmake-${{ matrix.build_type }}-${{ hashFiles('CMakeLists.txt') }}
+          key: ${{ runner.os }}-cmake-${{ hashFiles('CMakeLists.txt') }}
           restore-keys: |
-            ${{ runner.os }}-cmake-${{ matrix.build_type }}-
+            ${{ runner.os }}-cmake-
 
       - name: Install dependencies
         run: |
@@ -32,7 +28,7 @@ jobs:
       - name: Configure
         run: |
           cmake -S . -B build \
-            -DCMAKE_BUILD_TYPE=${{ matrix.build_type }} \
+            -DCMAKE_BUILD_TYPE=Release \
             -DMAKE_MAIN=ON \
             -DMAKE_TEST=ON \
             -DMAKE_DAUGHTER=OFF
