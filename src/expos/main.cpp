@@ -158,7 +158,7 @@ int main (
          "Alignment for use as additional background data for simulation. May be passed multiple times.",
          cxxopts::value<std::vector<fs::path>>())
         ("normal-only",
-         "Use only reads from the provided normal as background data, excluding non-supporting reads from the sample")
+         "Use only reads from the provided normal as background data, excluding reads from the sample")
 
         ("i,include-records",
          "Only operate on VCF records with this value present in FILTER. e.g. -i PASS. May be passed multiple times.",
