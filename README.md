@@ -55,16 +55,21 @@ Usage:
   -r, --ref arg                Alignment Reference Fasta for optionally
                                adding reference complexity to statistics.
   -n, --normal arg             Alignment for use as additional background
-                               data for simulation
+                               data for simulation. May be passed multiple
+                               times.
       --normal-only            Use only reads from the provided normal as
-                               background data, excluding non-supporting
-                               reads from the sample
-  -i, --include arg            Only operate on VCF records with this value
+                               background data, excluding reads from the
+                               sample
+  -i, --include-records arg    Only operate on VCF records with this value
                                present in FILTER. e.g. -i PASS. May be
                                passed multiple times.
-  -e, --exclude arg            Only operate on VCF records without this
+  -e, --exclude-records arg    Only operate on VCF records without this
                                value present in FILTER. May be passed
                                multiple times.
+  -I, --include-reads arg      SAM flag: only include reads with all of
+                               these bits set. Set 0 to disable. Default: 3
+  -E, --exclude-reads arg      SAM flag: exclude reads with any of these
+                               bits set. Default: 3852
   -t, --tsv arg                Write a tsv of extended statistics to file
                                specified.
   -u, --uncompressed           output uncompressed VCF
@@ -77,6 +82,7 @@ Usage:
                                content of reference regions, and add result
                                to --tsv output. For assessment of
                                correlation with drop in LZ.
+      --debug                  Enable debug logging
 ```
 basic usage then looks like:
 ```bash
