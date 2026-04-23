@@ -121,8 +121,8 @@ int main (
     std::vector<std::string> flt_exc;
     uint32_t                 seed = 24601;
     size_t                   exp_read_len = 150;
-    int                      flag_inc = 3;
-    int                      flag_exc = 3852;
+    int                      flag_inc = 0;
+    int                      flag_exc = 3844;
     bool                     no_gz = false;
     bool                     normal_only = false;
     bool                     uniform_sim = false;
@@ -166,15 +166,13 @@ int main (
         ("e,exclude-records",
          "Only operate on VCF records without this value present in FILTER. May be passed multiple times.",
          cxxopts::value<std::vector<std::string>>()) // multiple allowed
+        // TODO - get rid of this, and just have single/paired data switch which would also turn of template endpoints
         ("I,include-reads",
-         "SAM flag: only include reads with all of these bits set. Set 0 to disable. Default: 3",
+         "SAM flag: only include reads with all of these bits set. Set 0 to disable. Default: 0",  // 3 requires reads to be paired + mapped in proper pair
          cxxopts::value<int>())
         ("E,exclude-reads",
-         "SAM flag: exclude reads with any of these bits set. Default: 3852",
+         "SAM flag: exclude reads with any of these bits set. Default: 3844",  // 3852 also excludes unmapped mate
          cxxopts::value<int>())
-        // ("w,write",
-        //  "Write specified field to output VCF. May be passed multiple times.",
-        //  cxxopts::value<std::vector<std::string>>()->default_value("ALL"))
 
         ("t,tsv",
          "Write a tsv of extended statistics to file specified.",

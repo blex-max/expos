@@ -213,7 +213,8 @@ inline PileupMetrics get_metrics (const PileupColumn &pc) {
         // check mate mapped to same reference
         // NOTE: this would need to be adjusted
         // if single end data is to be accepted
-        if (p->b->core.tid != p->b->core.mtid) {
+        if (p->b->core.tid != p->b->core.mtid
+            || p->b->core.flag & BAM_FMUNMAP) {
             continue;
         }
 
@@ -266,7 +267,7 @@ inline std::pair<PileupMetrics, PileupMetrics> pileup_partition_and_anaylse (
                 sam_flag_exclude,
                 vcf_hdr
             );
-
+    PLOGD << std::format("nreads in pileup: {}",pileup_all.size());
     auto match_fn = [&var, mutation_type] (const bam_pileup1_t* p1) {
         return evaluate_support (p1, var, mutation_type);
     };
