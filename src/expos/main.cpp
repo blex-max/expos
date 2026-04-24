@@ -34,6 +34,7 @@
 #include <stdexcept>
 #include <unordered_map>
 
+#include "expos/support.hpp"
 #include "hts_ptr_t.hpp"
 #include "lib-stats/monte-carlo.hpp"
 #include "pileup.hpp"
@@ -128,6 +129,7 @@ int main (
     bool                     uniform_sim = false;
     bool                     assess_microhom = false;
     bool                     debug_mode = false;
+    bool                     single_end = false;
     // std::vector<std::string> wfields;
 
     // clang-format off
@@ -166,7 +168,9 @@ int main (
         ("e,exclude-records",
          "Only operate on VCF records without this value present in FILTER. May be passed multiple times.",
          cxxopts::value<std::vector<std::string>>()) // multiple allowed
-        // TODO - get rid of this, and just have single/paired data switch which would also turn of template endpoints
+        ("single-end",
+         "Input BAM contains single-end reads. Template Ripley's K (TRK) is not computed; "
+         "reference complexity (RCMPLX) uses per-read spans instead of fragment spans.")
         ("I,include-reads",
          "SAM flag: only include reads with all of these bits set. Set 0 to disable. Default: 0",  // 3 requires reads to be paired + mapped in proper pair
          cxxopts::value<int>())
@@ -291,6 +295,9 @@ int main (
         if (parsedargs.count ("assess-microhomology")) {
             assess_microhom = true;
         }
+        if (parsedargs.count ("single-end")) {
+            single_end = true;
+        }
         if (parsedargs["debug"].as<bool>()) {
             debug_mode = true;
         }
@@ -304,6 +311,7 @@ int main (
     static plog::ColorConsoleAppender<plog::TxtFormatter> consoleAppender (plog::streamStdErr);
     plog::init (debug_mode ? plog::debug : plog::none, &consoleAppender);
 
+    // TODO these uniq ptrs were not worthwhile
     // inputs
     auto _ain{hts_open (aln_path.c_str(), "r")};
     if (_ain == NULL) {
@@ -410,6 +418,7 @@ int main (
     for (const auto &l : FIELD_INF) {
         const auto &i = l.second;
         if (i.name == "RCMPLX" && !reffh) continue;
+        if (i.name == "TRK" && single_end) continue;
         if (bcf_hdr_append (ohdr.get(), make_info_line (i).c_str())
             != 0) {
             throw std::runtime_error (
@@ -513,7 +522,7 @@ int main (
             firsti = false;
         }
 
-        const auto iflt = has_filters (
+        const auto iflt = bcf_has_filters (
             vcf_hdr.get(),
             b1.get(),
             flt_inc
@@ -529,7 +538,7 @@ int main (
             };
             continue;
         }
-        const auto eflt = has_filters (vcf_hdr.get(), b1.get(), flt_exc);
+        const auto eflt = bcf_has_filters (vcf_hdr.get(), b1.get(), flt_exc);
         if (std::any_of (begin (eflt), end (eflt), [] (const auto a) {
                 return a;
             })) {
@@ -561,17 +570,26 @@ int main (
             };
             continue;
         }
+
         auto mtype = bcf_has_variant_type (
             b1.get(),
             1,
             VCF_DEL | VCF_INS | VCF_SNP | VCF_MNP
         );
-        // one and only one of
+        std::function<bool (const bcf1_t*, const bam_pileup1_t*)> support_eval_fn;
         switch (mtype) {
-            case (VCF_DEL):
-            case (VCF_INS):
+            // one and only one of
             case (VCF_SNP):
+                support_eval_fn = &eval_support_snp;
+                break;
             case (VCF_MNP):
+                support_eval_fn = &eval_support_mnp;
+                break;
+            case (VCF_DEL):
+                support_eval_fn = &eval_support_del;
+                break;
+            case (VCF_INS):
+                support_eval_fn = &eval_support_ins;
                 break;
             default:
                 std::cerr << std::format (
@@ -589,27 +607,29 @@ int main (
                 continue;
         }
 
-        auto [sample_supporting_pileup, sample_total_pileup] = pileup_partition_and_anaylse (
+        auto [sample_supporting_pileup, sample_total_pileup] = pileup_group_and_anaylse (
             alnfh.get(),
             aln_idx.get(),
             b1.get(),
-            mtype,
             flag_inc,
             flag_exc,
-            vcf_hdr.get()
+            support_eval_fn,
+            vcf_hdr.get(),
+            single_end
         );
         std::optional<PileupMetrics> normal_pileup;
         for (auto &n : norms) {
-            auto pm = pileup_analyse (n.first.get(), n.second.get(), b1.get(), flag_inc, flag_exc, vcf_hdr.get());
+            auto pm = pileup_analyse (n.first.get(), n.second.get(), b1.get(), flag_inc, flag_exc, vcf_hdr.get(), single_end);
             normal_pileup = normal_pileup
                 ? merge_pileup_metrics (std::move (*normal_pileup), pm)
                 : pm;
         }
 
-        auto n_supporting_reads = sample_supporting_pileup.nreads;
+        auto n_supporting_reads = sample_supporting_pileup.query_position.size();
         auto n_supporting_templates = sample_supporting_pileup.template_endpoints.size();
 
-        if (n_supporting_reads == 0) {
+        // TODO rethink, possibly reinstate an nreads counter
+        if (sample_supporting_pileup.query_position.size() == 0 || sample_supporting_pileup.template_endpoints.size() == 0) {
             std::cerr << std::format (
                 "no supporting reads found for variant {} {} {}, "
                 "skipping.",
@@ -625,26 +645,11 @@ int main (
             };
             continue;
         }
-
-        if (sample_supporting_pileup.query_position.size() == 0 || sample_supporting_pileup.template_endpoints.size() == 0) {
+        // TODO this should be a skip I think,
+        // with a cli flag override
+        if (normal_pileup && normal_pileup->query_position.size() == 0) {
             std::cerr << std::format (
-                "no supporting reads found with usable metrics for variant {} {} {}, "
-                "skipping.",
-                bcf_hdr_id2name (vcf_hdr.get(), b1->rid),
-                b1->pos + 1,
-                b1->d.id
-            ) << std::endl;
-            if (bcf_write (ovcf.get(), ohdr.get(), b1.get()) != 0) {
-                std::cerr << std::format (
-                    "failed to write record to output VCF"
-                ) << std::endl;
-                return EXIT_FAILURE;
-            };
-            continue;
-        }
-        if (normal_pileup && normal_pileup->nreads == 0) {
-            std::cerr << std::format (
-                "Warning: no reads covering variant location found in normal for variant {} {} {}",
+                "Warning: no reads covering variant location found in normal/s for variant {} {} {}",
                 bcf_hdr_id2name (vcf_hdr.get(), b1->rid),
                 b1->pos + 1,
                 b1->d.id
@@ -744,10 +749,12 @@ int main (
             spatial::line_seg lower_pair{a.lmost, b.lmost};
             return upper_pair.diff() + lower_pair.diff();
         };
-        const auto te_pwd = spatial::PairMatrix::from_sample (
-            sample_supporting_pileup.template_endpoints,
-            mannd
-        );
+        const auto te_pwd = single_end
+            ? std::optional<spatial::PairMatrix>{}
+            : spatial::PairMatrix::from_sample (
+                  sample_supporting_pileup.template_endpoints,
+                  mannd
+              );
 
         std::optional<double> qpos_K;
         monte_carlo::stat_eval_s           qpos_K_bgsim;  // compared to all reads
@@ -1016,7 +1023,7 @@ int main (
                 std::to_string(lmosttc),
                 std::to_string(rmosttc),
                 std::to_string (n_supporting_reads),
-                std::to_string (sample_total_pileup.nreads)
+                std::to_string (sample_total_pileup.query_position.size()) // incorrect, since does not include del/refskip
             ) << "\n";
         }
         // clang-format on

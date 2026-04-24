@@ -98,6 +98,24 @@ target_include_directories(lib_stats INTERFACE
   ${CMAKE_CURRENT_SOURCE_DIR}/src
 )
 
+if(MAKE_MAIN OR MAKE_TEST)
+  add_library(lib_expos STATIC
+    src/expos/pileup.cpp
+    src/expos/support.cpp
+  )
+  target_compile_options(lib_expos PRIVATE
+    ${COMMON_WARNINGS}
+  )
+  target_include_directories(lib_expos PUBLIC
+    ${CMAKE_CURRENT_SOURCE_DIR}/src
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/expos
+  )
+  target_link_libraries(lib_expos PUBLIC
+    plog::plog
+    ${HTSLIB_TARGET}
+  )
+endif()
+
 # //--- testing ---//
 if(MAKE_TEST)
   message(STATUS "Finding catch2 for test binary")
@@ -114,18 +132,15 @@ if(MAKE_TEST)
   add_executable(test-expos
     tests/test_stats.cpp
     tests/test_pileup.cpp
+    tests/test_support.cpp
   )
 
   target_compile_options(test-expos PRIVATE
     ${COMMON_WARNINGS}
   )
-  target_include_directories(test-expos PRIVATE
-    ${COMMON_INCLUDES}
-  )
   target_link_libraries(test-expos PRIVATE
     Catch2::Catch2WithMain
-    plog::plog
-    ${HTSLIB_TARGET}
+    lib_expos
   )
 endif(MAKE_TEST)
 # //--- end testing ---//
@@ -134,19 +149,13 @@ endif(MAKE_TEST)
 if(MAKE_MAIN)
   add_executable(expos
     src/expos/main.cpp
-    src/expos/pileup.cpp
   )
   target_compile_options(expos PRIVATE
     ${COMMON_WARNINGS}
   )
-  target_include_directories(expos PRIVATE
-    ${COMMON_INCLUDES}
-  )
-  target_link_libraries(expos
-    lib_stats
+  target_link_libraries(expos PRIVATE
+    lib_expos
     cxxopts::cxxopts
-    plog::plog
-    ${HTSLIB_TARGET}
   )
 endif(MAKE_MAIN)
 
