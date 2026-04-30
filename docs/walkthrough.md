@@ -2,29 +2,40 @@
 
 
 expos looks for clustering in query position of variant supporting reads (and template endpoints).
-Here's a simple example:
+Here's a simple example using a spatial density plot to show query position of the genomic location on the reads spanning that location:
 
 ![A variant with clustered query position compared to reference](images/clustered-variant.svg)
 
-what is the likelihood that this variant supporting subset of query positions could have been drawn
-from the total set of reads?
+It appears to be visually obvious that the mutant observations have much more tightly clustered query position as compared to the broadly distributed reference allele. However, if we are to mark this variant as likely artefactual, it is necessary to quantify this deviation (even in this exaggerated case). expos then asks the question: what is the likelihood that this variant supporting subset of query positions could have been drawn from the total set of reads? `expos` does so by taking random (equally sized) subsamples of the total set of reads and comparing the statistic in question between the random sample, and the variant supporting set. The following answer is given:
 
-<!-- eff-sz, pval -->
-QRK=2.2006,0.00079968;
-approximately 4x as clustered as the total set, with a >0.0001% probablility that this could be a subsample of the total set.
+| Effect Size | p-value |
+|-------------|---------|
+| 2.2006      | 0.0008  |
 
-and in this case of a broad variant:
+expos uses log2-fold change for effect size, so an effect size of ~2 indicates that the variant supporting reads are on average ~4x as clustered as a random equally sized subsample of the total set. The p-value tells us that there is a <0.001% probablility that a random subsample of the total set of reads would exhibit clustering to this degree. In other words, we can be quite confident that these variant supporting reads are spatially exceptional.
+
+By contrast, a variant exhibited across a broad distribution of query positions might look like so:
 
 ![A variant with well-distributed query position](images/broad-variant.svg)
 
-QRK=0.0300375,0.72611;
-The mutant reads show almost no clustering compared to the total set, and there is a 72% probability that they could be a subsample of the total set
+| Effect Size | p-value |
+|-------------|---------|
+| 0.0300      | 0.7261  |
 
-and a complex example with mixed clustering:
+In this case, the mutant reads show almost no clustering compared to the subsamples of the total set, and there is a 72% probability that a subsample of the total set could exhibit clustering to this degree.
+
+For completeness, here is a slightly more nuanced case with mixed clustering. It is perhaps more difficult to dismiss the validity of this variant simply by looking at the spatial density plot:
 
 ![A more nuanced case](images/mixed-clustering.svg)
 
-QRK=2.04051,0.00079968;
+| Effect Size | p-value |
+|-------------|---------|
+| 2.0405      | 0.0008  |
 
-<!-- Because the total set of reads is used, rather than ref v alt, ref and alt in distinct clusters should be flagged -->
-<!-- TODO: add test case for the above -->
+expos makes clarification easy. Despite the presence of some distinct clustering in the query postion of each allele, the mutant supporting reads again exhibit strong unique clustering as compared to random subsamples of the total set, and there is only a miniscule possibility that a set of reads with those properties could have been drawn from the total set.
+
+!!! note "Template Endpoints"
+  expos analyses template endpoints identically as described here.
+
+!!! note "Data Source"
+  Data for these examples was synthetically generated, and is available with the repo in `example-data/`.

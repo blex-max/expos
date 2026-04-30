@@ -98,35 +98,6 @@ double get_alignment_score_from_tag (const bam_pileup1_t* p) {
            / static_cast<double> (p->b->core.l_qseq);
 }
 
-PileupMetrics
-get_metrics_single_end
-(const PileupColumn& pc)
-{
-    PileupMetrics out;
-
-    for (const auto p : pc) {
-        out.normalised_as.push_back (
-            get_alignment_score_from_tag (p)
-        );
-
-        // get qpos
-        if (!(p->is_del || p->is_refskip || p->qpos < 0)) {
-            out.query_position.emplace_back (as_uint (p->qpos));
-        }
-
-        // get spanned region
-        out.template_endpoints.emplace_back (
-            as_uint (p->b->core.pos),
-            as_uint (p->b->core.pos
-                     + bam_cigar2rlen (
-                         static_cast<int> (p->b->core.n_cigar),
-                         bam_get_cigar (p->b)
-                     ))
-        );
-    }
-    return out;
-}
-
 
 PileupMetrics
 get_metrics_paired_end
@@ -176,6 +147,8 @@ get_metrics_paired_end
             out.query_position.emplace_back (as_uint (p->qpos));
         }
 
+        out.read_lengths.push_back (static_cast<uint32_t> (p->b->core.l_qseq));
+
         // don't double count templates
         if (qnames.find (qname)
             != qnames.end()) {     // qname already seen
@@ -217,18 +190,6 @@ get_metrics_paired_end
 }
 
 
-PileupMetrics get_metrics
-(const PileupColumn& pc, bool single_end=false)
-{
-    if (single_end) {
-        return get_metrics_single_end (pc);
-    }
-    else {
-        return get_metrics_paired_end (pc);
-    }
-}
-
-
 PileupMetrics
 pileup_analyse (
     htsFile* aln_fh,
@@ -236,8 +197,7 @@ pileup_analyse (
     bcf1_t* var,
     int sam_flag_include,
     int sam_flag_exclude,
-    const bcf_hdr_t* vcf_hdr,
-    bool single_end
+    const bcf_hdr_t* vcf_hdr
 )
 {
     auto aln_iter = sam_itr_queryi (
@@ -249,7 +209,7 @@ pileup_analyse (
     if (aln_iter == nullptr) {
         throw std::runtime_error (
             std::format (
-                "could not create iterator for {}:{}-{}",
+                "could not create iterator for variant region {}:{}-{}",
                 bcf_hdr_id2name (vcf_hdr, var->rid),
                 var->pos + 1,
                 var->pos + 1 + var->rlen
@@ -265,7 +225,7 @@ pileup_analyse (
     auto piter = bam_plp_init (pileup_func, &pfc);
 
     auto pile = get_pileup (var->pos, piter);
-    auto out = get_metrics (pile, single_end);
+    auto out = get_metrics_paired_end (pile);
 
     hts_itr_destroy (aln_iter);
     bam_plp_destroy (piter);
@@ -294,8 +254,7 @@ pileup_group_and_anaylse (
     int sam_flag_include,
     int sam_flag_exclude,
     std::function<bool (const bcf1_t*, const bam_pileup1_t*)> support_fn,
-    const bcf_hdr_t* vcf_hdr,
-    bool single_end
+    const bcf_hdr_t* vcf_hdr
 )
 {
     auto aln_iter = sam_itr_queryi (
@@ -307,7 +266,7 @@ pileup_group_and_anaylse (
     if (aln_iter == nullptr) {
         throw std::runtime_error (
             std::format (
-                "could not create iterator for {}:{}-{}",
+                "could not create iterator for variant region {}:{}-{}",
                 bcf_hdr_id2name (vcf_hdr, var->rid),
                 var->pos + 1,
                 var->pos + 1 + var->rlen
@@ -331,8 +290,8 @@ pileup_group_and_anaylse (
     // we analyse both independently since each
     // group may have different sets of
     // overlapping reads
-    out.supporting = get_metrics (pile_supporting, single_end);
-    out.all = get_metrics (pile_all, single_end);
+    out.supporting = get_metrics_paired_end (pile_supporting);
+    out.all = get_metrics_paired_end (pile_all);
 
     hts_itr_destroy (aln_iter);
     bam_plp_destroy (pileup_iter);
@@ -345,6 +304,7 @@ PileupMetrics merge_pileup_metrics (PileupMetrics a, const PileupMetrics &b) {
     a.query_position.insert (end (a.query_position), begin (b.query_position), end (b.query_position));
     a.normalised_as.insert (end (a.normalised_as), begin (b.normalised_as), end (b.normalised_as));
     a.template_endpoints.insert (end (a.template_endpoints), begin (b.template_endpoints), end (b.template_endpoints));
+    a.read_lengths.insert (end (a.read_lengths), begin (b.read_lengths), end (b.read_lengths));
     return a;
 }
 
