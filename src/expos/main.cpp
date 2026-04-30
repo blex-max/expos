@@ -34,6 +34,7 @@
 #include <stdexcept>
 #include <unordered_map>
 
+#include "expos/support.hpp"
 #include "hts_ptr_t.hpp"
 #include "lib-stats/monte-carlo.hpp"
 #include "pileup.hpp"
@@ -121,8 +122,8 @@ int main (
     std::vector<std::string> flt_exc;
     uint32_t                 seed = 24601;
     size_t                   exp_read_len = 150;
-    int                      flag_inc = 3;
-    int                      flag_exc = 3852;
+    int                      flag_inc = 0;
+    int                      flag_exc = 3844;
     bool                     no_gz = false;
     bool                     normal_only = false;
     bool                     uniform_sim = false;
@@ -167,14 +168,11 @@ int main (
          "Only operate on VCF records without this value present in FILTER. May be passed multiple times.",
          cxxopts::value<std::vector<std::string>>()) // multiple allowed
         ("I,include-reads",
-         "SAM flag: only include reads with all of these bits set. Set 0 to disable. Default: 3",
+         "SAM flag: only include reads with all of these bits set. Set 0 to disable. Default: 0",  // 3 requires reads to be paired + mapped in proper pair
          cxxopts::value<int>())
         ("E,exclude-reads",
-         "SAM flag: exclude reads with any of these bits set. Default: 3852",
+         "SAM flag: exclude reads with any of these bits set. Default: 3844",  // 3852 also excludes unmapped mate
          cxxopts::value<int>())
-        // ("w,write",
-        //  "Write specified field to output VCF. May be passed multiple times.",
-        //  cxxopts::value<std::vector<std::string>>()->default_value("ALL"))
 
         ("t,tsv",
          "Write a tsv of extended statistics to file specified.",
@@ -306,6 +304,7 @@ int main (
     static plog::ColorConsoleAppender<plog::TxtFormatter> consoleAppender (plog::streamStdErr);
     plog::init (debug_mode ? plog::debug : plog::none, &consoleAppender);
 
+    // TODO these uniq ptrs were not worthwhile
     // inputs
     auto _ain{hts_open (aln_path.c_str(), "r")};
     if (_ain == NULL) {
@@ -474,6 +473,8 @@ int main (
     std::mt19937 rng{};
     rng.seed(seed);
     bool         firsti = true;
+    bool         checked_read_len = false;
+    constexpr double READ_LEN_TOL = 0.20;
     bcf1_upt     b1{bcf_init(), bcf_destroy};
     while (bcf_read (vcffh.get(), vcf_hdr.get(), b1.get()) == 0) {
         if (firsti) {
@@ -515,7 +516,7 @@ int main (
             firsti = false;
         }
 
-        const auto iflt = has_filters (
+        const auto iflt = bcf_has_filters (
             vcf_hdr.get(),
             b1.get(),
             flt_inc
@@ -531,7 +532,7 @@ int main (
             };
             continue;
         }
-        const auto eflt = has_filters (vcf_hdr.get(), b1.get(), flt_exc);
+        const auto eflt = bcf_has_filters (vcf_hdr.get(), b1.get(), flt_exc);
         if (std::any_of (begin (eflt), end (eflt), [] (const auto a) {
                 return a;
             })) {
@@ -563,17 +564,26 @@ int main (
             };
             continue;
         }
+
         auto mtype = bcf_has_variant_type (
             b1.get(),
             1,
             VCF_DEL | VCF_INS | VCF_SNP | VCF_MNP
         );
-        // one and only one of
+        std::function<bool (const bcf1_t*, const bam_pileup1_t*)> support_eval_fn;
         switch (mtype) {
-            case (VCF_DEL):
-            case (VCF_INS):
+            // one and only one of
             case (VCF_SNP):
+                support_eval_fn = &eval_support_snp;
+                break;
             case (VCF_MNP):
+                support_eval_fn = &eval_support_mnp;
+                break;
+            case (VCF_DEL):
+                support_eval_fn = &eval_support_del;
+                break;
+            case (VCF_INS):
+                support_eval_fn = &eval_support_ins;
                 break;
             default:
                 std::cerr << std::format (
@@ -591,13 +601,13 @@ int main (
                 continue;
         }
 
-        auto [sample_supporting_pileup, sample_total_pileup] = pileup_partition_and_anaylse (
+        auto [sample_supporting_pileup, sample_total_pileup] = pileup_group_and_anaylse (
             alnfh.get(),
             aln_idx.get(),
             b1.get(),
-            mtype,
             flag_inc,
             flag_exc,
+            support_eval_fn,
             vcf_hdr.get()
         );
         std::optional<PileupMetrics> normal_pileup;
@@ -608,12 +618,35 @@ int main (
                 : pm;
         }
 
-        auto n_supporting_reads = sample_supporting_pileup.nreads;
-        auto n_supporting_templates = sample_supporting_pileup.template_endpoints.size();
+        // guard incorrect read len
+        if (!checked_read_len && sample_total_pileup.read_lengths.size() >= 5) {
+            auto lens = sample_total_pileup.read_lengths;
+            std::nth_element (begin (lens), begin (lens) + lens.size() / 2, end (lens));
+            const double median_len = lens[lens.size() / 2];
+            const double deviation = std::abs (median_len - static_cast<double> (exp_read_len))
+                                     / static_cast<double> (exp_read_len);
+            if (deviation > READ_LEN_TOL) {
+                std::cerr << std::format (
+                    "error: observed median read length {} deviates from "
+                    "expected {} by {:.0f}% (tolerance {}%). "
+                    "Perhaps re-run with the correct -l value?",
+                    static_cast<uint32_t> (median_len),
+                    exp_read_len,
+                    deviation * 100.0,
+                    READ_LEN_TOL * 100.0
+                ) << std::endl;
+                return EXIT_FAILURE;
+            }
+            checked_read_len = true;
+        }
 
-        if (n_supporting_reads == 0) {
+        auto n_obs_qpos = sample_supporting_pileup.query_position.size();
+        auto n_obs_templ = sample_supporting_pileup.template_endpoints.size();
+
+        // TODO rethink, possibly reinstate an nreads counter
+        if (n_obs_qpos == 0 || n_obs_templ == 0) {
             std::cerr << std::format (
-                "no supporting reads found for variant {} {} {}, "
+                "no supporting reads found for variant {}:{} ({}), "
                 "skipping.",
                 bcf_hdr_id2name (vcf_hdr.get(), b1->rid),
                 b1->pos + 1,
@@ -627,26 +660,11 @@ int main (
             };
             continue;
         }
-
-        if (sample_supporting_pileup.query_position.size() == 0 || sample_supporting_pileup.template_endpoints.size() == 0) {
+        // TODO this should be a skip I think,
+        // with a cli flag override
+        if (normal_pileup && normal_pileup->query_position.size() == 0) {
             std::cerr << std::format (
-                "no supporting reads found with usable metrics for variant {} {} {}, "
-                "skipping.",
-                bcf_hdr_id2name (vcf_hdr.get(), b1->rid),
-                b1->pos + 1,
-                b1->d.id
-            ) << std::endl;
-            if (bcf_write (ovcf.get(), ohdr.get(), b1.get()) != 0) {
-                std::cerr << std::format (
-                    "failed to write record to output VCF"
-                ) << std::endl;
-                return EXIT_FAILURE;
-            };
-            continue;
-        }
-        if (normal_pileup && normal_pileup->nreads == 0) {
-            std::cerr << std::format (
-                "Warning: no reads covering variant location found in normal for variant {} {} {}",
+                "Warning: no reads covering variant location found in normal/s for variant {}:{} ({})",
                 bcf_hdr_id2name (vcf_hdr.get(), b1->rid),
                 b1->pos + 1,
                 b1->d.id
@@ -705,14 +723,14 @@ int main (
 
             // quantify homopolymer & STR presence
             if (assess_microhom) {
-                auto str_runs = string_stats::periodic_rle(refs, 5);
+                auto str_runs = string_stats::periodic_rle (refs, 5);
                 auto str_runs_n = str_runs.size();
-                auto top10_i = static_cast<size_t> (floor(static_cast<double>(str_runs.size()) * 0.9));
+                auto top10_i = static_cast<size_t> (floor (static_cast<double>(str_runs.size()) * 0.9));
                 auto top10_n = str_runs_n - top10_i;
                 std::nth_element(
-                    begin(str_runs),
-                    begin(str_runs) + static_cast<long> (top10_i), 
-                    end(str_runs)
+                    begin (str_runs),
+                    begin (str_runs) + static_cast<long> (top10_i), 
+                    end (str_runs)
                 );
                 decltype (str_runs)::value_type str_run_max=0, top10_run_sum=0;
                 for (size_t i = top10_i; i < str_runs_n; ++i) {
@@ -728,6 +746,12 @@ int main (
         }
 
         // --- CLUSTERING ANALYSIS - RIPLEY'S K --- //
+
+        // results for qpos
+        std::optional<double> qpos_K;
+        monte_carlo::stat_eval_s qpos_K_bgsim;  // compared to all reads
+        monte_carlo::stat_eval_s qpos_K_unisim; // compared to expected distribution
+
         // get pairwise distances
         // simple 1D dist for query position
         constexpr auto dist_1D = [] (const auto &a,
@@ -739,34 +763,28 @@ int main (
             dist_1D
         );     // empty if <2 samples
 
-        // manhattan distance for template endpoints
-        constexpr auto mannd = [] (const auto &a,
-                                   const auto &b) {
-            spatial::line_seg upper_pair{a.rmost, b.rmost};
-            spatial::line_seg lower_pair{a.lmost, b.lmost};
-            return upper_pair.diff() + lower_pair.diff();
-        };
-        const auto te_pwd = spatial::PairMatrix::from_sample (
-            sample_supporting_pileup.template_endpoints,
-            mannd
-        );
-
-        std::optional<double> qpos_K;
-        monte_carlo::stat_eval_s           qpos_K_bgsim;  // compared to all reads
-        monte_carlo::stat_eval_s           qpos_K_unisim; // compared to expected distribution
-        if (qpos_pwd) {
+        if (n_obs_qpos < 2 || qpos_pwd) {
+            qpos_K_bgsim.err = "INSUFF_OBS";
+            if (uniform_sim) {
+                qpos_K_unisim.err = "INSUFF_OBS";
+            }
+        } else {
             const size_t search_radius = 5; // bases. Sensible values << read length.
+
+            // mutant sample value
             qpos_K = 
-                spatial::ripley_k(
+                spatial::ripley_k (
                     *qpos_pwd,
                     search_radius,
-                    static_cast<double>(qpos_pwd->dim())
+                    static_cast<double> (qpos_pwd->dim())
                     / static_cast<double> (exp_read_len)
                 );
+
+            // assemble total sample pool
             decltype (sample_supporting_pileup.query_position) qpos_popv;
             if (!normal_only) {
                 if (normal_pileup) { // ADD NORMAL OBS
-                    assert(normal_pileup);
+                    assert (normal_pileup);
                     qpos_popv.insert(
                         end(qpos_popv),
                         begin(sample_total_pileup.query_position),
@@ -785,7 +803,8 @@ int main (
                 qpos_popv = normal_pileup->query_position;
             }
 
-            auto stat_fn = [&dist_1D, exp_read_len] (const auto &v) {
+            // simulation function
+            auto stat_fn = [&] (const auto &v) {
                 const auto pwds = spatial::PairMatrix::from_sample (v, dist_1D);
                 assert (pwds);
                 return spatial::ripley_k(
@@ -794,19 +813,22 @@ int main (
                         static_cast<double>(v.size()) / static_cast<double> (exp_read_len)
                     );
             };
-            auto n_obs = sample_supporting_pileup.query_position.size();
-            if (n_obs < 2) {
-                qpos_K_bgsim.err = "INSUFF_OBS";
-            }
-            else if (qpos_popv.size() < (n_obs * 2)) {
+            // guard, then run simulation
+            if (qpos_popv.size() < (n_obs_qpos * 2)) {
                 // at a bare minimum, we want 2x more total samples than bg
                 qpos_K_bgsim.err = "INSUFF_BG";
-            }  // TODO if less than e.g. 5x report low power?
+                std::cerr << std::format (
+                    "Warning: insufficient total reads (<2x supporting) for variant {}:{} ({}) for anaylsis",
+                    bcf_hdr_id2name (vcf_hdr.get(), b1->rid),
+                    b1->pos + 1,
+                    b1->d.id
+                ) << std::endl;
+            }
             else {
                 qpos_K_bgsim = monte_carlo::sim_to_bg (
                     *qpos_K,
-                    [&qpos_popv, &rng, n_obs] () {
-                        return monte_carlo::subsample_wo_replace(qpos_popv, n_obs, rng);
+                    [&] () {
+                        return monte_carlo::subsample_wo_replace (qpos_popv, n_obs_qpos, rng);
                     },
                     stat_fn,
                     monte_carlo::log2_effsz
@@ -827,9 +849,9 @@ int main (
                 std::uniform_int_distribution<uint64_t> qpos_gen{0, exp_read_len - 1}; // inclusive ends
                 qpos_K_unisim = monte_carlo::sim_to_bg(
                     *qpos_K,
-                    [&qpos_gen, &rng, n_obs] () {
+                    [&] () {
                         std::vector<uint64_t> rand_qpos;
-                        for (size_t i = 0; i < n_obs; ++i) {
+                        for (size_t i = 0; i < n_obs_qpos; ++i) {
                             rand_qpos.push_back(qpos_gen(rng));
                         }
                         return rand_qpos;
@@ -838,22 +860,34 @@ int main (
                     monte_carlo::log2_effsz
                 );
             }
-        } else {
-            qpos_K_bgsim.err = "INSUFF_OBS";
-            if (uniform_sim) {
-                qpos_K_unisim.err = "INSUFF_OBS";
-            }
         }
+
+        // manhattan distance for template endpoints
+        constexpr auto mannd = [] (const auto &a,
+                                   const auto &b) {
+            spatial::line_seg upper_pair{a.rmost, b.rmost};
+            spatial::line_seg lower_pair{a.lmost, b.lmost};
+            return upper_pair.diff() + lower_pair.diff();
+        };
+        const auto te_pwd = spatial::PairMatrix::from_sample (
+            sample_supporting_pileup.template_endpoints,
+            mannd
+        );
 
         std::optional<double> te_K;
         monte_carlo::stat_eval_s te_K_bgsim;
-        if (te_pwd) {
+        if (!te_pwd || n_obs_templ < 2) {
+            te_K_bgsim.err = "INSUFF_OBS";
+        }
+        else {
             const size_t search_radius = 6;
             te_K = spatial::ripley_k(
                     *te_pwd,
                     search_radius,
                     static_cast<double>(te_pwd->dim()) / static_cast<double>(span_length)
             );
+
+            // assemble total sample pool
             decltype(sample_supporting_pileup.template_endpoints) te_popv;
             if (!normal_only) {
                 if (normal_pileup) {
@@ -875,17 +909,20 @@ int main (
                 te_popv = normal_pileup->template_endpoints;
             }
 
-            if (n_supporting_templates < 2) {
+            if (n_obs_templ < 2) {
                 te_K_bgsim.err = "INSUFF_OBS";
-            }
-            else if (te_popv.size() < n_supporting_templates * 2) {
-                te_K_bgsim.err = "INSUFF_BG";
+                std::cerr << std::format (
+                    "Warning: insufficient total templates (<2x supporting) for variant {}:{} ({}) for analysis.",
+                    bcf_hdr_id2name (vcf_hdr.get(), b1->rid),
+                    b1->pos + 1,
+                    b1->d.id
+                ) << std::endl;
             }
             else {
                 te_K_bgsim = monte_carlo::sim_to_bg (
                     *te_K,
-                    [&rng, &te_popv, n_supporting_templates] () {
-                        return monte_carlo::subsample_wo_replace(te_popv, n_supporting_templates, rng);
+                    [&rng, &te_popv, n_obs_templ] () {
+                        return monte_carlo::subsample_wo_replace(te_popv, n_obs_templ, rng);
                     },
                     [&mannd, span_length] (const auto &v) {
                         const auto pwds = spatial::PairMatrix::from_sample (
@@ -901,8 +938,6 @@ int main (
                     monte_carlo::log2_effsz
                 );
             }
-        } else {
-            te_K_bgsim.err = "INSUFF_OBS";
         }
 
         // --- MEDIAN LENGTH-NORMALISED ALIGNMENT SCORE --- //
@@ -1017,8 +1052,8 @@ int main (
                 opt_to_str (run_max, "NA"),
                 std::to_string(lmosttc),
                 std::to_string(rmosttc),
-                std::to_string (n_supporting_reads),
-                std::to_string (sample_total_pileup.nreads)
+                std::to_string (n_obs_qpos), // as below
+                std::to_string (sample_total_pileup.query_position.size()) // incorrect, since does not include del/refskip
             ) << "\n";
         }
         // clang-format on

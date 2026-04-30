@@ -6,4 +6,6 @@ demo-proj/
 build/
 .DS_Store
 *.sif
-pyenv/
+pyenv*/
+site/
+**/generate-out/*
