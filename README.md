@@ -5,6 +5,8 @@
 [![C++23](https://img.shields.io/badge/C%2B%2B-23-blue)](https://en.cppreference.com/w/cpp/23)
 [![status: alpha](https://img.shields.io/badge/status-alpha-orange)](https://github.com/blex-max/expos)
 
+**FULL DOCUMENTATION AVAILABLE [HERE](https://blex-max.github.io/expos/)**
+
 Statistically-backed VCF flagging calculating effect sizes
 and p-values for spatial properties of somatic mutations via
 monte-carlo simulation. Compares mutant reads (supporting observations)
