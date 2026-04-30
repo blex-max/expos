@@ -1,3 +1,4 @@
+#include <functional>
 #include <vector>
 #include <concepts>
 #include <cstdint>
@@ -19,27 +20,22 @@ constexpr inline as_uint (const T &a)
     return static_cast<uint64_t> (a);
 }
 
-std::string
-inline variant_to_region_str
-(bcf1_t* v, bcf_hdr_t* h)
-{
-    const auto rid_name = bcf_hdr_id2name(h, v->rid);
-    return std::format ("{}:{}-{}", rid_name, v->pos + 1, v->pos + 1 + v->rlen);
+template <class T>
+std::string opt_to_str (
+    std::optional<T> opt,
+    std::string_view sentinel,
+    std::function<std::string (T)> conv = [] (const T &a) {
+        return std::to_string (a);
+    }
+) {
+    return opt ? conv (*opt) : std::string (sentinel);
 }
 
-std::vector<bool>
-inline bcf_has_filters (
-    bcf_hdr_t                *hdr,
-    bcf1_t                   *rec,
-    std::vector<std::string> &flt
-)
-{
-    std::vector<bool> out;
-    for (const auto &f : flt) {
-        out.push_back (
-            bcf_has_filter (hdr, rec, const_cast<char *> (f.c_str()))
-            > 0
-        );
-    }
-    return out;
+inline std::string rdbl2 (const double &a) {
+    return std::format ("{:.2f}", a);
 }
+inline std::string rdbl4 (const double &a) {
+    return std::format ("{:.4f}", a);
+}
+
+

@@ -102,6 +102,8 @@ if(MAKE_MAIN OR MAKE_TEST)
   add_library(lib_expos STATIC
     src/expos/pileup.cpp
     src/expos/support.cpp
+    src/expos/variant_record.cpp
+    src/expos/cli.cpp
   )
   target_compile_options(lib_expos PRIVATE
     ${COMMON_WARNINGS}
@@ -112,6 +114,7 @@ if(MAKE_MAIN OR MAKE_TEST)
   )
   target_link_libraries(lib_expos PUBLIC
     plog::plog
+    cxxopts::cxxopts
     ${HTSLIB_TARGET}
   )
 endif()
@@ -155,7 +158,6 @@ if(MAKE_MAIN)
   )
   target_link_libraries(expos PRIVATE
     lib_expos
-    cxxopts::cxxopts
   )
 endif(MAKE_MAIN)
 
