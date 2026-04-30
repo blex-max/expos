@@ -69,9 +69,9 @@ Usage:
                                value present in FILTER. May be passed
                                multiple times.
   -I, --include-reads arg      SAM flag: only include reads with all of
-                               these bits set. Set 0 to disable. Default: 3
+                               these bits set. Set 0 to disable. Default: 0
   -E, --exclude-reads arg      SAM flag: exclude reads with any of these
-                               bits set. Default: 3852
+                               bits set. Default: 3844
   -t, --tsv arg                Write a tsv of extended statistics to file
                                specified.
   -u, --uncompressed           output uncompressed VCF

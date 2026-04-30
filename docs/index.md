@@ -8,14 +8,11 @@ from a matched normal.
 
 Useful for inspecting and flagging false positive variants caused
 by a variety of processes most commonly associated with a high
-number of PCR cycles. Builds on Ellis et al. 2021, GATK ReadPosRankSum, amongst others.
+number of PCR cycles. Builds on Ellis et al. 2021, GATK ReadPosRankSum, bcftools RPBZ, amongst others.
 
-For both SNVs and small indels. MNV handling logic is present,
-but largely untested.
+Applicable to SNVs, small MNVs, and small indels.
 
-!!! warning "Alpha Software"
-    Core functionality present but niceties and guard rails are not.
-    Please report any bugs and ask any questions!
+For a full introduction see [Concepts & Theory](concepts.md)
 
 ---
 

@@ -1,6 +1,9 @@
 # Usage
 
-<!-- TODO: update this page with any new options as they are added -->
+## CLI
+
+`expos` takes a VCF and annotates variants using the INFO field.
+Usage of the tool is best described by the helptext:
 
 ```
 EXtract POSitional data and statistics from alignment at
@@ -30,9 +33,9 @@ Usage:
                                value present in FILTER. May be passed
                                multiple times.
   -I, --include-reads arg      SAM flag: only include reads with all of
-                               these bits set. Set 0 to disable. Default: 3
+                               these bits set. Set 0 to disable. Default: 0
   -E, --exclude-reads arg      SAM flag: exclude reads with any of these
-                               bits set. Default: 3852
+                               bits set. Default: 3844
   -t, --tsv arg                Write a tsv of extended statistics to file
                                specified.
   -u, --uncompressed           output uncompressed VCF
@@ -48,8 +51,150 @@ Usage:
       --debug                  Enable debug logging
 ```
 
-Basic usage:
+A basic call would then look like:
 
 ```bash
 expos my.vcf my.bam
 ```
+
+## Annotations Made
+
+For a full guide to the theory behind these annotations see [Concepts](concepts.md).
+
+These are the header lines from an output VCF describing the INFO fields added. The `[]` notation is used to indicate which element of the array holds the data in question where the INFO field added is an array.
+
+```
+##INFO=<
+  ID=QRK,
+  Number=2,
+  Type=Float,
+  Description="""
+  Array detailing monte-carlo simulation results for Ripley's K on mutant query position:
+  [1]log2 ratio effect size from comparisons to simulation against all reads;
+  [2]two-sided P-value from comparisons to simulation against all reads;
+  """>
+
+##INFO=<
+  ID=TRK,
+  Number=2,
+  Type=Float,
+  Description="""
+  Array detailing Monte-Carlo simulation results for Ripley's K on endpoints of mutant templates:
+  [1]log2 ratio effect size from comparisons to simulation against all reads;
+  [2]two-sided P-value from comparisons to simluation against all reads
+  """>
+
+##INFO=<
+  ID=RCMPLX,
+  Number=1,
+  Type=Integer,
+  Description="""
+  Mean 100-base window complexity (Lempel-Ziv estimated entropy rate) of
+  the reference region spanned by supporting templates, scaled by x100
+  """>
+
+##INFO=<
+  ID=MLAS,
+  Number=2,
+  Type=Float,
+  Description="""
+  Array of median read-length normalised alignment scores:
+  [0]of reads supporting variant,
+  [1]of all queried reads covering the variant location in the sample alignment
+  """>
+```
+
+log2-fold change scales such that no effect is 0.0, 1.0 means the statistic is 2x on supporting data compared to background, 2.0 == 4x. Practically this means that effect sizes greater than 0 indicate tighter clustering of observations as compared to background. In blunt summary, higher values for effect size combined with small p-values, especially if found in low complexity region as indicated by `RCMPLX`, may indicate a spurious variant call.
+
+!!! note "MLAS"
+    `MLAS[0]` is equivalent to ASRD as may be familiar to some users - thresholding on this value may be inadvisable for indels since a decrease in alignment score is confounded with the presence of the indel itself.
+
+## Filtering Pipeline Examples
+
+The following are some examples of how the annotatiions made by `expos` might be used for variant filtering downstream.
+
+### **Broad Flagging Pipeline**
+
+This is a fairly non-specific example showing the breadth of what
+one might do with the information encoded by expos — it's not
+strictly a recommendation, though it is statistically defensible.
+
+```bash
+# example pipeline - Add some soft flags in the FILTER column
+# (or alternately, subset entirely with bcftools view instead of filter)
+
+# command by command:
+# 1: pipe VCF producing program to expos stdin.
+# 2: calculate statistics with expos, reading VCF from stdin (-), output uncompressed VCF to stdout.
+# note that for brevity no normal is provided, but providing a normal can add a lot of statistical power
+# if an appropriate normal is available.
+# 3, 4: statisically-backed flagging on distribution/clustering stats;
+# flagging variants where observations are at least 2x as tightly clustered as the background
+# and the difference is statistically significant (P <= 0.05).
+# 6: heuristic/rule-of-thumb on poor alignment score on supporting reads in regions
+# of low reference complexity;
+# 7: heuristic/rule-of-thumb flagging on poor alignment score
+# and > write to disk.
+./path/to/expos -u --ref ref.fa my.vcf my.bam |
+bcftools filter -Ov \
+  --mode + \
+  -s QPOS_CLUSTER \
+  -e'(INFO/QRK[0] >= 1.0 & INFO/QRK[1] < 0.05)' |
+bcftools filter -Ov \
+  --mode + \
+  -s TEMPLATE_CLUSTER \
+  -e'(INFO/TRK[0] >= 1.0 & INFO/TRK[1] < 0.05)' |
+bcftools filter -Ov \
+  --mode + \
+  -s POOR_ALN_REG \
+  -e'(INFO/MLAS[1] < 0.93 & INFO/RCMPLX < 150)' |
+bcftools filter -Oz \
+  --mode + \
+  -s LOW_SUPPORTING_AS \
+  -e'(INFO/MLAS[0] < 0.93)' > my.flagged.vcf.gz
+```
+
+### **Targeted Approach**
+
+A more targeted approach can inform you as to particular
+scenarios that may be strongly associated with false positive variants:
+
+```bash
+./path/to/expos -u --ref ref.fa my.vcf my.bam |
+bcftools filter -Oz \
+  --mode + \
+  -s LOW_CMPLX_CLUSTER \
+  -e'INFO/QRK[0] >= 1.0 & INFO/QRK[1] < 0.05 & INFO/RCMPLX < 150' > my.flagged.vcf.gz
+```
+
+At the cost of missing more generic variants with spurious looking spatial properties.
+
+### **Adjusting Thresholds**
+
+P-values and effect sizes can be modified:
+
+```bash
+# relaxed p-val, very large effect size (8x as clustered)
+# an example of the concept, again not a recommendation per se
+./path/to/expos -u --ref ref.fa my.vcf my.bam |
+bcftools filter -Oz \
+  --mode + \
+  -s QPOS_CLUSTER_2 \
+  -e'INFO/QRK[0] >= 3.0 & INFO/QRK[1] < 0.1' > my.flagged.vcf.gz
+```
+
+### **Deviation in the Other Direction**
+
+Since the p-values returned are two-tailed, you can also look
+at deviation in the other direction — though it is not intuitively obvious
+that this would be associated with a false positive variant.
+
+```bash
+# at least twice as spread as expected, and statistically significant
+./path/to/expos -u --ref ref.fa my.vcf my.bam |
+bcftools filter -Oz \
+  --mode + \
+  -s QPOS_SPREAD \
+  -e'INFO/QRK[0] <= -1.0 & INFO/QRK[1] < 0.05' > my.flagged.vcf.gz
+```
+

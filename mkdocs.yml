@@ -42,7 +42,5 @@ nav:
   - Home: index.md
   - Installation: installation.md
   - Usage: usage.md
-  - Assessments: assessments.md
-  - Examples: examples.md
+  - Concepts & Theory: concepts.md
   - Extras: extras.md
-  - Conceptual Walkthrough: walkthrough.md
