@@ -3,8 +3,8 @@
 Statistically-backed VCF flagging calculating effect sizes
 and p-values for spatial properties of somatic mutations via
 Monte Carlo simulation. Compares mutant reads (supporting observations)
-with the set of all reads (background), optionally including reads
-from a matched normal.
+with the set of all reads (background), including reads
+from one or more "normal" samples.
 
 Useful for inspecting and flagging false positive variants caused
 by a variety of processes most commonly associated with a high

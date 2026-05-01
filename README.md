@@ -9,24 +9,15 @@
 
 Statistically-backed VCF flagging calculating effect sizes
 and p-values for spatial properties of somatic mutations via
-monte-carlo simulation. Compares mutant reads (supporting observations)
-with the set of all reads (background), optionally including reads
-from a matched normal.
+Monte Carlo simulation. Compares mutant reads (supporting observations)
+with the set of all reads (background), including reads
+from one or more "normal" samples.
 
-Useful for inspecting and flagging false postive variants caused
+Useful for inspecting and flagging false positive variants caused
 by a variety of processes most commonly associated with a high
-number of PCR cycles. Builds on Ellis et al. 2021, GATK ReadPosRankSum, amongst others.
+number of PCR cycles. Builds on Ellis et al. 2021, GATK ReadPosRankSum, bcftools RPBZ, amongst others.
 
-For both SNVs and small indels. MNV handling logic is present,
-but largely untested.
-
-Alpha Software!
-Core functionality present but niceties and guard rails are not.
-Please report any bugs and ask any questions!
-
-#### definite TODOs
- - More extensive documentation
- - Add clip fraction/CLPM
+Applicable to SNVs, small MNVs, and small indels.
 
 ## Installation
 
@@ -90,147 +81,3 @@ basic usage then looks like:
 ```bash
 expos my.vcf my.bam
 ```
-
-
-## Assessments made
-
-Assessments of spatial clustering of mutant bases have been used to filter false-positive mutations which may otherwise be difficult to consistently detect (Ellis 2021, Cambpell Lab, GATK ReadPosRankSum, others). The underlying hypothesis is that mutant reads should be drawn from the same spatial distribution as reference reads; if mutant reads differ significantly from reference reads, then the spatial process producing those reads deviates from the spatial process producing the reference reads. This may indicate that a non-biological process, or sequencing artefact, is responsible for the mutant reads since it would not be expected that mutant reads exhibit a unique preference for a particular region.
-
-The spatial clustering signal has greatest discriminatory power in two specific contexts: artefact-prone sequencing protocols, and low variant allele fraction (VAF) calls. At high VAF, genuine variants produce many supporting reads spread randomly across the positional distribution, diluting any artefactual clustering. At low VAF, a handful of artefactual reads can dominate the supporting set, making positional non-randomness a useful discriminating signal. The artefact mechanisms that produce clustering are varied: early-cycle PCR misincorporation producing many copies sharing the same query position; FFPE-associated cytosine deamination enriched at read termini; end-repair misincorporations; cycle-specific Illumina errors at particular sequencing cycles; and tagmentation bias (e.g. Nextera) producing non-random fragment endpoints. The intended use case is therefore low-VAF somatic variant calling from paired-end libraries derived from artefact-prone protocols such as FFPE WGS/WES, hybrid capture panels, or amplicon sequencing. Paired-end alignments are required.
-
-These are the header lines from an output VCF describing the INFO fields added. The [] notation is used to indicate which element of the array holds the data in question where the INFO field added is an array.
-
-```bash
-##INFO=<
-  ID=QRK,
-  Number=2,
-  Type=Float,
-  Description="""
-  Array detailing monte-carlo simulation results for Ripley's K on mutant query position:
-  [1]log2 ratio effect size from comparisons to simulation against all reads;
-  [2]two-sided P-value from comparisons to simulation against all reads;
-  """>
-
-##INFO=<
-  ID=TRK,
-  Number=2,
-  Type=Float,
-  Description="""
-  Array detailing Monte-Carlo simulation results for Ripley's K on endpoints of mutant templates:
-  [1]log2 ratio effect size from comparisons to simulation against all reads;
-  [2]two-sided P-value from comparisons to simluation against all reads
-  """>
-
-##INFO=<
-  ID=RCMPLX,
-  Number=1,
-  Type=Integer,
-  Description="""
-  Mean 100-base window complexity (Lempel-Ziv estimated entropy rate) of
-  the reference region spanned by supporting templates, scaled by x100
-  """>
-
-##INFO=<
-  ID=MLAS,
-  Number=2,
-  Type=Float,
-  Description="""
-  Array of median read-length normalised alignment scores:
-  [0]of reads supporting variant,
-  [1]of all queried reads covering the variant location in the sample alignment
-  """>
-```
-
-log2-fold change scales such that no effect is 0.0, 1.0 means the statistic is 2x on supporting data compared background, 2.0 == 4x. Practically this means that effect sizes greater than 0 indicate tighter clustering of observations as compared to background.
-
-MLAS[0] is equivalent to ASRD as may be familiar to some users - thresholding on this value may be inadvisable for indels since a decrease in alignment score is confounded with the presence of the indel itself.
-
-## Example
-
-This is fairly non-specific example showing the breadth of what
-one might do with the information encoded by expos - it's not
-strictly a recommendation, though it is statistically defensible.
-
-```bash
- # example pipeline - Add some soft flags in the FILTER column
- # (or alternately, subset entirely with bcftools view instead of filter)
-
-# command by command:
-# 1: pipe VCF producing program to expos stdin.
-# 2: calculate statistics with expos, reading VCF from stdin (-), output uncompressed VCF to stdout.
-# note that for brevity no normal is provided, but providing a normal can add a lot of statistical power
-# if an appropriate normal is available.
-# 3, 4: statisically-backed flagging on distribution/clustering stats;
-# flagging variants where observations are at least 2x as tightly clustered as the background
-# and the difference is statistically significant (P <= 0.05).
-# 6: heuristic/rule-of-thumb on poor alignment score on supporting reads in regions
-# of low reference complexity;
-# 7: heuristic/rule-of-thumb flagging on poor alignment score
-# and > write to disk.
-./path/to/expos -u --ref ref.fa my.vcf my.bam |
-bcftools filter -Ov \
-  --mode + \
-  -s QPOS_CLUSTER \
-  -e'(INFO/QRK[0] >= 1.0 & INFO/QRK[1] < 0.05)' |
-bcftools filter -Ov \
-  --mode + \
-  -s TEMPLATE_CLUSTER \
-  -e'(INFO/TRK[0] >= 1.0 & INFO/TRK[1] < 0.05)' |
-bcftools filter -Ov \
-  --mode + \
-  -s POOR_ALN_REG \
-  -e'(INFO/MLAS[1] < 0.93 & INFO/RCMPLX < 150)' |
-bcftools filter -Oz \
-  --mode + \
-  -s LOW_SUPPORTING_AS \
-  -e'(INFO/MLAS[0] < 0.93)' > my.flagged.vcf.gz
-```
-
-A more targeted approach can inform you as to particular
-scenarios that may be strongly associated with false postive variants:
-
-```bash
-./path/to/expos -u --ref ref.fa my.vcf my.bam |
-bcftools filter -Oz \
-  --mode + \
-  -s LOW_CMPLX_CLUSTER \
-  -e'INFO/QRK[0] >= 1.0 & INFO/QRK[1] < 0.05 & INFO/RCMPLX < 150' > my.flagged.vcf.gz
-```
-at the cost of missing more generic variants with spurious looking spatial properties.
-
-P-values and effect sizes can be modified:
-```bash
-# relaxed p-val, very large effect size (8x as clustered)
-# an example of the concept, again not a recommendation per se
-./path/to/expos -u --ref ref.fa my.vcf my.bam |
-bcftools filter -Oz \
-  --mode + \
-  -s QPOS_CLUSTER_2 \
-  -e'INFO/QRK[0] >= 3.0 & INFO/QRK[1] < 0.1' > my.flagged.vcf.gz
-```
-
-Since the p-values are returned are two-tailed, you can also look
-at deviation in the other direction - though it is not intuitively obvious
-that this would be associated with a false positive variant.
-```bash
-# at least twice as spread as expected, and statistically significant
-./path/to/expos -u --ref ref.fa my.vcf my.bam |
-bcftools filter -Oz \
-  --mode + \
-  -s QPOS_SPREAD \
-  -e'INFO/QRK[0] <= -1.0 & INFO/QRK[1] < 0.05' > my.flagged.vcf.gz
-```
-
-
-## Extras
-
-This repo also contains a daughter tool for estimating the entropy rate of strings
-in the same way as is done for assessing reference complexity. Useful if you're interested
-in assessing the complexity of sequence data from any source (or any string at all!).
-
-You can turn on compliation of `estimate-entropy` via
-```
-  cmake .. -DMAKE_DAUGHTER=ON
-```
-and then proceeding with compilation as normal.
-See `./estimate-entropy --help` for usage.

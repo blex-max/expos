@@ -37,7 +37,7 @@ For completeness, here is a slightly more nuanced case with mixed clustering. It
 |-------------|---------|
 | 2.0405      | 0.0008  |
 
-expos makes clarification easy. Despite the presence of some distinct clustering in the query postion of each allele, the mutant supporting reads again exhibit strong unique clustering as compared to random subsamples of the total set, and there is only a miniscule possibility that a set of reads with those properties could have been drawn from the total set.
+`expos` makes clarification easy. Despite the presence of some distinct clustering in the query postion of each allele, the mutant supporting reads again exhibit strong unique clustering as compared to random subsamples of the total set, and there is only a miniscule possibility that a set of reads with those properties could have been drawn from the total set.
 
 !!! note "Template Endpoints"
     expos analyses template endpoints identically as described here, except in two dimensions using the start and end coordinates.

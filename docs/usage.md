@@ -129,7 +129,7 @@ strictly a recommendation, though it is statistically defensible.
 # note that for brevity no normal is provided, but providing a normal can add a lot of statistical power
 # if an appropriate normal is available.
 # 3, 4: statisically-backed flagging on distribution/clustering stats;
-# flagging variants where observations are at least 2x as tightly clustered as the background
+# flagging variants where observations are at least 4x as tightly clustered as the background
 # and the difference is statistically significant (P <= 0.05).
 # 6: heuristic/rule-of-thumb on poor alignment score on supporting reads in regions
 # of low reference complexity;
@@ -139,11 +139,11 @@ strictly a recommendation, though it is statistically defensible.
 bcftools filter -Ov \
   --mode + \
   -s QPOS_CLUSTER \
-  -e'(INFO/QRK[0] >= 1.0 & INFO/QRK[1] < 0.05)' |
+  -e'(INFO/QRK[0] >= 2.0 & INFO/QRK[1] < 0.05)' |
 bcftools filter -Ov \
   --mode + \
   -s TEMPLATE_CLUSTER \
-  -e'(INFO/TRK[0] >= 1.0 & INFO/TRK[1] < 0.05)' |
+  -e'(INFO/TRK[0] >= 2.0 & INFO/TRK[1] < 0.05)' |
 bcftools filter -Ov \
   --mode + \
   -s POOR_ALN_REG \
@@ -157,21 +157,22 @@ bcftools filter -Oz \
 ### **Targeted Approach**
 
 A more targeted approach can inform you as to particular
-scenarios that may be strongly associated with false positive variants:
+scenarios that may be strongly associated with false positive variants. This example
+looks specifically for clustered variants in low complexity regions
 
 ```bash
 ./path/to/expos -u --ref ref.fa my.vcf my.bam |
 bcftools filter -Oz \
   --mode + \
   -s LOW_CMPLX_CLUSTER \
-  -e'INFO/QRK[0] >= 1.0 & INFO/QRK[1] < 0.05 & INFO/RCMPLX < 150' > my.flagged.vcf.gz
+  -e'INFO/QRK[0] >= 2.0 & INFO/QRK[1] < 0.05 & INFO/RCMPLX < 150' > my.flagged.vcf.gz
 ```
 
 At the cost of missing more generic variants with spurious looking spatial properties.
 
 ### **Adjusting Thresholds**
 
-P-values and effect sizes can be modified:
+Thresholds for p-value and effect size can be tuned:
 
 ```bash
 # relaxed p-val, very large effect size (8x as clustered)
