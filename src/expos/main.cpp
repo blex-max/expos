@@ -602,7 +602,7 @@ int main (
                         return monte_carlo::subsample_wo_replace (qpos_popv, n_obs_qpos, rng);
                     },
                     stat_fn,
-                    monte_carlo::log2_effsz
+                    monte_carlo::ses
                 );
             }
 
@@ -628,7 +628,7 @@ int main (
                         return rand_qpos;
                     },
                     stat_fn,
-                    monte_carlo::log2_effsz
+                    monte_carlo::ses
                 );
             }
         }
@@ -708,7 +708,7 @@ int main (
                                 search_radius,
                                 static_cast<double>(pwds->dim()) / static_cast<double>(span_length));
                     },
-                    monte_carlo::log2_effsz
+                    monte_carlo::ses
                 );
             }
         }
