@@ -158,7 +158,7 @@ TEST_CASE ("sim_to_bg") {
     using namespace monte_carlo;
 
     std::mt19937_64 rng(24601);
-    std::uniform_real_distribution<double> dist(0.0, 5.0);
+    std::uniform_real_distribution<double> dist(1.0, 6.0);
 
     auto drawfn = [&]() { return std::vector<double> {
         dist(rng),
@@ -181,26 +181,31 @@ TEST_CASE ("sim_to_bg") {
         REQUIRE (r.eff_sz.has_value());
     }
 
-    SECTION ("extreme high observed gives minimum p-value") {
-        auto r = sim_to_bg(1000.0, drawfn, statfn, efffn, nsim);
-        const double min_pval = 2.0 / static_cast<double>(nsim + 1);
-        REQUIRE (std::fabs(*r.pval - min_pval) < 1e-9);
-    }
-
-    SECTION ("minimum observed gives minimum p-value") {
-        auto r = sim_to_bg(0.0, drawfn, statfn, efffn, nsim);
-        const double min_pval = 2.0 / static_cast<double>(nsim + 1);
-        REQUIRE (std::fabs(*r.pval - min_pval) < 1e-9);
-    }
-
     SECTION ("effect size positive when observed exceeds background") {
         auto r = sim_to_bg(100.0, drawfn, statfn, efffn, nsim);
         REQUIRE (*r.eff_sz > 0.0);
     }
 
     SECTION ("effect size negative when background exceeds observed") {
-        auto r = sim_to_bg(0.001, drawfn, statfn, efffn, nsim);
+        auto r = sim_to_bg(0.1, drawfn, statfn, efffn, nsim);
         REQUIRE (*r.eff_sz < 0.0);
     }
 
+    SECTION ("extreme high observed gives minimum p-value") {
+        // since such a value could not be observed from the
+        // simulation population
+        auto r = sim_to_bg(1000.0, drawfn, statfn, efffn, nsim);
+        // assuming pval calc is extremes + 1 / N + 1
+        // NOTE: it would be better to factor this out such
+        // that it may be independently tested
+        // (ditto effect size)
+        const double min_pval = 1.0 / static_cast<double>(nsim + 1);
+        REQUIRE (std::fabs(*r.pval - min_pval) < 1e-9);
+    }
+
+    SECTION ("extreme low observed gives insignificant p-value") {
+        // since one tailed test
+        auto r = sim_to_bg(0.1, drawfn, statfn, efffn, nsim);
+        REQUIRE (std::fabs(*r.pval - 1.0) < 1e-9);
+    }
 }

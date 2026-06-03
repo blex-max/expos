@@ -57,34 +57,31 @@ inline stat_eval_s sim_to_bg (
     std::vector<StatT> draw_results;
     draw_results.reserve(nsim);
 
-    size_t sim_count_le = 0;  // count of simulated stats that are <= observed stat
+    size_t sim_count_gt = 0;
     for (size_t i = 0; i < nsim; ++i) {
         sim_obs.clear();
         sim_obs = drawfn();
 
         const auto draw_stat = statfn (sim_obs);
-        if (draw_stat <= ev_stat) {
-            ++sim_count_le;
+        if (draw_stat >= ev_stat) {
+            ++sim_count_gt;
         }
         draw_results.push_back (draw_stat);
     }
 
-    // report effect size
-    // if eff_sz is large then we can
-    // get away with a low number of samples
-    // if not it's just noise
+    // NOTE: effsz and pval calcuations have changed!
+    // these changes have not been propagated through
+    // the rest of the codebase or documentation
+
+    // why does this take a fn
     res.eff_sz = efffn (ev_stat, draw_results);
 
     // TODO "power analysis"
 
-    // two sided p val
-    res.pval = 2
-               * static_cast<double> (std::min(sim_count_le + 1, nsim - sim_count_le + 1))
+    // one sided
+    res.pval = static_cast<double> (sim_count_gt + 1)
                / static_cast<double> (nsim + 1);
 
-    // TODO: one sided
-    // res.pval = static_cast<double> (sim_count_le + 1)
-    //            / static_cast<double> (nsim + 1);
     return res;
 }
 
