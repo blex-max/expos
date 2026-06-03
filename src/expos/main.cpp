@@ -54,17 +54,17 @@ const std::unordered_map<std::string, field_s> FIELD_INF{
     {"QRK",
      {"QRK",
       "Array detailing Monte-Carlo simulation results for spatial clustering in mutant query position"
-      "[1]log2 ratio effect size from comparisons to simulation against all reads;"
-      "[2]two-sided P-value from comparisons to simulation against all reads."
-      "Effect sizes greater than ~1.0 with significant p-value may indicate a spurious variant.",
+      "[1]standardised effect size (z-score) from comparisons to simulation against all reads;"
+      "[2]one-sided P-value from comparisons to simulation against all reads."
+      "Effect sizes greater than ~2.0 with significant p-value may indicate a spurious variant.",
       BCF_HT_REAL,
       2}},
     {"TRK",
      {"TRK",
       "Array detailing Monte-Carlo simulation results for spatial clustering in endpoints of mutant templates:"
-      "[1]log2 ratio effect size from comparisons to simulation against all reads;"
-      "[2]two-sided P-value from comparisons to simluation against all reads."
-      "Effect sizes greater than ~1.0 with significant p-value may indicate a spurious variant.",
+      "[1]standardised effect size (z-score) from comparisons to simulation against all reads;"
+      "[2]one-sided P-value from comparisons to simulation against all reads."
+      "Effect sizes greater than ~2.0 with significant p-value may indicate a spurious variant.",
       BCF_HT_REAL,
       2}},
     {"RCMPLX",
@@ -489,7 +489,7 @@ int main (
                     const auto mean_window_entropy = static_cast<double> (cmplx_sum) / static_cast<double> (n_win);
                     ref_entropy.emplace (
                         round (mean_window_entropy * 100)
-                    );     // x100 scaling factor
+                    );     // x100 scaling factor, which may not be a great idea
                 }
 
                 // quantify homopolymer & STR presence
@@ -534,7 +534,7 @@ int main (
             dist_1D
         );     // empty if <2 samples
 
-        if (n_obs_qpos < 2 || qpos_pwd) {
+        if (n_obs_qpos < 2 || !qpos_pwd) {
             qpos_K_bgsim.err = "INSUFF_OBS";
             if (ctx.uniform_sim) {
                 qpos_K_unisim.err = "INSUFF_OBS";
@@ -649,7 +649,7 @@ int main (
 
         std::optional<double> te_K;
         monte_carlo::stat_eval_s te_K_bgsim;
-        if (!te_pwd || n_obs_templ < 2) {
+        if (n_obs_templ < 2 || !te_pwd) {
             te_K_bgsim.err = "INSUFF_OBS";
         }
         else {

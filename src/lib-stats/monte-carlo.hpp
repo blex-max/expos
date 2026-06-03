@@ -69,10 +69,6 @@ inline stat_eval_s sim_to_bg (
         draw_results.push_back (draw_stat);
     }
 
-    // NOTE: effsz and pval calcuations have changed!
-    // these changes have not been propagated through
-    // the rest of the codebase or documentation
-
     // why does this take a fn
     res.eff_sz = efffn (ev_stat, draw_results);
 

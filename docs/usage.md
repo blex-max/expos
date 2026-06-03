@@ -70,8 +70,8 @@ These are the header lines from an output VCF describing the INFO fields added. 
   Type=Float,
   Description="""
   Array detailing monte-carlo simulation results for Ripley's K on mutant query position:
-  [1]log2 ratio effect size from comparisons to simulation against all reads;
-  [2]two-sided P-value from comparisons to simulation against all reads;
+  [1]standardised effect size (z-score) from comparisons to simulation against all reads;
+  [2]one-sided P-value from comparisons to simulation against all reads;
   """>
 
 ##INFO=<
@@ -80,8 +80,8 @@ These are the header lines from an output VCF describing the INFO fields added. 
   Type=Float,
   Description="""
   Array detailing Monte-Carlo simulation results for Ripley's K on endpoints of mutant templates:
-  [1]log2 ratio effect size from comparisons to simulation against all reads;
-  [2]two-sided P-value from comparisons to simluation against all reads
+  [1]standardised effect size (z-score) from comparisons to simulation against all reads;
+  [2]one-sided P-value from comparisons to simulation against all reads
   """>
 
 ##INFO=<
@@ -104,7 +104,7 @@ These are the header lines from an output VCF describing the INFO fields added. 
   """>
 ```
 
-log2-fold change scales such that no effect is 0.0, 1.0 means the statistic is 2x on supporting data compared to background, 2.0 == 4x. Practically this means that effect sizes greater than 0 indicate tighter clustering of observations as compared to background. In blunt summary, higher values for effect size combined with small p-values, especially if found in low complexity region as indicated by `RCMPLX`, may indicate a spurious variant call.
+Effect size is a standardised z-score relative to the simulated null distribution: 0.0 indicates no difference from background, positive values indicate tighter clustering than background (negative values looser), and values beyond ~2.0 are roughly two standard deviations from the mean of the null. The p-value is one-sided, giving the probability that a random subsample of the background would produce a statistic at least as extreme as the observed value. In blunt summary, effect sizes greater than ~2.0 combined with small p-values, especially if found in a low complexity region as indicated by `RCMPLX`, may indicate a spurious variant call.
 
 !!! note "MLAS"
     `MLAS[0]` is equivalent to ASRD as may be familiar to some users - thresholding on this value may be inadvisable for indels since a decrease in alignment score is confounded with the presence of the indel itself.

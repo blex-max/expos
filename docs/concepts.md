@@ -15,9 +15,9 @@ It appears to be visually obvious that the mutant observations have much more ti
 
 | Effect Size | p-value |
 |-------------|---------|
-| 2.2006      | 0.0008  |
+| 17.5507     | 0.0004  |
 
-expos uses log2-fold change for effect size, so an effect size of ~2 indicates that the variant supporting reads are on average ~4x as clustered as a random equally sized subsample of the total set. The p-value tells us that there is a <0.001% probablility that a random subsample of the total set of reads would exhibit clustering to this degree. In other words, we can be quite confident that these variant supporting reads are spatially exceptional.
+expos uses a standardised z-score for effect size, measuring how many standard deviations the observed statistic lies above the mean of the simulated null distribution. An effect size of ~2 indicates that the variant supporting reads show clustering roughly two standard deviations greater than expected from a random equally sized subsample of the total set. The p-value is one-sided, giving the probability that a random subsample would produce clustering at least as extreme; here it tells us that there is a &lt;0.001% probability that a random subsample of the total set of reads would exhibit clustering to this degree. In other words, we can be quite confident that these variant supporting reads are spatially exceptional.
 
 By contrast, a variant exhibited across a broad distribution of query positions might look like so:
 
@@ -25,9 +25,9 @@ By contrast, a variant exhibited across a broad distribution of query positions 
 
 | Effect Size | p-value |
 |-------------|---------|
-| 0.0300      | 0.7261  |
+| 0.1539      | 0.4326  |
 
-In this case, the mutant reads show almost no clustering compared to the subsamples of the total set, and there is a 72% probability that a subsample of the total set could exhibit clustering to this degree.
+In this case, the mutant reads show little difference in clustering compared to the subsamples of the total set, and there is a 43% probability that a subsample of the total set could exhibit clustering to this degree.
 
 For completeness, here is a slightly more nuanced case with mixed clustering. It is perhaps more difficult to dismiss the validity of this variant simply by looking at the spatial density plot:
 
@@ -35,9 +35,9 @@ For completeness, here is a slightly more nuanced case with mixed clustering. It
 
 | Effect Size | p-value |
 |-------------|---------|
-| 2.0405      | 0.0008  |
+| 23.961      | 0.0004  |
 
-`expos` makes clarification easy. Despite the presence of some distinct clustering in the query postion of each allele, the mutant supporting reads again exhibit strong unique clustering as compared to random subsamples of the total set, and there is only a miniscule possibility that a set of reads with those properties could have been drawn from the total set.
+`expos` makes clarification easy. Despite the presence of some distinct clustering in the query postion of each allele, the mutant supporting reads again exhibit strong unique clustering as compared to random subsamples of the total set, and there is only a miniscule possibility that a set of reads with those properties could have been drawn from the total set. Note that the effect size here exceeds that of the first example: because the z-score is normalised by the standard deviation of the null distribution, a tighter or less variable null (which can arise from a smaller number of supporting reads, or a less variable background population) will amplify the score even when the visual degree of clustering appears similar. The effect size therefore reflects how unusual the observed clustering is relative to its own particular background, not a direct measure of the absolute degree of clustering.
 
 !!! note "Template Endpoints"
     expos analyses template endpoints identically as described here, except in two dimensions using the start and end coordinates.
