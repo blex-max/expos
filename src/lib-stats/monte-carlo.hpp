@@ -36,12 +36,12 @@ requires
         std::vector<ObsT>
     > &&
     std::same_as<
-        std::invoke_result_t<StatFn&, const std::vector<ObsT> &>,
+        std::invoke_result_t<StatFn&, const std::vector<ObsT>&>,
         StatT
     > &&
     std::same_as<
-        std::invoke_result_t<EffFn&, StatT, const std::vector<StatT> &>,
-        double
+        std::invoke_result_t<EffFn&, StatT, const std::vector<StatT>&>,
+        std::optional<double>
     >
 inline stat_eval_s sim_to_bg (
     StatT    ev_stat,
@@ -57,47 +57,58 @@ inline stat_eval_s sim_to_bg (
     std::vector<StatT> draw_results;
     draw_results.reserve(nsim);
 
-    size_t sim_count_le = 0;  // count of simulated stats that are <= observed stat
+    size_t sim_count_gt = 0;
     for (size_t i = 0; i < nsim; ++i) {
         sim_obs.clear();
         sim_obs = drawfn();
 
         const auto draw_stat = statfn (sim_obs);
-        if (draw_stat <= ev_stat) {
-            ++sim_count_le;
+        if (draw_stat >= ev_stat) {
+            ++sim_count_gt;
         }
         draw_results.push_back (draw_stat);
     }
 
-    // report effect size
-    // if eff_sz is large then we can
-    // get away with a low number of samples
-    // if not it's just noise
+    // why does this take a fn
     res.eff_sz = efffn (ev_stat, draw_results);
 
     // TODO "power analysis"
 
-    // two sided p val
-    res.pval = 2
-               * static_cast<double> (std::min(sim_count_le + 1, nsim - sim_count_le + 1))
+    // one sided
+    res.pval = static_cast<double> (sim_count_gt + 1)
                / static_cast<double> (nsim + 1);
 
-    // one sided
-    // res.pval = static_cast<double> (sim_count_le + 1)
-    //            / static_cast<double> (nsim + 1);
     return res;
 }
 
 
-// log2-fold change
-// requires strictly postive values!
-// 
-// +1 removes confusing values when 0,
-// log makes effect size symmetric around 0
-// log2 means -1 = half the size of background
-// +1 = double the size of background
-inline auto log2_effsz (const double &ev, const std::vector<double> &simv) {
-    return log2 ((ev + 1) / (*summary::mean (simv) + 1));
+// standardised effect size
+// z-score relative to the simulated null distribution
+inline std::optional<double> ses
+(const double& testv, const std::vector<double>& simv)
+{
+    if (simv.empty()) {
+        return {};
+    }
+
+    // mean of simulated results
+    const auto sim_mean = *summary::mean (simv);
+    // calc pop stddev
+    const auto pn = simv.size();
+    double idev = 0.0;
+    double devsum = 0.0;
+    for (size_t i = 0; i < pn; ++i) {
+        idev = simv[i] - sim_mean;
+        devsum += idev * idev;
+    }
+    const auto sim_sd =
+        std::sqrt (devsum / static_cast<double> (pn));
+
+    if (sim_sd == 0.0) {  // unlikely but possible
+        return {};  // otherwise div by zero
+    }
+
+    return (testv - sim_mean) / sim_sd;
 }
 
 
