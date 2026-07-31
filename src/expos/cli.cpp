@@ -1,14 +1,16 @@
 #include "cli.hpp"
-#include "cxxopts.hpp"
 
 #include <filesystem>
-#include <iostream>
 #include <format>
+#include <iostream>
+
+#include "cxxopts.hpp"
 
 namespace cli {
 
-cxo::Options setup_cli () {
-    namespace fs = std::filesystem;
+cxo::Options setup_cli()
+{
+  namespace fs = std::filesystem;
 
     // clang-format off
     cxxopts::Options options (
@@ -68,103 +70,121 @@ cxo::Options setup_cli () {
     options.add_options("") ("debug", "Enable debug logging", cxxopts::value<bool>()->default_value("false"));
     // clang-format on
 
-    options.parse_positional ({"vcf", "aln"});
-    options.positional_help ("<VCF/BCF (- for stdin)> <ALN.(b/cr)am>");
+  options.parse_positional ({"vcf", "aln"});
+  options.positional_help (
+      "<VCF/BCF (- for stdin)> <ALN.(b/cr)am>"
+  );
 
-    return options;
+  return options;
 }
 
-
-void parse_cli
-(ExposArgs& ctx, const cxo::ParseResult& input_args) {
-
-  if (!input_args.count ("vcf") || !input_args.count ("aln"))
-      throw std::runtime_error (
-          "All positional arguments must be provided"
-      );
+void parse_cli (
+    ExposArgs& ctx, const cxo::ParseResult& input_args
+)
+{
+  if ((input_args.contains ("vcf") == 0u) || (input_args.contains ("aln") == 0u)) {
+    throw std::runtime_error (
+        "All positional arguments must be provided"
+    );
+  }
 
   ctx.vcf_path = input_args["vcf"].as<fs::path>();
   ctx.aln_path = input_args["aln"].as<fs::path>();
 
-  if (ctx.vcf_path.string() != "-" && !fs::exists (ctx.vcf_path)) {
-      throw std::runtime_error (
-          "VCF file not found: " + ctx.vcf_path.string()
-      );
+  if (ctx.vcf_path.string() != "-" &&
+      !fs::exists (ctx.vcf_path)) {
+    throw std::runtime_error (
+        "VCF file not found: " + ctx.vcf_path.string()
+    );
   }
 
   if (!fs::exists (ctx.aln_path)) {
-      throw std::runtime_error (
-          "Alignment file not found: " + ctx.aln_path.string()
-      );
+    throw std::runtime_error (
+        "Alignment file not found: " + ctx.aln_path.string()
+    );
   }
 
   std::cerr << "Using VCF: " << ctx.vcf_path << std::endl;
   std::cerr << "Using aln: " << ctx.aln_path << std::endl;
-  if (input_args.count ("ref")) {
-      ctx.ref_path = input_args["ref"].as<fs::path>();
-      if (!fs::exists (ctx.ref_path)) {
-          throw std::runtime_error (
-              "Reference fasta not found: " + ctx.ref_path.string()
-          );
+  if (input_args.contains ("ref") != 0u) {
+    ctx.ref_path = input_args["ref"].as<fs::path>();
+    if (!fs::exists (ctx.ref_path)) {
+      throw std::runtime_error (
+          "Reference fasta not found: " + ctx.ref_path.string()
+      );
+    }
+    std::cerr << "Using ref: " << ctx.ref_path << std::endl;
+  }
+
+  if (input_args.contains ("expected-read-len") != 0u) {
+    ctx.exp_read_len =
+        input_args["expected-read-len"].as<size_t>();
+  }
+  else {
+    std::cerr << std::format (
+                     "Read length not provided, assuming {}",
+                     ctx.exp_read_len
+                 )
+              << std::endl;
+  }
+
+  if (input_args.contains ("include-records") != 0u) {
+    ctx.flt_inc = input_args["include-records"]
+                      .as<std::vector<std::string>>();
+  }
+  if (input_args.contains ("exclude-records") != 0u) {
+    ctx.flt_exc = input_args["exclude-records"]
+                      .as<std::vector<std::string>>();
+  }
+  if (input_args.contains ("include-reads") != 0u) {
+    ctx.flag_inc = input_args["include-reads"].as<int>();
+  }
+  if (input_args.contains ("exclude-reads") != 0u) {
+    ctx.flag_exc = input_args["exclude-reads"].as<int>();
+  }
+  if (input_args.contains ("seed") != 0u) {
+    ctx.seed = input_args["seed"].as<uint32_t>();
+  }
+
+  if (input_args.contains ("tsv") != 0u) {
+    ctx.otsv_path = input_args["tsv"].as<fs::path>();
+  }
+
+  if (input_args.contains ("normal") != 0u) {
+    ctx.norm_paths =
+        input_args["normal"].as<std::vector<fs::path>>();
+    for (const auto& p : ctx.norm_paths) {
+      if (!fs::exists (p)) {
+        throw std::runtime_error (
+            "Normal file not found: " + p.string()
+        );
       }
-      std::cerr << "Using ref: " << ctx.ref_path << std::endl;
+      std::cerr << "Using normal: " << p << std::endl;
+    }
   }
-
-  if (input_args.count ("expected-read-len")) {
-      ctx.exp_read_len = input_args["expected-read-len"].as<size_t>();
-  } else {
-      std::cerr <<
-      std::format("Read length not provided, assuming {}", ctx.exp_read_len)
-      << std::endl;
+  if (input_args.contains ("normal-only") != 0u) {
+    if (ctx.norm_paths.empty()) {
+      throw std::runtime_error (
+          "a normal must be provided if normal-only is set."
+      );
+    }
+    std::cerr
+        << "Using only normal data as background for simulation"
+        << std::endl;
+    ctx.normal_only = true;
   }
-
-  if (input_args.count ("include-records")) {
-      ctx.flt_inc = input_args["include-records"].as<std::vector<std::string>>();
+  if (input_args.contains ("uncompressed") != 0u) {
+    ctx.no_gz = true;
   }
-  if (input_args.count ("exclude-records")) {
-      ctx.flt_exc = input_args["exclude-records"].as<std::vector<std::string>>();
+  if (input_args.contains ("uniform") != 0u) {
+    ctx.uniform_sim = true;
   }
-  if (input_args.count ("include-reads")) {
-      ctx.flag_inc = input_args["include-reads"].as<int>();
-  }
-  if (input_args.count ("exclude-reads")) {
-      ctx.flag_exc = input_args["exclude-reads"].as<int>();
-  }
-  if (input_args.count ("seed")) {
-      ctx.seed = input_args["seed"].as<uint32_t>();
-  }
-
-  if (input_args.count ("tsv")) {
-      ctx.otsv_path = input_args["tsv"].as<fs::path>();
-  }
-
-  if (input_args.count ("normal")) {
-      ctx.norm_paths = input_args["normal"].as<std::vector<fs::path>>();
-      for (const auto &p : ctx.norm_paths) {
-          if (!fs::exists (p))
-              throw std::runtime_error ("Normal file not found: " + p.string());
-          std::cerr << "Using normal: " << p << std::endl;
-      }
-  }
-  if (input_args.count ("normal-only")) {
-      if (ctx.norm_paths.empty())
-          throw std::runtime_error("a normal must be provided if normal-only is set.");
-      std::cerr << "Using only normal data as background for simulation" << std::endl;
-      ctx.normal_only = true;
-  }
-  if (input_args.count ("uncompressed")) {
-      ctx.no_gz = true;
-  }
-  if (input_args.count ("uniform")) {
-      ctx.uniform_sim = true;
-  }
-  if (input_args.count ("assess-microhomology")) {
-      ctx.assess_microhom = true;
+  if (input_args.contains ("assess-microhomology") != 0u) {
+    ctx.assess_microhom = true;
   }
   if (input_args["debug"].as<bool>()) {
-      ctx.debug_mode = true;
+    ctx.debug_mode = true;
   }
 }
 
-
-}
+}  // namespace cli
