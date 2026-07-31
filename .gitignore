@@ -9,3 +9,5 @@ build/
 pyenv*/
 site/
 **/generate-out/*
+run-tidy.sh
+tidy-report.txt
