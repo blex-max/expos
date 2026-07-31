@@ -6,18 +6,18 @@ An idealised model of sequencing can be instructive in setting expectations agai
 
 ## Spatial Clustering Walkthrough
 
-expos looks for clustering in query position of variant supporting reads (and template endpoints).
+`expos` looks for clustering in query position of variant supporting reads (and template endpoints).
 Here's a simple example using a spatial density plot to show query position of the genomic location on the reads spanning that location:
 
 ![A variant with clustered query position compared to reference](images/clustered-variant.svg)
 
-It appears to be visually obvious that the mutant observations have much more tightly clustered query position as compared to the broadly distributed reference allele. However, if we are to mark this variant as likely artefactual, it is necessary to quantify this deviation (even in this exaggerated case). expos then asks the question: what is the likelihood that this variant supporting subset of query positions could have been drawn from the total set of reads? `expos` does so by taking random (equally sized) subsamples of the total set of reads and comparing the statistic in question between the random sample, and the variant supporting set. The following answer is given:
+It appears to be visually obvious that the mutant observations have much more tightly clustered query position as compared to the broadly distributed reference allele. However, if we are to mark this variant as likely artefactual, it is necessary to quantify this deviation (even in this exaggerated case). `expos` then asks the question: what is the likelihood that this variant supporting subset of query positions could have been drawn from the total set of reads? `expos` does so by taking random (equally sized) subsamples of the total set of reads and comparing the statistic in question between the random sample, and the variant supporting set. The following answer is given:
 
 | Effect Size | p-value |
 |-------------|---------|
 | 17.5507     | 0.0004  |
 
-expos uses a standardised z-score for effect size, measuring how many standard deviations the observed statistic lies above the mean of the simulated null distribution. An effect size of ~2 indicates that the variant supporting reads show clustering roughly two standard deviations greater than expected from a random equally sized subsample of the total set. The p-value is one-sided, giving the probability that a random subsample would produce clustering at least as extreme; here it tells us that there is a &lt;0.001% probability that a random subsample of the total set of reads would exhibit clustering to this degree. In other words, we can be quite confident that these variant supporting reads are spatially exceptional.
+`expos` uses a standardised z-score for effect size, measuring how many standard deviations the observed statistic lies above the mean of the simulated null distribution. An effect size of ~2 indicates that the variant supporting reads show clustering roughly two standard deviations greater than expected from a random equally sized subsample of the total set. The p-value is one-sided, giving the probability that a random subsample would produce clustering at least as extreme; here it tells us that there is a &lt;0.001% probability that a random subsample of the total set of reads would exhibit clustering to this degree. In other words, we can be quite confident that these variant supporting reads are spatially exceptional.
 
 By contrast, a variant exhibited across a broad distribution of query positions might look like so:
 
@@ -40,7 +40,7 @@ For completeness, here is a slightly more nuanced case with mixed clustering. It
 `expos` makes clarification easy. Despite the presence of some distinct clustering in the query postion of each allele, the mutant supporting reads again exhibit strong unique clustering as compared to random subsamples of the total set, and there is only a miniscule possibility that a set of reads with those properties could have been drawn from the total set. Note that the effect size here exceeds that of the first example: because the z-score is normalised by the standard deviation of the null distribution, a tighter or less variable null (which can arise from a smaller number of supporting reads, or a less variable background population) will amplify the score even when the visual degree of clustering appears similar. The effect size therefore reflects how unusual the observed clustering is relative to its own particular background, not a direct measure of the absolute degree of clustering.
 
 !!! note "Template Endpoints"
-    expos analyses template endpoints identically as described here, except in two dimensions using the start and end coordinates.
+    `expos` analyses template endpoints identically as described here, except in two dimensions using the start and end coordinates.
 
 !!! note "Data Source"
     Data for these examples was synthetically generated, and is available with the repo in `example-data/`.
