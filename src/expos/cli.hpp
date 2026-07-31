@@ -1,15 +1,14 @@
 #pragma once
 
-#include <filesystem>
-
 #include <cxxopts.hpp>
+#include <filesystem>
 
 namespace cli {
 
 namespace cxo = cxxopts;
 namespace fs = std::filesystem;
 
-cxo::Options setup_cli ();
+cxo::Options setup_cli();
 
 struct ExposArgs {
   fs::path vcf_path;
@@ -30,7 +29,6 @@ struct ExposArgs {
   bool debug_mode = false;
 };
 
-void parse_cli
-(ExposArgs& ctx, const cxo::ParseResult& cli);
+void parse_cli (ExposArgs& ctx, const cxo::ParseResult& input_args);
 
-}
+}  // namespace cli
