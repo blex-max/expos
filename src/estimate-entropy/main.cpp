@@ -6,7 +6,8 @@
 #include "argparse/argparse.hpp"
 #include "shared/stats.hpp"
 
-constexpr std::size_t MAX_STDIN_BYTES = 1000;  // max input chars per line
+constexpr std::size_t MAX_STDIN_BYTES =
+    1000;  // max input chars per line
 
 static bool is_ascii_printable (const std::string& s)
 {
@@ -21,7 +22,8 @@ int main (int argc, char** argv)
 {
   argparse::ArgumentParser cli ("estimate-entropy");
   cli.add_description (
-      "Lempel-Ziv (1976) estimated entropy rate per character of "
+      "Lempel-Ziv (1976) estimated entropy rate per character "
+      "of "
       "input string. Reads one string per line from stdin and "
       "prints one value per line."
   );
@@ -62,7 +64,8 @@ int main (int argc, char** argv)
     if (showInput) {
       std::cout << line << "\t";
     }
-    std::cout << std::to_string (entropy_lz76 (line)) << std::endl;
+    std::cout << std::to_string (entropy_lz76 (line))
+              << std::endl;
     inputFound = true;
   }
 

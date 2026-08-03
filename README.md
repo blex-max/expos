@@ -63,3 +63,11 @@ usage then looks like:
 ```bash
 expos my.vcf ref.fa my.bam > annotated.vcf
 ```
+
+## Development
+
+To enable the repo's git hooks (clang-format on staged changes at commit
+time), run this once after cloning:
+```bash
+git config core.hooksPath .githooks
+```
