@@ -46,7 +46,8 @@ std::optional<double> percentile (std::vector<T> obs, double pt)
   const double lower = std::floor (rank);
   const double frac = rank - lower;
   const auto lowerI = static_cast<std::size_t> (lower);
-  const auto upperI = static_cast<std::size_t> (std::ceil (rank));
+  const auto upperI =
+      static_cast<std::size_t> (std::ceil (rank));
   if (lowerI == upperI) {
     return static_cast<double> (obs[lowerI]);
   }
@@ -141,7 +142,8 @@ McResult monte_carlo_pvalue (
   McResult res;
   res.pValue = static_cast<double> (countGe + 1) /
                static_cast<double> (nsim + 1);
-  const double popSd = std::sqrt (m2 / static_cast<double> (nsim));
+  const double popSd =
+      std::sqrt (m2 / static_cast<double> (nsim));
   if (popSd > 0.0) {  // otherwise z-score is undefined
     res.effectSize = (observed - meanAcc) / popSd;
   }
@@ -163,7 +165,9 @@ std::vector<T> subsample_wo_replace (
   std::vector<T> out;
   out.reserve (n);
   for (std::size_t i = 0; i < n; ++i) {
-    std::uniform_int_distribution<std::size_t> dist (i, nObs - 1);
+    std::uniform_int_distribution<std::size_t> dist (
+        i, nObs - 1
+    );
     const std::size_t j = dist (rng);
     std::swap (idx[i], idx[j]);
     out.push_back (obs[idx[i]]);

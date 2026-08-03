@@ -85,11 +85,14 @@ static std::expected<double, Err> extract_normalised_as (
   }
   const auto asType = bam_aux_type (raw_as);
   if (asType != 'i' && asType != 'C') {
-    return std::unexpected (make_err (fmt::format (
-        "AS tag is not an integer type for read {}; SAM spec "
-        "mandates type 'i'",
-        qname
-    )));
+    return std::unexpected (make_err (
+        fmt::format (
+            "AS tag is not an integer type for read {}; SAM "
+            "spec "
+            "mandates type 'i'",
+            qname
+        )
+    ));
   }
   return static_cast<double> (bam_aux2i (raw_as)) /
          static_cast<double> (b1->core.l_qseq);
@@ -165,7 +168,8 @@ VoidOrErr extract_partition_features (
     auto qnameNewAll = false;
 
     if (mateMapped) {
-      qnameNewSupporting = !qnamesSeenSupporting.contains (qname);
+      qnameNewSupporting =
+          !qnamesSeenSupporting.contains (qname);
       qnameNewAll = !qnamesSeenAll.contains (qname);
 
       if (qnameNewSupporting || qnameNewAll) {

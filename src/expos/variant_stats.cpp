@@ -23,8 +23,8 @@ static uint64_t manhattan (
 {
   const int64_t d1 =
       a.first > b.first ? a.first - b.first : b.first - a.first;
-  const int64_t d2 =
-      a.second > b.second ? a.second - b.second : b.second - a.second;
+  const int64_t d2 = a.second > b.second ? a.second - b.second
+                                         : b.second - a.second;
   return static_cast<uint64_t> (d1) + static_cast<uint64_t> (d2);
 }
 
@@ -54,7 +54,9 @@ static McResult ripley_k_vs_background (
   const double observedStat =
       static_cast<double> (countWithin (observed, radius));
   auto draw = [&] {
-    return subsample_wo_replace (background, observed.size(), rng);
+    return subsample_wo_replace (
+        background, observed.size(), rng
+    );
   };
   auto stat = [&] (const std::vector<Point>& sample) {
     return static_cast<double> (countWithin (sample, radius));
@@ -79,19 +81,24 @@ static std::optional<std::string_view> ripley_guard_reason (
 
 // --- statistics --- //
 
-static std::vector<StatValue> compute_qrk (const VariantStatInputs& in)
+static std::vector<StatValue> compute_qrk (
+    const VariantStatInputs& in
+)
 {
   constexpr uint64_t k_qposRadius = 5;
   const auto& obs = in.supporting.qPos;
   const auto& bg = in.all.qPos;
-  if (const auto reason = ripley_guard_reason (obs.size(), bg.size())) {
+  if (const auto reason =
+          ripley_guard_reason (obs.size(), bg.size())) {
     return {stat_missing (*reason), stat_missing (*reason)};
   }
   // Query position is an offset within the read, so a heterogeneous read
   // population confounds this statistic specifically (unlike TRK).
   if (!in.readLenHomogeneous) {
-    return {stat_missing (REASON_HETEROGENEOUS_READ_LENGTH),
-            stat_missing (REASON_HETEROGENEOUS_READ_LENGTH)};
+    return {
+        stat_missing (REASON_HETEROGENEOUS_READ_LENGTH),
+        stat_missing (REASON_HETEROGENEOUS_READ_LENGTH)
+    };
   }
   const auto mc = ripley_k_vs_background (
       obs, bg, k_qposRadius,
@@ -103,19 +110,23 @@ static std::vector<StatValue> compute_qrk (const VariantStatInputs& in)
   return mc_to_fields (mc);
 }
 
-static std::vector<StatValue> compute_trk (const VariantStatInputs& in)
+static std::vector<StatValue> compute_trk (
+    const VariantStatInputs& in
+)
 {
   constexpr uint64_t k_templRadius = 5;
   const auto& obs = in.supporting.endpoints;
   const auto& bg = in.all.endpoints;
-  if (const auto reason = ripley_guard_reason (obs.size(), bg.size())) {
+  if (const auto reason =
+          ripley_guard_reason (obs.size(), bg.size())) {
     return {stat_missing (*reason), stat_missing (*reason)};
   }
   // Template endpoints track fragment boundaries, not read length, so this
   // statistic is not gated on read-length homogeneity.
   const auto mc = ripley_k_vs_background (
       obs, bg, k_templRadius,
-      [] (const std::vector<TemplateEndpoints>& sample, uint64_t radius) {
+      [] (const std::vector<TemplateEndpoints>& sample,
+          uint64_t radius) {
         return count_pairs_within (sample, radius, manhattan);
       },
       in.rng
@@ -123,20 +134,26 @@ static std::vector<StatValue> compute_trk (const VariantStatInputs& in)
   return mc_to_fields (mc);
 }
 
-static std::vector<StatValue> compute_mlas (const VariantStatInputs& in)
+static std::vector<StatValue> compute_mlas (
+    const VariantStatInputs& in
+)
 {
   constexpr double k_median = 0.5;
   return {
       stat_or (
-          percentile (in.supporting.normalisedAs, k_median), REASON_NO_SUPPORT
+          percentile (in.supporting.normalisedAs, k_median),
+          REASON_NO_SUPPORT
       ),
       stat_or (
-          percentile (in.all.normalisedAs, k_median), REASON_NO_BACKGROUND
+          percentile (in.all.normalisedAs, k_median),
+          REASON_NO_BACKGROUND
       )
   };
 }
 
-static std::vector<StatValue> compute_rcmplx (const VariantStatInputs& in)
+static std::vector<StatValue> compute_rcmplx (
+    const VariantStatInputs& in
+)
 {
   constexpr std::size_t k_windowSize = 100;
   constexpr double k_scale = 100.0;
@@ -151,7 +168,8 @@ static std::vector<StatValue> compute_rcmplx (const VariantStatInputs& in)
   }
   double entropySum = 0.0;
   std::size_t nWin = 0;
-  for (; nWin + k_windowSize <= ref.size(); ++nWin) {  // step of 1
+  for (; nWin + k_windowSize <= ref.size();
+       ++nWin) {  // step of 1
     entropySum += entropy_lz76 (ref.substr (nWin, k_windowSize));
   }
   const double meanWindowEntropy =
@@ -162,31 +180,46 @@ static std::vector<StatValue> compute_rcmplx (const VariantStatInputs& in)
 // --- INFO header definitions --- //
 
 constexpr std::string_view QRK_HEADER =
-    "##INFO=<ID=QRK,Number=2,Type=Float,Description=\"Monte-Carlo "
-    "results for spatial clustering of mutant query positions: [1] "
-    "standardised effect size (z-score) versus simulation against all "
-    "reads; [2] one-sided p-value. Effect sizes greater than ~2.0 with a "
+    "##INFO=<ID=QRK,Number=2,Type=Float,Description=\"Monte-"
+    "Carlo "
+    "results for spatial clustering of mutant query positions: "
+    "[1] "
+    "standardised effect size (z-score) versus simulation "
+    "against all "
+    "reads; [2] one-sided p-value. Effect sizes greater than "
+    "~2.0 with a "
     "significant p-value may indicate a spurious variant.\">";
 constexpr std::string_view TRK_HEADER =
-    "##INFO=<ID=TRK,Number=2,Type=Float,Description=\"Monte-Carlo "
-    "results for spatial clustering of mutant template endpoints: [1] "
-    "standardised effect size (z-score) versus simulation against all "
-    "reads; [2] one-sided p-value. Effect sizes greater than ~2.0 with a "
+    "##INFO=<ID=TRK,Number=2,Type=Float,Description=\"Monte-"
+    "Carlo "
+    "results for spatial clustering of mutant template "
+    "endpoints: [1] "
+    "standardised effect size (z-score) versus simulation "
+    "against all "
+    "reads; [2] one-sided p-value. Effect sizes greater than "
+    "~2.0 with a "
     "significant p-value may indicate a spurious variant.\">";
 constexpr std::string_view MLAS_HEADER =
     "##INFO=<ID=MLAS,Number=2,Type=Float,Description=\"Median "
-    "read-length-normalised alignment scores: [1] of reads supporting the "
+    "read-length-normalised alignment scores: [1] of reads "
+    "supporting the "
     "variant; [2] of all reads covering the variant site.\">";
 constexpr std::string_view RCMPLX_HEADER =
-    "##INFO=<ID=RCMPLX,Number=1,Type=Float,Description=\"Mean 100-base "
-    "window complexity (Lempel-Ziv 76 entropy rate) of the reference "
+    "##INFO=<ID=RCMPLX,Number=1,Type=Float,Description=\"Mean "
+    "100-base "
+    "window complexity (Lempel-Ziv 76 entropy rate) of the "
+    "reference "
     "region spanned by supporting templates, scaled by 100.\">";
 constexpr std::string_view EXPOS_SKIP_HEADER =
-    "##INFO=<ID=EXPOS_SKIP,Number=.,Type=String,Description=\"Why expos "
-    "produced no value, as '<scope>:<reason>' tokens. Scope is 'record' "
-    "(whole record skipped) or a statistic ID. Reasons: multiallelic, "
+    "##INFO=<ID=EXPOS_SKIP,Number=.,Type=String,Description="
+    "\"Why expos "
+    "produced no value, as '<scope>:<reason>' tokens. Scope is "
+    "'record' "
+    "(whole record skipped) or a statistic ID. Reasons: "
+    "multiallelic, "
     "complex, insufficient_support, insufficient_background, "
-    "heterogeneous_read_length, zero_variance, no_support, no_background, "
+    "heterogeneous_read_length, zero_variance, no_support, "
+    "no_background, "
     "reference_too_short, reference_has_n.\">";
 
 // --- registry --- //
@@ -199,7 +232,7 @@ constexpr std::array<VariantStat, 4> VARIANT_STATS = {{
     {{"RCMPLX", RCMPLX_HEADER, 1}, &compute_rcmplx},
 }};
 
-std::span<const VariantStat> variant_stats ()
+std::span<const VariantStat> variant_stats()
 {
   return VARIANT_STATS;
 }
@@ -254,15 +287,16 @@ VoidOrErr encode_variant_stat (
           hdr, rec, id.c_str(), buf.data(),
           static_cast<int> (buf.size())
       ) != 0) {
-    return std::unexpected (
-        make_err ("failed to write INFO field " + std::string (field.id))
-    );
+    return std::unexpected (make_err (
+        "failed to write INFO field " + std::string (field.id)
+    ));
   }
   return {};
 }
 
 std::vector<std::string> stat_skip_tokens (
-    const VariantStatField& field, const std::vector<StatValue>& values
+    const VariantStatField& field,
+    const std::vector<StatValue>& values
 )
 {
   std::vector<std::string> tokens;
@@ -272,7 +306,8 @@ std::vector<std::string> stat_skip_tokens (
     }
     std::string token =
         std::string (field.id) + ":" + std::string (*v.reason);
-    if (std::find (tokens.begin(), tokens.end(), token) == tokens.end()) {
+    if (std::find (tokens.begin(), tokens.end(), token) ==
+        tokens.end()) {
       tokens.push_back (std::move (token));
     }
   }
@@ -280,7 +315,8 @@ std::vector<std::string> stat_skip_tokens (
 }
 
 VoidOrErr set_expos_skip (
-    bcf_hdr_t* hdr, bcf1_t* rec, const std::vector<std::string>& tokens
+    bcf_hdr_t* hdr, bcf1_t* rec,
+    const std::vector<std::string>& tokens
 )
 {
   if (tokens.empty()) {
@@ -293,7 +329,9 @@ VoidOrErr set_expos_skip (
     }
     joined += tokens[i];
   }
-  if (bcf_update_info_string (hdr, rec, "EXPOS_SKIP", joined.c_str()) != 0) {
+  if (bcf_update_info_string (
+          hdr, rec, "EXPOS_SKIP", joined.c_str()
+      ) != 0) {
     return std::unexpected (
         make_err ("failed to write EXPOS_SKIP INFO field")
     );

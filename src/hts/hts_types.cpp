@@ -9,9 +9,9 @@ AlnOrErr load_aln (const char* fn)
   AlnFile aln;
   aln.o_fh = hts_open (fn, "r");
   if (aln.o_fh == nullptr) {
-    return std::unexpected (
-       make_err (fmt::format ("Could not open alignment file at {}", fn))
-    );
+    return std::unexpected (make_err (
+        fmt::format ("Could not open alignment file at {}", fn)
+    ));
   }
   aln.o_hdr = sam_hdr_read (aln.o_fh);
   if (aln.o_hdr == nullptr) {
@@ -35,9 +35,9 @@ VcfOrErr load_vcf (const char* fn)
   VcfFile vcf;
   vcf.o_fh = hts_open (fn, "r");
   if (vcf.o_fh == nullptr) {
-    return std::unexpected (
-        make_err (fmt::format ("Could not open VCF file at {}", fn))
-    );
+    return std::unexpected (make_err (
+        fmt::format ("Could not open VCF file at {}", fn)
+    ));
   }
   vcf.o_hdr = bcf_hdr_read (vcf.o_fh);
   if (vcf.o_hdr == nullptr) {
@@ -83,9 +83,7 @@ RefSliceOrErr fetch_region (
     else {
       msg += "unspecified htslib error";
     }
-    return std::unexpected (
-        make_err (msg)
-    );
+    return std::unexpected (make_err (msg));
   }
 
   std::string out{p_fetch, static_cast<size_t> (rc)};
@@ -95,14 +93,14 @@ RefSliceOrErr fetch_region (
   return out;
 }
 
-
 struct PileupCapture {
   htsFile* fh = nullptr;
   hts_itr_t* it = nullptr;
 
-  ~PileupCapture () {
+  ~PileupCapture()
+  {
     if (it != nullptr) {
-      hts_itr_destroy(it);
+      hts_itr_destroy (it);
     }
   }
 };

@@ -68,7 +68,9 @@ std::optional<double> mean (const std::vector<double>& v)
   for (const double x : v) {
     sum += static_cast<long double> (x);
   }
-  return static_cast<double> (sum / static_cast<long double> (v.size()));
+  return static_cast<double> (
+      sum / static_cast<long double> (v.size())
+  );
 }
 
 std::size_t count_pairs_within_1d (
@@ -98,7 +100,7 @@ double ripley_k (
   // each unordered pair is two ordered neighbour relations; mean per
   // point is /n; intensity normalisation is 1/intensity.
   constexpr double k_orderedPerUnordered = 2.0;
-  return (1.0 / intensity) *
-         (k_orderedPerUnordered * static_cast<double> (pairsWithin) /
-          static_cast<double> (n));
+  return (1.0 / intensity) * (k_orderedPerUnordered *
+                              static_cast<double> (pairsWithin) /
+                              static_cast<double> (n));
 }

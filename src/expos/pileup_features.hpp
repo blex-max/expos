@@ -12,8 +12,9 @@
 using TemplateEndpoints = std::pair<int64_t, int64_t>;
 
 struct PileupFeatures {
-  std::vector<int32_t> qPos;                 // per aligned read (qpos >= 0)
-  std::vector<TemplateEndpoints> endpoints;  // per template (deduplicated)
-  std::vector<int32_t> readLen;              // per read
-  std::vector<double> normalisedAs;          // per read: AS tag / l_qseq
+  std::vector<int32_t> qPos;  // per aligned read (qpos >= 0)
+  std::vector<TemplateEndpoints>
+      endpoints;  // per template (deduplicated)
+  std::vector<int32_t> readLen;  // per read
+  std::vector<double> normalisedAs;  // per read: AS tag / l_qseq
 };

@@ -11,7 +11,7 @@ using VoidOrErr = std::expected<void, Err>;
 using IntOrErr = std::expected<int, Err>;
 using BoolOrErr = std::expected<bool, Err>;
 
-
-inline Err make_err (const std::string& msg) {
+inline Err make_err (const std::string& msg)
+{
   return Err{msg};
 };

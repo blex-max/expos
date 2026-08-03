@@ -1,4 +1,7 @@
 #include <htslib/vcf.h>
+#include <plog/Formatters/TxtFormatter.h>
+#include <plog/Initializers/ConsoleInitializer.h>
+#include <plog/Log.h>
 
 #include <algorithm>
 #include <chrono>
@@ -12,10 +15,6 @@
 #include <string_view>
 #include <utility>
 #include <vector>
-
-#include <plog/Formatters/TxtFormatter.h>
-#include <plog/Initializers/ConsoleInitializer.h>
-#include <plog/Log.h>
 
 #include "argparse/argparse.hpp"
 #include "expos/annotate.hpp"
@@ -57,40 +56,48 @@ static ArgsOrErr parse_args (int argc, char** argv)
   std::replace (invocation.begin(), invocation.end(), '"', '\'');
 
   auto cli = argparse::ArgumentParser ("expos");
-  cli.add_argument ("VCF").help ("input VCF/BCF of variants to annotate");
-  cli.add_argument ("REF").help ("indexed reference genome FASTA");
+  cli.add_argument ("VCF").help (
+      "input VCF/BCF of variants to annotate"
+  );
+  cli.add_argument ("REF").help (
+      "indexed reference genome FASTA"
+  );
   cli.add_argument ("ALN").help (
       "indexed alignment (BAM/CRAM) of the sample"
   );
   cli.add_argument ("--seed")
       .default_value (DEFAULT_SEED)
-      .nargs(1)
-      .metavar("SEED")
+      .nargs (1)
+      .metavar ("SEED")
       .scan<'u', std::uint32_t>()
       .help ("random seed for the Monte-Carlo simulation");
   cli.add_argument ("-u", "--uncompressed")
       .flag()
-      .help ("write uncompressed VCF (default: bgzip-compressed)");
+      .help (
+          "write uncompressed VCF (default: bgzip-compressed)"
+      );
   cli.add_argument ("-q", "--quiet")
       .flag()
       .help ("suppress per-record warnings to stderr");
   cli.add_argument ("--skip-filtered")
       .flag()
       .help (
-          "Only analyse records where FILTER is PASS or . (unset)"
+          "Only analyse records where FILTER is PASS or . "
+          "(unset)"
       );
   cli.add_argument ("--additional-background-samples", "--bg")
       .default_value (std::vector<std::string>{})
       .nargs (argparse::nargs_pattern::at_least_one)
-      .metavar("PATH")
+      .metavar ("PATH")
       .help (
-          "additional indexed alignment file(s) whose reads are merged into "
+          "additional indexed alignment file(s) whose reads are "
+          "merged into "
           "the Monte-Carlo background. Supporting reads are "
           "always taken from the primary ALN only."
       );
-  cli.add_argument ("--debug")
-      .flag()
-      .help ("enable debug logging to stderr");
+  cli.add_argument ("--debug").flag().help (
+      "enable debug logging to stderr"
+  );
 
   try {
     cli.parse_args (argc, argv);
@@ -110,14 +117,16 @@ static ArgsOrErr parse_args (int argc, char** argv)
       .debug = cli.get<bool> ("--debug"),
       .quiet = cli.get<bool> ("--quiet"),
       .skipFiltered = cli.get<bool> ("--skip-filtered"),
-      .bgPaths =
-          cli.get<std::vector<std::string>> ("--additional-background-samples"),
+      .bgPaths = cli.get<std::vector<std::string>> (
+          "--additional-background-samples"
+      ),
       .invocation = std::move (invocation)
   };
 }
 
 static VcfOrErr create_output_vcf (
-    const VcfFile& input, bool uncompressed, const std::string& invocation
+    const VcfFile& input, bool uncompressed,
+    const std::string& invocation
 )
 {
   VcfFile out;
@@ -141,7 +150,8 @@ static VcfOrErr create_output_vcf (
       return std::unexpected (regRet.error());
     }
   }
-  if (auto regRet = register_expos_skip_header (out.o_hdr); !regRet) {
+  if (auto regRet = register_expos_skip_header (out.o_hdr);
+      !regRet) {
     return std::unexpected (regRet.error());
   }
 
@@ -150,19 +160,26 @@ static VcfOrErr create_output_vcf (
       std::chrono::system_clock::now()
   );
   const std::string sourceLine = std::format (
-      "##source=\"{} v{} {:%Y-%m-%dT%H:%M:%SZ}\"", PROG_NAME, VERSION, now
+      "##source=\"{} v{} {:%Y-%m-%dT%H:%M:%SZ}\"", PROG_NAME,
+      VERSION, now
   );
   if (bcf_hdr_append (out.o_hdr, sourceLine.c_str()) != 0) {
-    return std::unexpected (make_err ("Could not add source header line"));
+    return std::unexpected (
+        make_err ("Could not add source header line")
+    );
   }
   const std::string cmdLine =
       std::format ("##{}_command=\"{}\"", PROG_NAME, invocation);
   if (bcf_hdr_append (out.o_hdr, cmdLine.c_str()) != 0) {
-    return std::unexpected (make_err ("Could not add command header line"));
+    return std::unexpected (
+        make_err ("Could not add command header line")
+    );
   }
 
   if (bcf_hdr_write (out.o_fh, out.o_hdr) != 0) {
-    return std::unexpected (make_err ("Could not write output VCF header"));
+    return std::unexpected (
+        make_err ("Could not write output VCF header")
+    );
   }
 
   return out;
@@ -225,7 +242,9 @@ int main (int argc, char** argv)
   const auto args = std::move (*argRet);
 
   if (args.debug) {
-    plog::init<plog::TxtFormatter> (plog::debug, plog::streamStdErr);
+    plog::init<plog::TxtFormatter> (
+        plog::debug, plog::streamStdErr
+    );
   }
 
   auto initRet = init_ctx (args);

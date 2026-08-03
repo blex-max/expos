@@ -50,7 +50,8 @@ static std::optional<std::string_view> classify_record (
     if (!quiet) {
       warn (
           stringify_rec (r) +
-          " is complex or untypeable; passing through unannotated"
+          " is complex or untypeable; passing through "
+          "unannotated"
       );
     }
     return REASON_COMPLEX;
@@ -79,7 +80,8 @@ static IntOrErr get_aln_contig_for_record_rid (
     errMsg += ridName;
     errMsg += " for variant ";
     errMsg += stringify_rec (r);
-    errMsg += " as contig name for SAM file";  // TODO in alignment file at ...
+    errMsg +=
+        " as contig name for SAM file";  // TODO in alignment file at ...
     return std::unexpected (make_err (errMsg));
   }
   return alnTid;
@@ -100,7 +102,8 @@ static PileupPosOrErr make_record_pileup_pos (
 // Reference bases spanned by the supporting templates, upper-cased. Empty
 // when there are no supporting templates (RCMPLX then reports missing).
 static RefSliceOrErr supporting_ref_slice (
-    const VcfRec& r, const FastaFile& ref, const PileupFeatures& supporting
+    const VcfRec& r, const FastaFile& ref,
+    const PileupFeatures& supporting
 )
 {
   if (supporting.endpoints.empty()) {
@@ -113,7 +116,8 @@ static RefSliceOrErr supporting_ref_slice (
     spanEnd = std::max (spanEnd, hi);
   }
 
-  const std::string_view contig = bcf_hdr_id2name (r.hdr, r.ptr->rid);
+  const std::string_view contig =
+      bcf_hdr_id2name (r.hdr, r.ptr->rid);
   auto sliceRet = fetch_region (ref, contig, spanStart, spanEnd);
   if (!sliceRet) {
     return std::unexpected (sliceRet.error());
@@ -121,13 +125,17 @@ static RefSliceOrErr supporting_ref_slice (
   std::string slice = std::move (*sliceRet);
   std::transform (
       slice.begin(), slice.end(), slice.begin(),
-      [] (unsigned char c) { return static_cast<char> (std::toupper (c)); }
+      [] (unsigned char c) {
+        return static_cast<char> (std::toupper (c));
+      }
   );
   return slice;
 }
 
 // Relative IQR of read lengths, (Q3-Q1)/median. Precondition: non-empty.
-static double read_length_rel_iqr (const std::vector<int32_t>& readLen)
+static double read_length_rel_iqr (
+    const std::vector<int32_t>& readLen
+)
 {
   std::vector<int32_t> lens = readLen;
   std::sort (lens.begin(), lens.end());
@@ -135,7 +143,8 @@ static double read_length_rel_iqr (const std::vector<int32_t>& readLen)
   const double q1 = lens[n / 4];
   const double median = lens[n / 2];
   const double q3 = lens[3 * n / 4];
-  return (q3 - q1) / median;  // median >= 1: read length is always positive
+  return (q3 - q1) /
+         median;  // median >= 1: read length is always positive
 }
 
 // Compute and encode the expos statistics onto an analysable record in place.
@@ -186,11 +195,14 @@ static VoidOrErr annotate_record (
     if (relIqr > k_relIqrTol) {
       readLenHomogeneous = false;
       if (!ctx.quiet) {
-        warn (std::format (
-            "{}: read lengths are heterogeneous (relative IQR {:.2f} > "
-            "{:.2f}); QRK suppressed",
-            stringify_rec (r), relIqr, k_relIqrTol
-        ));
+        warn (
+            std::format (
+                "{}: read lengths are heterogeneous (relative "
+                "IQR {:.2f} > "
+                "{:.2f}); QRK suppressed",
+                stringify_rec (r), relIqr, k_relIqrTol
+            )
+        );
       }
     }
   }
@@ -237,9 +249,13 @@ VoidOrErr analyse_records (const ExposCtx& ctx)
   std::size_t nRecords = 0;
   std::size_t nSkipped = 0;
 
-  while (bcf_read (ctx.vcfIn.o_fh, ctx.vcfIn.o_hdr, ru_rec.ptr) == 0) {
+  while (
+      bcf_read (ctx.vcfIn.o_fh, ctx.vcfIn.o_hdr, ru_rec.ptr) == 0
+  ) {
     if (bcf_unpack (ru_rec.ptr, BCF_UN_ALL) != 0) {
-      return std::unexpected (make_err ("Failed to unpack a VCF record"));
+      return std::unexpected (
+          make_err ("Failed to unpack a VCF record")
+      );
     }
 
     const auto integrityRet = check_record_integrity (ru_rec);
@@ -254,7 +270,8 @@ VoidOrErr analyse_records (const ExposCtx& ctx)
     if (ctx.skipFiltered && record_is_filtered (ru_rec)) {
       ++nSkipped;
     }
-    else if (const auto skipReason = classify_record (ru_rec, ctx.quiet)) {
+    else if (const auto skipReason =
+                 classify_record (ru_rec, ctx.quiet)) {
       ++nSkipped;
       const auto skipRet = set_expos_skip (
           ctx.vcfOut.o_hdr, ru_rec.ptr,
@@ -265,22 +282,25 @@ VoidOrErr analyse_records (const ExposCtx& ctx)
       }
     }
     else {
-      const auto annotateRet = annotate_record (ru_rec, ctx, rng);
+      const auto annotateRet =
+          annotate_record (ru_rec, ctx, rng);
       if (!annotateRet) {
         return std::unexpected (annotateRet.error());
       }
     }
 
-    if (bcf_write (ctx.vcfOut.o_fh, ctx.vcfOut.o_hdr, ru_rec.ptr) != 0) {
-      return std::unexpected (
-          make_err ("Failed to write record " + stringify_rec (ru_rec))
-      );
+    if (bcf_write (
+            ctx.vcfOut.o_fh, ctx.vcfOut.o_hdr, ru_rec.ptr
+        ) != 0) {
+      return std::unexpected (make_err (
+          "Failed to write record " + stringify_rec (ru_rec)
+      ));
     }
   }
 
   if (!ctx.quiet) {
-    std::cerr << "expos: " << nRecords << " record(s), " << nSkipped
-              << " skipped\n";
+    std::cerr << "expos: " << nRecords << " record(s), "
+              << nSkipped << " skipped\n";
   }
 
   return {};

@@ -122,7 +122,6 @@ using RefSliceOrErr = std::expected<std::string, Err>;
     hts_pos_t regStart, hts_pos_t regEnd
 );
 
-
 struct VcfFile {
   htsFile* o_fh = NULL;
   bcf_hdr_t* o_hdr = NULL;
@@ -141,8 +140,7 @@ struct VcfFile {
     }
   }
 
-  VcfFile (VcfFile&& o) noexcept
-      : o_fh{o.o_fh}, o_hdr{o.o_hdr}
+  VcfFile (VcfFile&& o) noexcept : o_fh{o.o_fh}, o_hdr{o.o_hdr}
   {
     o.o_fh = NULL;
     o.o_hdr = NULL;
@@ -169,7 +167,6 @@ struct VcfFile {
 using VcfOrErr = std::expected<VcfFile, Err>;
 [[nodiscard]] VcfOrErr load_vcf (const char* fn);
 
-
 struct PreparedPileup {
   bam_plp_t o_plp = nullptr;
   const bam_pileup1_t* plpArr = nullptr;
@@ -186,9 +183,7 @@ struct PreparedPileup {
   PreparedPileup (PreparedPileup&) = delete;
   PreparedPileup& operator= (PreparedPileup&) = delete;
   PreparedPileup (PreparedPileup&& o) noexcept
-      : o_plp (o.o_plp),
-        plpArr (o.plpArr),
-        nPlp (o.nPlp)
+      : o_plp (o.o_plp), plpArr (o.plpArr), nPlp (o.nPlp)
   {
     o.o_plp = nullptr;
     o.plpArr = nullptr;
@@ -201,5 +196,3 @@ using PileupOrErr = std::expected<PreparedPileup, Err>;
 [[nodiscard]] PileupOrErr prepare_pileup (
     const AlnFile& aln, const PileupPosition& pos
 );
-
-

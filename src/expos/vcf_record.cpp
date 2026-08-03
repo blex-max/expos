@@ -1,7 +1,9 @@
 #include "vcf_record.hpp"
+
+#include <fmt/format.h>
+
 #include <format>
 #include <string>
-#include <fmt/format.h>
 
 static bool check_aln (const bam_pileup1_t& p)
 {
@@ -96,7 +98,8 @@ RecordClass type_record (VcfRec& r)
   r.indelLen = static_cast<int> (r.altAllele.length()) -
                static_cast<int> (r.refAllele.length());
   // valid for INS records only; harmless otherwise since unused
-  r.insertedBases = r.altAllele.substr (1); // all bases after anchor
+  r.insertedBases =
+      r.altAllele.substr (1);  // all bases after anchor
 
   auto mtype = bcf_has_variant_type (
       r.ptr, 1, VCF_DEL | VCF_INS | VCF_SNP | VCF_MNP
@@ -155,6 +158,3 @@ VoidOrErr check_record_integrity (const VcfRec& r)
   }
   return {};
 }
-
-
-

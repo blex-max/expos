@@ -2,16 +2,18 @@
 
 #include <htslib/sam.h>
 #include <htslib/vcf.h>
+
 #include <cstdint>
 #include <string>
 #include <string_view>
+
 #include "shared/err.hpp"
 
 // --- expos-specific VCF record handling --- //
 
 struct VcfRec;
 
-using SupportFn = bool(*)(const VcfRec&, const bam_pileup1_t&);
+using SupportFn = bool (*) (const VcfRec&, const bam_pileup1_t&);
 
 bool eval_support_snp (const VcfRec& r, const bam_pileup1_t& p);
 
@@ -52,7 +54,7 @@ std::string stringify_rec (const VcfRec& r);
 
 // Whether a record can be analysed, or must be passed through unannotated.
 enum class RecordClass : std::uint8_t {
-  Analysable,    // biallelic and one of SNP/MNP/INS/DEL
+  Analysable,  // biallelic and one of SNP/MNP/INS/DEL
   Unanalysable,  // complex or untypeable
 };
 
