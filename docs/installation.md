@@ -6,7 +6,7 @@
 - CMake 3.22+
 - [htslib](https://github.com/samtools/htslib) ≥ 1.14
 
-[cxxopts](https://github.com/jarro2783/cxxopts) is fetched automatically by CMake — no manual install needed.
+[argparse](https://github.com/p-ranav/argparse), [fmt](https://github.com/fmtlib/fmt) and [plog](https://github.com/SergiusTheBest/plog) are fetched automatically by CMake — no manual install needed.
 
 ## **Build from Source**
 

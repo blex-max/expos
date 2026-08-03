@@ -189,17 +189,18 @@ if(MAKE_MAIN)
 endif(MAKE_MAIN)
 
 
-# if(MAKE_DAUGHTER)
-#   add_executable(estimate-entropy
-#     src/estimate-entropy/main.cpp
-#   )
-#   target_compile_options(estimate-entropy PRIVATE
-#     ${COMMON_WARNINGS}
-#   )
-#   target_include_directories(estimate-entropy PRIVATE
-#     ${COMMON_INCLUDES}
-#   )
-#   target_link_libraries(estimate-entropy
-#     lib_stats
-#   )
-# endif(MAKE_DAUGHTER)
+if(MAKE_DAUGHTER)
+  add_executable(estimate-entropy
+    src/estimate-entropy/main.cpp
+    src/shared/stats.cpp
+  )
+  target_compile_options(estimate-entropy PRIVATE
+    ${COMMON_WARNINGS}
+  )
+  target_include_directories(estimate-entropy PRIVATE
+    ${COMMON_INCLUDES}
+  )
+  target_link_libraries(estimate-entropy PRIVATE
+    argparse
+  )
+endif(MAKE_DAUGHTER)

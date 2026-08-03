@@ -5,7 +5,6 @@
 #include <algorithm>
 #include <array>
 #include <cassert>
-#include <cmath>
 #include <cstddef>
 #include <cstdint>
 #include <optional>
@@ -156,7 +155,6 @@ static std::vector<StatValue> compute_rcmplx (
 )
 {
   constexpr std::size_t k_windowSize = 100;
-  constexpr double k_scale = 100.0;
   const std::string_view ref = in.refSlice;
   // too-short spans have no full window; masked/ambiguous bases make the
   // complexity meaningless.
@@ -174,7 +172,7 @@ static std::vector<StatValue> compute_rcmplx (
   }
   const double meanWindowEntropy =
       entropySum / static_cast<double> (nWin);
-  return {stat_value (std::round (meanWindowEntropy * k_scale))};
+  return {stat_value (meanWindowEntropy)};
 }
 
 // --- INFO header definitions --- //
@@ -183,33 +181,33 @@ constexpr std::string_view QRK_HEADER =
     "##INFO=<ID=QRK,Number=2,Type=Float,Description=\"Monte-"
     "Carlo "
     "results for spatial clustering of mutant query positions: "
-    "[1] "
+    "[0] "
     "standardised effect size (z-score) versus simulation "
     "against all "
-    "reads; [2] one-sided p-value. Effect sizes greater than "
+    "reads; [1] one-sided p-value. Effect sizes greater than "
     "~2.0 with a "
     "significant p-value may indicate a spurious variant.\">";
 constexpr std::string_view TRK_HEADER =
     "##INFO=<ID=TRK,Number=2,Type=Float,Description=\"Monte-"
     "Carlo "
     "results for spatial clustering of mutant template "
-    "endpoints: [1] "
+    "endpoints: [0] "
     "standardised effect size (z-score) versus simulation "
     "against all "
-    "reads; [2] one-sided p-value. Effect sizes greater than "
+    "reads; [1] one-sided p-value. Effect sizes greater than "
     "~2.0 with a "
     "significant p-value may indicate a spurious variant.\">";
 constexpr std::string_view MLAS_HEADER =
     "##INFO=<ID=MLAS,Number=2,Type=Float,Description=\"Median "
-    "read-length-normalised alignment scores: [1] of reads "
+    "read-length-normalised alignment scores: [0] of reads "
     "supporting the "
-    "variant; [2] of all reads covering the variant site.\">";
+    "variant; [1] of all reads covering the variant site.\">";
 constexpr std::string_view RCMPLX_HEADER =
     "##INFO=<ID=RCMPLX,Number=1,Type=Float,Description=\"Mean "
     "100-base "
     "window complexity (Lempel-Ziv 76 entropy rate) of the "
     "reference "
-    "region spanned by supporting templates, scaled by 100.\">";
+    "region spanned by supporting templates.\">";
 constexpr std::string_view EXPOS_SKIP_HEADER =
     "##INFO=<ID=EXPOS_SKIP,Number=.,Type=String,Description="
     "\"Why expos "

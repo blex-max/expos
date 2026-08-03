@@ -6,62 +6,56 @@
 Usage of the tool is best described by the helptext:
 
 ```
-EXtract POSitional data and statistics from alignment at
-VCF variant sites, and encode them as INFO fields to VCF.
-Requires the presence of .(b/cr)ai indexes of the same name
-as the relevant alignment. Annotated VCF to stdout. See
-README or output VCF header for descriptions of fields
-added.
+Usage: expos [--help] [--version] [--seed SEED] [--uncompressed] [--quiet]
+             [--skip-filtered] [--additional-background-samples PATH...]
+             [--debug] VCF REF ALN
 
-Usage:
-  expos [OPTION...] <VCF/BCF (- for stdin)> <ALN.(b/cr)am>
+Positional arguments:
+  VCF                 input VCF/BCF of variants to annotate
+  REF                 indexed reference genome FASTA
+  ALN                 indexed alignment (BAM/CRAM) of the sample
 
-  -h, --help                   Print usage
-  -l, --expected-read-len arg  Sequencing read length. Default: 150
-  -r, --ref arg                Alignment Reference Fasta for optionally
-                               adding reference complexity to statistics.
-  -n, --normal arg             Alignment for use as additional background
-                               data for simulation. May be passed multiple
-                               times.
-      --normal-only            Use only reads from the provided normal as
-                               background data, excluding reads from the
-                               sample
-  -i, --include-records arg    Only operate on VCF records with this value
-                               present in FILTER. e.g. -i PASS. May be
-                               passed multiple times.
-  -e, --exclude-records arg    Only operate on VCF records without this
-                               value present in FILTER. May be passed
-                               multiple times.
-  -I, --include-reads arg      SAM flag: only include reads with all of
-                               these bits set. Set 0 to disable. Default: 0
-  -E, --exclude-reads arg      SAM flag: exclude reads with any of these
-                               bits set. Default: 3844
-  -t, --tsv arg                Write a tsv of extended statistics to file
-                               specified.
-  -u, --uncompressed           output uncompressed VCF
-      --seed arg               Set random seed. Default: 24601
-      --uniform                additionally simulate against uniform null
-                               model for query position, and add result to
-                               --tsv output. For assessment of correlation
-                               with simulation against all-reads null.
-      --assess-microhomology   additionally assess STR and homopolymer
-                               content of reference regions, and add result
-                               to --tsv output. For assessment of
-                               correlation with drop in LZ.
-      --debug                  Enable debug logging
+Optional arguments:
+  -h, --help          shows help message and exits
+  -v, --version       prints version information and exits
+  --seed SEED         random seed for the Monte-Carlo simulation [default: 24601]
+  -u, --uncompressed  write uncompressed VCF (default: bgzip-compressed)
+  -q, --quiet         suppress per-record warnings to stderr
+  --skip-filtered     only analyse records where FILTER is PASS or . (unset)
+  --bg, --additional-background-samples PATH...
+                      additional indexed alignment file(s) whose reads are
+                      merged into the Monte-Carlo background. Supporting reads
+                      are always taken from the primary ALN only.
+  --debug             enable debug logging to stderr
 ```
 
-A basic call would then look like:
+The three positional arguments are **required** and consumed in the order
+`VCF REF ALN`. `VCF` may be `-` to read from stdin. The reference FASTA and
+the alignment must both be indexed (`.fai`, and `.bai`/`.crai` of the same
+name). The annotated VCF is written to stdout. A basic call would then look
+like:
 
 ```bash
-expos my.vcf my.bam
+expos my.vcf ref.fa my.bam > annotated.vcf
 ```
+
+!!! note "Additional background samples"
+    One or more further indexed alignments (typically a matched normal) can
+    be merged into the Monte-Carlo background with `--bg`, passed
+    space-separated: `--bg normal1.bam normal2.bam`. Supporting reads are
+    always drawn from the primary `ALN` only; the extra samples contribute to
+    the background population against which clustering is simulated.
+
+!!! note "Skipping records"
+    `--skip-filtered` passes any record whose `FILTER` is set to a failing
+    value straight through untouched (the `FILTER` column already documents
+    it); records with `PASS` or an unset `.` `FILTER` are still analysed.
 
 ## Annotations Made
 
 For a full guide to the theory behind these annotations see [Concepts](concepts.md).
 
-These are the header lines from an output VCF describing the INFO fields added. The `[]` notation is used to indicate which element of the array holds the data in question where the INFO field added is an array.
+These are the header lines from an output VCF describing the INFO fields added. The `[]` notation indicates which element of the array holds the data in question where the INFO field added is an array. Arrays are 0-indexed, matching how `bcftools` addresses them (so `INFO/QRK[0]` is the effect size and `INFO/QRK[1]` the p-value).
 
 ```
 ##INFO=<
@@ -69,9 +63,10 @@ These are the header lines from an output VCF describing the INFO fields added. 
   Number=2,
   Type=Float,
   Description="""
-  Array detailing monte-carlo simulation results for Ripley's K on mutant query position:
-  [1]standardised effect size (z-score) from comparisons to simulation against all reads;
-  [2]one-sided P-value from comparisons to simulation against all reads;
+  Monte-Carlo results for spatial clustering of mutant query positions:
+  [0]standardised effect size (z-score) versus simulation against all reads;
+  [1]one-sided p-value.
+  Effect sizes greater than ~2.0 with a significant p-value may indicate a spurious variant.
   """>
 
 ##INFO=<
@@ -79,18 +74,10 @@ These are the header lines from an output VCF describing the INFO fields added. 
   Number=2,
   Type=Float,
   Description="""
-  Array detailing Monte-Carlo simulation results for Ripley's K on endpoints of mutant templates:
-  [1]standardised effect size (z-score) from comparisons to simulation against all reads;
-  [2]one-sided P-value from comparisons to simulation against all reads
-  """>
-
-##INFO=<
-  ID=RCMPLX,
-  Number=1,
-  Type=Integer,
-  Description="""
-  Mean 100-base window complexity (Lempel-Ziv estimated entropy rate) of
-  the reference region spanned by supporting templates, scaled by x100
+  Monte-Carlo results for spatial clustering of mutant template endpoints:
+  [0]standardised effect size (z-score) versus simulation against all reads;
+  [1]one-sided p-value.
+  Effect sizes greater than ~2.0 with a significant p-value may indicate a spurious variant.
   """>
 
 ##INFO=<
@@ -98,20 +85,52 @@ These are the header lines from an output VCF describing the INFO fields added. 
   Number=2,
   Type=Float,
   Description="""
-  Array of median read-length normalised alignment scores:
-  [0]of reads supporting variant,
-  [1]of all queried reads covering the variant location in the sample alignment
+  Median read-length-normalised alignment scores:
+  [0]of reads supporting the variant;
+  [1]of all reads covering the variant site.
+  """>
+
+##INFO=<
+  ID=RCMPLX,
+  Number=1,
+  Type=Float,
+  Description="""
+  Mean 100-base window complexity (Lempel-Ziv 76 entropy rate) of the
+  reference region spanned by supporting templates.
+  """>
+
+##INFO=<
+  ID=EXPOS_SKIP,
+  Number=.,
+  Type=String,
+  Description="""
+  Why expos produced no value, as '<scope>:<reason>' tokens.
+  Scope is 'record' (whole record skipped) or a statistic ID.
+  Reasons: multiallelic, complex, insufficient_support, insufficient_background,
+  heterogeneous_read_length, zero_variance, no_support, no_background,
+  reference_too_short, reference_has_n.
   """>
 ```
 
 Effect size is a standardised z-score relative to the simulated null distribution: 0.0 indicates no difference from background, positive values indicate tighter clustering than background (negative values looser), and values beyond ~2.0 are roughly two standard deviations from the mean of the null. The p-value is one-sided, giving the probability that a random subsample of the background would produce a statistic at least as extreme as the observed value. In blunt summary, effect sizes greater than ~2.0 combined with small p-values, especially if found in a low complexity region as indicated by `RCMPLX`, may indicate a spurious variant call.
 
+Every output VCF also carries provenance in its header: a `##source` line (program, version and UTC timestamp) and an `##expos_command` line recording the invocation.
+
 !!! note "MLAS"
     `MLAS[0]` is equivalent to ASRD as may be familiar to some users - thresholding on this value may be inadvisable for indels since a decrease in alignment score is confounded with the presence of the indel itself.
 
+## Missing Values
+
+`expos` attempts to handle invalid records gracefully. When it cannot compute a statistic it writes a VCF missing value (`.`) for that field and records the reason in `EXPOS_SKIP` as one or more `<scope>:<reason>` tokens:
+
+- **Whole-record skips** use the `record` scope. Multiallelic records (`record:multiallelic`) and complex/untypeable records (`record:complex`) are passed through unannotated. Records skipped by `--skip-filtered` are not marked.
+- **Per-statistic skips** use the statistic's ID as the scope, e.g. `QRK:insufficient_support`, `TRK:zero_variance`, `RCMPLX:reference_has_n`.
+
+One notable per-statistic guard: `QRK` is suppressed with `QRK:heterogeneous_read_length` when the reads at a locus have markedly uneven lengths, since query position is an offset within a read and a mixed read-length population confounds it. `TRK`, which uses template endpoints, is unaffected.
+
 ## Filtering Pipeline Examples
 
-The following are some examples of how the annotatiions made by `expos` might be used for variant filtering downstream.
+The following are some examples of how the annotations made by `expos` might be used for variant filtering downstream.
 
 ### **Broad Flagging Pipeline**
 
@@ -126,8 +145,8 @@ strictly a recommendation, though it is statistically defensible.
 # command by command:
 # 1: pipe VCF producing program to expos stdin.
 # 2: calculate statistics with expos, reading VCF from stdin (-), output uncompressed VCF to stdout.
-# note that for brevity no normal is provided, but providing a normal can add a lot of statistical power
-# if an appropriate normal is available.
+# note that for brevity no additional background sample is provided, but providing one
+# (e.g. a matched normal) via --bg can add a lot of statistical power if one is available.
 # 3, 4: statisically-backed flagging on distribution/clustering stats;
 # flagging variants where observations are at least 4x as tightly clustered as the background
 # and the difference is statistically significant (P <= 0.05).
@@ -135,7 +154,7 @@ strictly a recommendation, though it is statistically defensible.
 # of low reference complexity;
 # 7: heuristic/rule-of-thumb flagging on poor alignment score
 # and > write to disk.
-./path/to/expos -u --ref ref.fa my.vcf my.bam |
+./path/to/expos -u my.vcf ref.fa my.bam |
 bcftools filter -Ov \
   --mode + \
   -s QPOS_CLUSTER \
@@ -147,7 +166,7 @@ bcftools filter -Ov \
 bcftools filter -Ov \
   --mode + \
   -s POOR_ALN_REG \
-  -e'(INFO/MLAS[1] < 0.93 & INFO/RCMPLX < 150)' |
+  -e'(INFO/MLAS[1] < 0.93 & INFO/RCMPLX < 1.5)' |
 bcftools filter -Oz \
   --mode + \
   -s LOW_SUPPORTING_AS \
@@ -161,11 +180,11 @@ scenarios that may be strongly associated with false positive variants. This exa
 looks specifically for clustered variants in low complexity regions
 
 ```bash
-./path/to/expos -u --ref ref.fa my.vcf my.bam |
+./path/to/expos -u my.vcf ref.fa my.bam |
 bcftools filter -Oz \
   --mode + \
   -s LOW_CMPLX_CLUSTER \
-  -e'INFO/QRK[0] >= 2.0 & INFO/QRK[1] < 0.05 & INFO/RCMPLX < 150' > my.flagged.vcf.gz
+  -e'INFO/QRK[0] >= 2.0 & INFO/QRK[1] < 0.05 & INFO/RCMPLX < 1.5' > my.flagged.vcf.gz
 ```
 
 At the cost of missing more generic variants with spurious looking spatial properties.
@@ -177,25 +196,28 @@ Thresholds for p-value and effect size can be tuned:
 ```bash
 # relaxed p-val, very large effect size (8x as clustered)
 # an example of the concept, again not a recommendation per se
-./path/to/expos -u --ref ref.fa my.vcf my.bam |
+./path/to/expos -u my.vcf ref.fa my.bam |
 bcftools filter -Oz \
   --mode + \
   -s QPOS_CLUSTER_2 \
   -e'INFO/QRK[0] >= 3.0 & INFO/QRK[1] < 0.1' > my.flagged.vcf.gz
 ```
 
-### **Deviation in the Other Direction**
+## Thresholding on Complexity (`RCMPLX`)
 
-Since the p-values returned are two-tailed, you can also look
-at deviation in the other direction — though it is not intuitively obvious
-that this would be associated with a false positive variant.
+`RCMPLX` is only meaningful relative to what "low complexity" looks like across the genome as a whole. To calibrate a sensible cutoff, `estimate-entropy` was run genome-wide against GRCh38, and separately on the low-complexity regions identified by the GIAB v3.1 genome stratifications (the same homopolymer and tandem-repeat region sets GIAB itself uses to stratify benchmarking performance):
 
-```bash
-# at least twice as spread as expected, and statistically significant
-./path/to/expos -u --ref ref.fa my.vcf my.bam |
-bcftools filter -Oz \
-  --mode + \
-  -s QPOS_SPREAD \
-  -e'INFO/QRK[0] <= -1.0 & INFO/QRK[1] < 0.05' > my.flagged.vcf.gz
-```
+| Region                                              | Min   | Median | Mean  | SD    |
+|------------------------------------------------------|------:|-------:|------:|------:|
+| Whole genome (100bp windows)                          | 0.199 | 1.927  | 1.919 | 0.150 |
+| Homopolymers (&gt;6bp, imperfect &gt;10bp, 5bp slop)   | 0.567 | 1.472  | 1.497 | 0.266 |
+| Tandem repeats (&gt;100bp, 5bp slop)                   | 0.185 | 1.472  | 1.447 | 0.424 |
+| Homopolymers + tandem repeats (union)                  | 0.250 | 1.466  | 1.464 | 0.294 |
+| Outside homopolymers                                   | 0.380 | 1.898  | 1.874 | 0.159 |
+| Outside homopolymers + tandem repeats                  | 0.862 | 1.905  | 1.898 | 0.121 |
+
+GIAB's difficult regions cluster tightly around a median of ~1.47, over half a bit below the rest of the genome (median ~1.9-1.93) and with roughly double the spread. This is the basis for the `RCMPLX < 1.5` heuristic used in the filtering examples above: it sits almost exactly at the median of GIAB's difficult-region strata, and comfortably below the bulk of the rest of the genome.
+
+!!! note "Not a hard boundary"
+    The two distributions overlap substantially (the "outside" regions still have a minimum as low as 0.38-0.86), so `RCMPLX` is best treated as a continuous risk factor to combine with other statistics, not a clean binary classifier of "difficult" vs "normal" sequence.
 

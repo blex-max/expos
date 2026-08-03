@@ -1,0 +1,9 @@
+.git/
+build/
+.cache/
+compile_commands.json
+scratch/
+demo-proj/
+site/
+pyenv*/
+*.sif

@@ -27,7 +27,7 @@ cmake .. -DCMAKE_BUILD_TYPE=Release
 cmake --build .
 
 # run
-./expos my.vcf my.bam
+./expos my.vcf ref.fa my.bam > annotated.vcf
 ```
 
 See [Installation](installation.md) for full details and [Usage](usage.md) for all options.

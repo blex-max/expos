@@ -284,8 +284,8 @@ TEST_CASE ("compute RCMPLX (reference complexity)")
     };
     const auto r = rcmplx.compute (in);
     REQUIRE (r[0].value.has_value());
-    // entropy_lz76 of 100 identical chars = 2*log2(100)/100; x100 rounded = 13
-    REQUIRE (*r[0].value == Approx (13.0));
+    // entropy_lz76 of 100 identical chars = 2*log2(100)/100 ~= 0.1329
+    REQUIRE (*r[0].value == Approx (0.13287712));
   }
 }
 
