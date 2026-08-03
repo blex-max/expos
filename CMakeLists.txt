@@ -9,6 +9,7 @@ set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
+set(CMAKE_POLICY_VERSION_MINIMUM 3.5)  # for argparse
 
 option(ENABLE_DEBUG_FLAGS "Enable extra debug compile options" OFF)
 
@@ -21,52 +22,54 @@ set(HTSLIB_INCLUDE_DIR "" CACHE PATH "Path to directory that contains htslib/hts
 set(HTSLIB_LIBRARY "" CACHE FILEPATH "Absolute path to libhts.{so,dylib,a}")
 
 # //--- find deps ---//
-find_package(PkgConfig QUIET)
+find_package(PkgConfig REQUIRED)
 
 include(FetchContent)
+set(FETCHCONTENT_QUIET OFF)
 
-FetchContent_Declare(
-  cxxopts
-  GIT_REPOSITORY https://github.com/jarro2783/cxxopts.git
-  GIT_TAG        v3.3.1  # what I developed against, but any 3.x.x should be fine
-)
-FetchContent_MakeAvailable(cxxopts)
-
-set(CMAKE_POLICY_VERSION_MINIMUM 3.5)
 FetchContent_Declare(
     plog
     GIT_REPOSITORY https://github.com/SergiusTheBest/plog
     GIT_TAG        1.1.10
     GIT_SHALLOW    true
+    SYSTEM
 )
 FetchContent_MakeAvailable(plog)
+FetchContent_Declare(
+    argparse
+    GIT_REPOSITORY https://github.com/p-ranav/argparse.git
+    GIT_TAG v3.2
+    GIT_SHALLOW TRUE
+    SYSTEM
+)
+FetchContent_MakeAvailable(argparse)
+FetchContent_Declare(
+    fmt
+    GIT_REPOSITORY https://github.com/fmtlib/fmt.git
+    GIT_TAG        12.2.0
+    GIT_SHALLOW    TRUE
+    SYSTEM
+)
+FetchContent_MakeAvailable(fmt)
 
-# ------- htslib -------
 set(HTSLIB_TARGET "")
-set(_htslib_inc "")
-set(_htslib_lib "")
-
 if(HTSLIB_INCLUDE_DIR AND HTSLIB_LIBRARY)
-  message(STATUS "Using user-specified htslib install. Must be >=1.14, but this is not enforced.")
-  set(_htslib_inc "${HTSLIB_INCLUDE_DIR}")
-  set(_htslib_lib "${HTSLIB_LIBRARY}")
-endif()
-
-if(_htslib_inc AND _htslib_lib)
+  message(STATUS "Using user-specified htslib install. Must be >=1.14, but this is not enforced by the installer.")
   add_library(htslib UNKNOWN IMPORTED GLOBAL)
   add_library(htslib::htslib ALIAS htslib)
   set_target_properties(htslib PROPERTIES
-    IMPORTED_LOCATION "${_htslib_lib}"
-    INTERFACE_INCLUDE_DIRECTORIES "${_htslib_inc}"
+    IMPORTED_LOCATION "${HTSLIB_LIBRARY}"
+    INTERFACE_INCLUDE_DIRECTORIES "${HTSLIB_INCLUDE_DIR}"
   )
   set(HTSLIB_TARGET htslib::htslib)
 endif()
 
-if(NOT HTSLIB_TARGET AND PkgConfig_FOUND)
+if(NOT HTSLIB_TARGET)
+  message(STATUS "Looking for htslib via PkgConfig")
   # assuming the pkg-config module is called "htslib"
   pkg_check_modules(HTSLIB QUIET IMPORTED_TARGET htslib>=1.14)
   if(HTSLIB_FOUND)
-    message(STATUS "Located htslib>=1.14 install via pkg-config.")
+    message(STATUS "Located htslib>=1.17 install via pkg-config.")
     set(HTSLIB_TARGET PkgConfig::HTSLIB)
   endif()
 endif()
@@ -77,6 +80,7 @@ if(NOT HTSLIB_TARGET)
     "Set both HTSLIB_INCLUDE_DIR and HTSLIB_LIBRARY to use user install."
   )
 endif()
+
 # //--- end deps ---//
 
 set(COMMON_INCLUDES
@@ -92,59 +96,67 @@ set(COMMON_WARNINGS
 )
 
 # //--- internal libs ---//
-add_library(lib_stats INTERFACE)
+# add_library(lib_stats INTERFACE)
 
-target_include_directories(lib_stats INTERFACE
-  ${CMAKE_CURRENT_SOURCE_DIR}/src
-)
+# target_include_directories(lib_stats INTERFACE
+#   ${CMAKE_CURRENT_SOURCE_DIR}/src
+# )
 
-if(MAKE_MAIN OR MAKE_TEST)
-  add_library(lib_expos STATIC
-    src/expos/pileup.cpp
-    src/expos/support.cpp
-    src/expos/variant_record.cpp
-    src/expos/cli.cpp
-  )
-  target_compile_options(lib_expos PRIVATE
-    ${COMMON_WARNINGS}
-  )
-  target_include_directories(lib_expos PUBLIC
-    ${CMAKE_CURRENT_SOURCE_DIR}/src
-    ${CMAKE_CURRENT_SOURCE_DIR}/src/expos
-  )
-  target_link_libraries(lib_expos PUBLIC
-    plog::plog
-    cxxopts::cxxopts
-    ${HTSLIB_TARGET}
-  )
-endif()
+# if(MAKE_MAIN OR MAKE_TEST)
+#   add_library(lib_expos STATIC
+#     src/expos/pileup.cpp
+#     src/expos/support.cpp
+#     src/expos/variant_record.cpp
+#     src/expos/cli.cpp
+#   )
+#   target_compile_options(lib_expos PRIVATE
+#     ${COMMON_WARNINGS}
+#   )
+#   target_include_directories(lib_expos PUBLIC
+#     ${CMAKE_CURRENT_SOURCE_DIR}/src
+#     ${CMAKE_CURRENT_SOURCE_DIR}/src/expos
+#   )
+#   target_link_libraries(lib_expos PUBLIC
+#     plog::plog
+#     cxxopts::cxxopts
+#     ${HTSLIB_TARGET}
+#   )
+# endif()
 
 # //--- testing ---//
 if(MAKE_TEST)
-  message(STATUS "Finding catch2 for test binary")
-  Include(FetchContent)
+  message(STATUS "Fetching Catch2 for test binary")
+  include(FetchContent)
 
   FetchContent_Declare(
     Catch2
     GIT_REPOSITORY https://github.com/catchorg/Catch2.git
     GIT_TAG        v3.8.1
+    GIT_SHALLOW    TRUE
+    SYSTEM
   )
-
   FetchContent_MakeAvailable(Catch2)
+
+  enable_testing()
 
   add_executable(test-expos
     tests/test_stats.cpp
-    tests/test_pileup.cpp
-    tests/test_support.cpp
+    tests/test_variant_stats.cpp
+    src/shared/stats.cpp
+    src/expos/variant_stats.cpp
   )
-
   target_compile_options(test-expos PRIVATE
     ${COMMON_WARNINGS}
   )
+  target_include_directories(test-expos PRIVATE
+    ${COMMON_INCLUDES}
+  )
   target_link_libraries(test-expos PRIVATE
     Catch2::Catch2WithMain
-    lib_expos
+    ${HTSLIB_TARGET}
   )
+
+  add_test(NAME test-expos COMMAND test-expos)
 endif(MAKE_TEST)
 # //--- end testing ---//
 
@@ -152,27 +164,42 @@ endif(MAKE_TEST)
 if(MAKE_MAIN)
   add_executable(expos
     src/expos/main.cpp
+    src/expos/annotate.cpp
+    src/expos/extract_pileup.cpp
+    src/expos/variant_stats.cpp
+    src/expos/vcf_record.cpp
+    src/hts/hts_types.cpp
+    src/shared/stats.cpp
   )
   target_compile_options(expos PRIVATE
     ${COMMON_WARNINGS}
   )
+  target_compile_definitions(expos PRIVATE
+    EXPOS_VERSION="${PROJECT_VERSION}"
+  )
+  target_include_directories(expos PRIVATE
+    ${COMMON_INCLUDES}
+  )
   target_link_libraries(expos PRIVATE
-    lib_expos
+    plog::plog
+    argparse
+    fmt::fmt-header-only
+    ${HTSLIB_TARGET}
   )
 endif(MAKE_MAIN)
 
 
-if(MAKE_DAUGHTER)
-  add_executable(estimate-entropy
-    src/estimate-entropy/main.cpp
-  )
-  target_compile_options(estimate-entropy PRIVATE
-    ${COMMON_WARNINGS}
-  )
-  target_include_directories(estimate-entropy PRIVATE
-    ${COMMON_INCLUDES}
-  )
-  target_link_libraries(estimate-entropy
-    lib_stats
-  )
-endif(MAKE_DAUGHTER)
+# if(MAKE_DAUGHTER)
+#   add_executable(estimate-entropy
+#     src/estimate-entropy/main.cpp
+#   )
+#   target_compile_options(estimate-entropy PRIVATE
+#     ${COMMON_WARNINGS}
+#   )
+#   target_include_directories(estimate-entropy PRIVATE
+#     ${COMMON_INCLUDES}
+#   )
+#   target_link_libraries(estimate-entropy
+#     lib_stats
+#   )
+# endif(MAKE_DAUGHTER)

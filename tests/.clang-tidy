@@ -1,0 +1,8 @@
+# Test code is inherently literal-heavy (expected values, fixtures) and
+# uses long assertion-dense functions. Inherit the project checks but relax
+# the ones that only add noise in tests.
+InheritParentConfig: true
+Checks: >
+  -readability-magic-numbers,
+  -readability-function-cognitive-complexity,
+  -bugprone-easily-swappable-parameters

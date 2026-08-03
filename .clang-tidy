@@ -10,8 +10,9 @@ Checks: >
   -misc-non-private-member-variables-in-classes,
   -misc-use-anonymous-namespace,
   -performance-avoid-endl,
-  -readability-identifier-length
+  -readability-identifier-length,
+  -readability-function-cognitive-complexity
 
 WarningsAsErrors: ''
-HeaderFilterRegex: 'src/(app|backend|frontend|demo|shared)/'
+HeaderFilterRegex: 'src/(expos|hts|shared)/'
 FormatStyle: file
