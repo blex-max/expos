@@ -31,9 +31,7 @@ const VariantStat& by_id (
   throw std::runtime_error ("stat not found");
 }
 
-// A reference is mandatory, so the struct always carries a slice. Stats
-// other than RCMPLX ignore it; this empty view stands in for them.
-constexpr std::string_view k_noRefNeeded{};
+constexpr std::string_view REF_PLACEHOLDER{};
 
 }  // namespace
 
@@ -61,7 +59,7 @@ TEST_CASE ("compute QRK (query-position clustering)")
     PileupFeatures all;
     all.qPos = {0, 5, 10, 15, 20, 25};
     VariantStatInputs in{
-        supporting, all, k_noRefNeeded, rng, true
+        supporting, all, REF_PLACEHOLDER, rng, true
     };
     const auto r = qrk.compute (in);
     REQUIRE (r.size() == 2);
@@ -77,7 +75,7 @@ TEST_CASE ("compute QRK (query-position clustering)")
     PileupFeatures all;
     all.qPos = {10, 11, 12, 40, 90};  // 5 < 2*3
     VariantStatInputs in{
-        supporting, all, k_noRefNeeded, rng, true
+        supporting, all, REF_PLACEHOLDER, rng, true
     };
     const auto r = qrk.compute (in);
     REQUIRE (r[0].reason == REASON_INSUFFICIENT_BACKGROUND);
@@ -92,7 +90,7 @@ TEST_CASE ("compute QRK (query-position clustering)")
       all.qPos.push_back (i);
     }
     VariantStatInputs in{
-        supporting, all, k_noRefNeeded, rng, false
+        supporting, all, REF_PLACEHOLDER, rng, false
     };
     const auto r = qrk.compute (in);
     REQUIRE_FALSE (r[0].value.has_value());
@@ -110,7 +108,7 @@ TEST_CASE ("compute QRK (query-position clustering)")
       all.qPos.push_back (i);  // spread 0..199
     }
     VariantStatInputs in{
-        supporting, all, k_noRefNeeded, rng, true
+        supporting, all, REF_PLACEHOLDER, rng, true
     };
     const auto r = qrk.compute (in);
     REQUIRE (r[0].value.has_value());  // effect size
@@ -131,10 +129,10 @@ TEST_CASE ("compute QRK (query-position clustering)")
     std::mt19937 rngA (7);
     std::mt19937 rngB (7);
     VariantStatInputs inA{
-        supporting, all, k_noRefNeeded, rngA, true
+        supporting, all, REF_PLACEHOLDER, rngA, true
     };
     VariantStatInputs inB{
-        supporting, all, k_noRefNeeded, rngB, true
+        supporting, all, REF_PLACEHOLDER, rngB, true
     };
     const auto a = qrk.compute (inA);
     const auto b = qrk.compute (inB);
@@ -158,7 +156,7 @@ TEST_CASE ("compute TRK (template-endpoint clustering)")
         {100, 300}, {110, 320}, {500, 700}, {900, 1100}
     };
     VariantStatInputs in{
-        supporting, all, k_noRefNeeded, rng, true
+        supporting, all, REF_PLACEHOLDER, rng, true
     };
     const auto r = trk.compute (in);
     REQUIRE_FALSE (r[0].value.has_value());
@@ -179,7 +177,7 @@ TEST_CASE ("compute TRK (template-endpoint clustering)")
       all.endpoints.push_back ({i, i + 200});
     }
     VariantStatInputs in{
-        supporting, all, k_noRefNeeded, rng, true
+        supporting, all, REF_PLACEHOLDER, rng, true
     };
     const auto r = trk.compute (in);
     REQUIRE (r[0].value.has_value());
@@ -201,7 +199,7 @@ TEST_CASE ("compute TRK (template-endpoint clustering)")
       all.endpoints.push_back ({i, i + 200});
     }
     VariantStatInputs in{
-        supporting, all, k_noRefNeeded, rng, false
+        supporting, all, REF_PLACEHOLDER, rng, false
     };
     const auto r = trk.compute (in);
     REQUIRE (
@@ -222,7 +220,7 @@ TEST_CASE ("compute MLAS (median normalised alignment score)")
     PileupFeatures all;
     all.normalisedAs = {0.2, 0.4, 0.6, 0.8};  // median 0.5
     VariantStatInputs in{
-        supporting, all, k_noRefNeeded, rng, true
+        supporting, all, REF_PLACEHOLDER, rng, true
     };
     const auto r = mlas.compute (in);
     REQUIRE (r.size() == 2);
@@ -236,7 +234,7 @@ TEST_CASE ("compute MLAS (median normalised alignment score)")
     PileupFeatures all;
     all.normalisedAs = {0.3, 0.6};
     VariantStatInputs in{
-        supporting, all, k_noRefNeeded, rng, true
+        supporting, all, REF_PLACEHOLDER, rng, true
     };
     const auto r = mlas.compute (in);
     REQUIRE_FALSE (r[0].value.has_value());

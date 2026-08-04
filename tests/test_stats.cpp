@@ -1,5 +1,4 @@
 // Unit tests for the pure statistical primitives in shared/stats.hpp.
-// Uses Catch2 (linked against Catch2WithMain, so no main() here).
 
 #include <catch2/catch_approx.hpp>
 #include <catch2/catch_test_macros.hpp>
@@ -13,9 +12,7 @@
 
 using Catch::Approx;
 
-namespace {
-
-std::size_t brute_pairs_1d (
+static std::size_t brute_pairs_1d (
     const std::vector<int32_t>& v, uint64_t r
 )
 {
@@ -32,8 +29,6 @@ std::size_t brute_pairs_1d (
   }
   return count;
 }
-
-}  // namespace
 
 TEST_CASE ("mean")
 {
