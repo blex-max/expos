@@ -69,7 +69,7 @@ if(NOT HTSLIB_TARGET)
   # assuming the pkg-config module is called "htslib"
   pkg_check_modules(HTSLIB QUIET IMPORTED_TARGET htslib>=1.14)
   if(HTSLIB_FOUND)
-    message(STATUS "Located htslib>=1.17 install via pkg-config.")
+    message(STATUS "Located htslib>=1.14 install via pkg-config.")
     set(HTSLIB_TARGET PkgConfig::HTSLIB)
   endif()
 endif()
