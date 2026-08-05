@@ -39,17 +39,36 @@ like:
 expos my.vcf ref.fa my.bam > annotated.vcf
 ```
 
-!!! note "Additional background samples"
-    One or more further indexed alignments (typically a matched normal) can
-    be merged into the Monte-Carlo background with `--bg`, passed
-    space-separated: `--bg normal1.bam normal2.bam`. Supporting reads are
-    always drawn from the primary `ALN` only; the extra samples contribute to
-    the background population against which clustering is simulated.
-
 !!! note "Skipping records"
-    `--skip-filtered` passes any record whose `FILTER` is set to a failing
-    value straight through untouched (the `FILTER` column already documents
-    it); records with `PASS` or an unset `.` `FILTER` are still analysed.
+    `--skip-filtered` passes any record whose `FILTER` is set to a value
+    other than `PASS` or `.` (unset) untouched - unanalysed records are
+    are not removed from the output.
+
+
+### Additional Background Samples
+
+One or more further indexed alignments (typically a matched normal) can
+be merged into the Monte-Carlo background with `--bg`, e.g. `--bg other1.bam other2.bam`.
+Supporting reads are always drawn from the primary `ALN` only; the extra samples contribute to
+the background population against which clustering is simulated.
+
+Background samples are only a valid source of statistical power if they were sequenced with the
+same protocol as the primary sample. To guard against this, for each record the pileup of each
+`--bg` sample is evaluated against the primary sample before inclusion. Therefore:
+
+- its own read lengths must be internally consistent (not itself a mix of very different read
+  lengths);
+- its median read length must match the primary sample's;
+- its median fragment (template) length must match the primary sample's.
+
+A source that fails any of these checks is excluded from the background for that record.
+Insufficient reads or templates to evaluate a check also excludes the source,
+rather than assuming validity. A warning is emitted to stderr per exclusion (unless `--quiet`),
+and the total number of exclusions across the whole run is reported in the end-of-run summary.
+
+The guards can't catch every possible way two populations might differ. In other words they reduce
+the risk of an inappropriate background rather than eliminating it.
+
 
 ## Annotations Made
 
@@ -107,8 +126,8 @@ These are the header lines from an output VCF describing the INFO fields added. 
   Why expos produced no value, as '<scope>:<reason>' tokens.
   Scope is 'record' (whole record skipped) or a statistic ID.
   Reasons: multiallelic, complex, insufficient_support, insufficient_background,
-  heterogeneous_read_length, zero_variance, no_support, no_background,
-  reference_too_short, reference_has_n.
+  heterogeneous_read_length, zero_variance,
+  no_support, no_background, reference_too_short, reference_has_n.
   """>
 ```
 
@@ -126,7 +145,12 @@ Every output VCF also carries provenance in its header: a `##source` line (progr
 - **Whole-record skips** use the `record` scope. Multiallelic records (`record:multiallelic`) and complex/untypeable records (`record:complex`) are passed through unannotated. Records skipped by `--skip-filtered` are not marked.
 - **Per-statistic skips** use the statistic's ID as the scope, e.g. `QRK:insufficient_support`, `TRK:zero_variance`, `RCMPLX:reference_has_n`.
 
-One notable per-statistic guard: `QRK` is suppressed with `QRK:heterogeneous_read_length` when the reads at a locus have markedly uneven lengths, since query position is an offset within a read and a mixed read-length population confounds it. `TRK`, which uses template endpoints, is unaffected.
+!!! note "QRK"
+  `QRK` may be suppressed with `QRK:heterogeneous_read_length` when the primary sample's reads at a locus have markedly uneven lengths, since query position is an offset within a read and a mixed read-length population confounds it. `TRK` has no equivalent per-statistic reason; read-length heterogeneity doesn't apply.
+
+!!! note "insufficent power"
+  If insufficient reads are available to perform testing, expos skip will record the `insufficient_background` reason.
+
 
 ## Filtering Pipeline Examples
 

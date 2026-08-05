@@ -16,12 +16,18 @@
 #include <utility>
 #include <vector>
 
+#include "expos/background_guard.hpp"
 #include "expos/extract_pileup.hpp"
 #include "expos/pileup_features.hpp"
 #include "expos/variant_stats.hpp"
 #include "expos/vcf_record.hpp"
 #include "hts/hts_types.hpp"
 #include "shared/err.hpp"
+
+static constexpr std::size_t MIN_READS_FOR_LEN_CHECK = 10;
+static constexpr std::size_t MIN_TEMPLATES_FOR_LEN_CHECK = 10;
+static constexpr double READ_LEN_REL_IQR_TOL = 0.10;
+static constexpr double MEDIAN_REL_TOL = 0.10;
 
 // User-facing warning
 static void warn (const std::string& msg)
@@ -132,24 +138,14 @@ static RefSliceOrErr supporting_ref_slice (
   return slice;
 }
 
-// Relative IQR of read lengths, (Q3-Q1)/median. Precondition: non-empty.
-static double read_length_rel_iqr (
-    const std::vector<int32_t>& readLen
-)
-{
-  std::vector<int32_t> lens = readLen;
-  std::sort (lens.begin(), lens.end());
-  const std::size_t n = lens.size();
-  const double q1 = lens[n / 4];
-  const double median = lens[n / 2];
-  const double q3 = lens[3 * n / 4];
-  return (q3 - q1) /
-         median;  // median >= 1: read length is always positive
-}
-
 // Compute and encode the expos statistics onto an analysable record in place.
+// nBackgroundExcluded is incremented whenever a background sample is
+// excluded from the merge because its read- or fragment-length
+// distribution looks inconsistent with the primary sample's (see
+// docs/usage.md); the caller tallies it for the end-of-run summary.
 static VoidOrErr annotate_record (
-    const VcfRec& r, const ExposCtx& ctx, std::mt19937& rng
+    const VcfRec& r, const ExposCtx& ctx, std::mt19937& rng,
+    std::size_t& nBackgroundExcluded
 )
 {
   const auto posRet = make_record_pileup_pos (r, ctx.aln);
@@ -169,9 +165,29 @@ static VoidOrErr annotate_record (
   if (!extractRet) {
     return std::unexpected (extractRet.error());
   }
+  // Guard A: is the primary sample's own local read population internally
+  // consistent? Independent of any background sample -- gates QRK
+  // regardless of what's merged in below.
+  const bool readLenHomogeneous =
+      primary_read_length_homogeneous (
+          all, MIN_READS_FOR_LEN_CHECK, READ_LEN_REL_IQR_TOL
+      );
+  if (!readLenHomogeneous && !ctx.quiet) {
+    warn (
+        std::format (
+            "{}: primary sample's read lengths are "
+            "heterogeneous; QRK suppressed",
+            stringify_rec (r)
+        )
+    );
+  }
 
-  // Merge any additional background samples into all.
+  // Guards B + C: evaluate each background source against the primary
+  // before merging. A source that fails either guard is excluded
+  // entirely -- it contributes nothing to any statistic for this record.
+  PileupFeatures ru_bg;
   for (const auto& bg : ctx.backgrounds) {
+    reset (ru_bg);
     const auto bgPosRet = make_record_pileup_pos (r, bg);
     if (!bgPosRet) {
       return std::unexpected (bgPosRet.error());
@@ -180,31 +196,29 @@ static VoidOrErr annotate_record (
     if (!bgPlpRet) {
       return std::unexpected (bgPlpRet.error());
     }
-    const auto bgExtractRet = extract_features (*bgPlpRet, all);
+    const auto bgExtractRet =
+        extract_features (*bgPlpRet, ru_bg);
     if (!bgExtractRet) {
       return std::unexpected (bgExtractRet.error());
     }
-  }
-
-  // Read-length homogeneity gates QRK
-  constexpr std::size_t k_minReadsForHomogeneity = 10;
-  constexpr double k_relIqrTol = 0.10;
-  bool readLenHomogeneous = true;
-  if (all.readLen.size() >= k_minReadsForHomogeneity) {
-    const double relIqr = read_length_rel_iqr (all.readLen);
-    if (relIqr > k_relIqrTol) {
-      readLenHomogeneous = false;
+    const auto reason = evaluate_background (
+        all, ru_bg, MIN_READS_FOR_LEN_CHECK,
+        READ_LEN_REL_IQR_TOL, MIN_TEMPLATES_FOR_LEN_CHECK,
+        MEDIAN_REL_TOL
+    );
+    if (reason != BackgroundGuardReason::Admitted) {
+      ++nBackgroundExcluded;
       if (!ctx.quiet) {
         warn (
             std::format (
-                "{}: read lengths are heterogeneous (relative "
-                "IQR {:.2f} > "
-                "{:.2f}); QRK suppressed",
-                stringify_rec (r), relIqr, k_relIqrTol
+                "{}: background sample excluded ({})",
+                stringify_rec (r), to_string (reason)
             )
         );
       }
+      continue;
     }
+    merge (all, ru_bg);
   }
 
   auto sliceRet = supporting_ref_slice (r, ctx.ref, supporting);
@@ -248,6 +262,7 @@ VoidOrErr analyse_records (const ExposCtx& ctx)
   // Tallies for the end-of-run summary (stderr, unless --quiet).
   std::size_t nRecords = 0;
   std::size_t nSkipped = 0;
+  std::size_t nBackgroundExcluded = 0;
 
   while (
       bcf_read (ctx.vcfIn.o_fh, ctx.vcfIn.o_hdr, ru_rec.ptr) == 0
@@ -282,8 +297,9 @@ VoidOrErr analyse_records (const ExposCtx& ctx)
       }
     }
     else {
-      const auto annotateRet =
-          annotate_record (ru_rec, ctx, rng);
+      const auto annotateRet = annotate_record (
+          ru_rec, ctx, rng, nBackgroundExcluded
+      );
       if (!annotateRet) {
         return std::unexpected (annotateRet.error());
       }
@@ -300,7 +316,8 @@ VoidOrErr analyse_records (const ExposCtx& ctx)
 
   if (!ctx.quiet) {
     std::cerr << "expos: " << nRecords << " record(s), "
-              << nSkipped << " skipped\n";
+              << nSkipped << " skipped, " << nBackgroundExcluded
+              << " background sample(s) excluded\n";
   }
 
   return {};

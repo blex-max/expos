@@ -18,3 +18,7 @@ struct PileupFeatures {
   std::vector<int32_t> readLen;  // per read
   std::vector<double> normalisedAs;  // per read: AS tag / l_qseq
 };
+
+void reset (PileupFeatures& pf) noexcept;
+
+void merge (PileupFeatures& into, PileupFeatures& from) noexcept;

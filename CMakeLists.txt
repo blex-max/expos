@@ -142,8 +142,10 @@ if(MAKE_TEST)
   add_executable(test-expos
     tests/test_stats.cpp
     tests/test_variant_stats.cpp
+    tests/test_background_guard.cpp
     src/shared/stats.cpp
     src/expos/variant_stats.cpp
+    src/expos/background_guard.cpp
   )
   target_compile_options(test-expos PRIVATE
     ${COMMON_WARNINGS}
@@ -165,7 +167,9 @@ if(MAKE_MAIN)
   add_executable(expos
     src/expos/main.cpp
     src/expos/annotate.cpp
+    src/expos/background_guard.cpp
     src/expos/extract_pileup.cpp
+    src/expos/pileup_features.cpp
     src/expos/variant_stats.cpp
     src/expos/vcf_record.cpp
     src/hts/hts_types.cpp

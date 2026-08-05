@@ -216,7 +216,8 @@ constexpr std::string_view EXPOS_SKIP_HEADER =
     "(whole record skipped) or a statistic ID. Reasons: "
     "multiallelic, "
     "complex, insufficient_support, insufficient_background, "
-    "heterogeneous_read_length, zero_variance, no_support, "
+    "heterogeneous_read_length, "
+    "zero_variance, no_support, "
     "no_background, "
     "reference_too_short, reference_has_n.\">";
 

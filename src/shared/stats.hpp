@@ -56,6 +56,21 @@ std::optional<double> percentile (std::vector<T> obs, double pt)
                   static_cast<double> (obs[lowerI])));
 }
 
+template <std::ranges::input_range R>
+  requires std::unsigned_integral<
+               std::ranges::range_value_t<R>> ||
+           std::floating_point<std::ranges::range_value_t<R>>
+std::optional<double> percentile (R&& r, double pt)
+{
+  using T = std::ranges::range_value_t<R>;
+  return percentile (
+      std::vector<T> (
+          std::ranges::begin (r), std::ranges::end (r)
+      ),
+      pt
+  );
+}
+
 // --- spatial clustering (Ripley's K) --- //
 
 // On "pairs within radius" vs the per-point definition: Ripley's K sums,
