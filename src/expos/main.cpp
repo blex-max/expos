@@ -18,16 +18,16 @@
 
 #include "argparse/argparse.hpp"
 #include "expos/annotate.hpp"
-#include "expos/variant_stats.hpp"
+#include "expos/compute_field.hpp"
 #include "hts/hts_types.hpp"
 #include "shared/err.hpp"
 
-// EXPOS_VERSION is defined by CMake from project(... VERSION).
+// Defined in CMakeLists.txt
 #ifndef EXPOS_VERSION
 #define EXPOS_VERSION "unknown"
 #endif
 inline constexpr std::string_view PROG_NAME = "expos";
-inline constexpr std::string_view VERSION = EXPOS_VERSION;
+static constexpr char VERSION[] = EXPOS_VERSION;
 
 struct ExposArgs {
   std::string vcfPath;

@@ -17,9 +17,9 @@
 #include <vector>
 
 #include "expos/background_guard.hpp"
+#include "expos/compute_field.hpp"
 #include "expos/extract_pileup.hpp"
 #include "expos/pileup_features.hpp"
-#include "expos/variant_stats.hpp"
 #include "expos/vcf_record.hpp"
 #include "hts/hts_types.hpp"
 #include "shared/err.hpp"
@@ -165,9 +165,8 @@ static VoidOrErr annotate_record (
   if (!extractRet) {
     return std::unexpected (extractRet.error());
   }
-  // Guard A: is the primary sample's own local read population internally
-  // consistent? Independent of any background sample -- gates QRK
-  // regardless of what's merged in below.
+
+  // guard QRK
   const bool readLenHomogeneous =
       primary_read_length_homogeneous (
           all, MIN_READS_FOR_LEN_CHECK, READ_LEN_REL_IQR_TOL
@@ -182,9 +181,8 @@ static VoidOrErr annotate_record (
     );
   }
 
-  // Guards B + C: evaluate each background source against the primary
-  // before merging. A source that fails either guard is excluded
-  // entirely -- it contributes nothing to any statistic for this record.
+  // evaluate each background source against the primary
+  // before merging.
   PileupFeatures ru_bg;
   for (const auto& bg : ctx.backgrounds) {
     reset (ru_bg);
@@ -232,7 +230,10 @@ static VoidOrErr annotate_record (
   };
   std::vector<std::string> skipTokens;
   for (const auto& stat : variant_stats()) {
-    const auto values = stat.compute (inputs);
+    auto result = stat.compute (inputs);
+    const std::vector<StatValue> values =
+        result ? std::move (*result)
+               : stat_all_missing (stat.field, result.error());
     const auto encRet = encode_variant_stat (
         ctx.vcfOut.o_hdr, r.ptr, stat.field, values
     );

@@ -1,21 +1,201 @@
-// Unit tests for the variant statistics compute layer (variant_stats.hpp).
-// Exercised through the public variant_stats() registry, so the compute
-// functions stay internal.
+// Unit tests for the variant statistics layer: the clustering, overlap and
+// Monte-Carlo primitives in variant_stats.hpp, then the compute functions in
+// compute_field.hpp built on them. The latter are exercised through the
+// public variant_stats() registry, so they stay internal.
 
+#include <algorithm>
 #include <catch2/catch_approx.hpp>
 #include <catch2/catch_test_macros.hpp>
+#include <cstddef>
 #include <cstdint>
 #include <random>
+#include <set>
 #include <span>
 #include <stdexcept>
 #include <string>
 #include <string_view>
 #include <vector>
 
+#include "expos/compute_field.hpp"
 #include "expos/pileup_features.hpp"
 #include "expos/variant_stats.hpp"
 
 using Catch::Approx;
+
+// --- primitives (variant_stats.hpp) --- //
+
+namespace {
+
+std::size_t brute_pairs_1d (
+    const std::vector<int32_t>& v, uint64_t r
+)
+{
+  std::size_t count = 0;
+  for (std::size_t i = 0; i < v.size(); ++i) {
+    for (std::size_t j = i + 1; j < v.size(); ++j) {
+      const uint64_t d =
+          v[i] > v[j] ? static_cast<uint64_t> (v[i] - v[j])
+                      : static_cast<uint64_t> (v[j] - v[i]);
+      if (d < r) {
+        ++count;
+      }
+    }
+  }
+  return count;
+}
+
+}  // namespace
+
+TEST_CASE ("count_pairs_within_1d")
+{
+  REQUIRE (count_pairs_within_1d ({}, 5) == 0);
+  REQUIRE (count_pairs_within_1d ({5}, 10) == 0);
+  REQUIRE (count_pairs_within_1d ({1, 2, 3}, 2) == 2);
+  REQUIRE (count_pairs_within_1d ({1, 2, 3}, 3) == 3);
+  REQUIRE (
+      count_pairs_within_1d ({7, 7, 7}, 1) == 3
+  );  // dups, dist 0 < 1
+  REQUIRE (
+      count_pairs_within_1d ({1, 2, 3}, 0) == 0
+  );  // radius 0 -> none
+
+  SECTION ("randomised cross-check against a brute-force oracle")
+  {
+    std::mt19937 rng (123);
+    std::uniform_int_distribution<int32_t> valDist (0, 50);
+    for (int trial = 0; trial < 300; ++trial) {
+      const std::size_t nObs = rng() % 40;
+      std::vector<int32_t> vals;
+      vals.reserve (nObs);
+      for (std::size_t i = 0; i < nObs; ++i) {
+        vals.push_back (valDist (rng));
+      }
+      const uint64_t radius = rng() % 20;
+      REQUIRE (
+          count_pairs_within_1d (vals, radius) ==
+          brute_pairs_1d (vals, radius)
+      );
+    }
+  }
+}
+
+TEST_CASE ("run_monte_carlo")
+{
+  auto identity = [] (double x) { return x; };
+
+  SECTION ("exact against a deterministic null")
+  {
+    // null {2,4,4,4,5,5,7,9}: mean 5, population SD 2.
+    const std::vector<double> seq{2, 4, 4, 4, 5, 5, 7, 9};
+    auto run = [&] (double observed) {
+      std::size_t idx = 0;
+      auto draw = [&]() { return seq[idx++]; };
+      return run_monte_carlo (
+          observed, draw, identity, seq.size()
+      );
+    };
+
+    const auto above = run (7.0);
+    REQUIRE (above.effectSize.has_value());
+    REQUIRE (*above.effectSize == Approx (1.0));  // (7-5)/2
+    REQUIRE (
+        above.pValue == Approx (3.0 / 9.0)
+    );  // #{>=7}=2 -> 3/9
+
+    const auto below = run (3.0);
+    REQUIRE (*below.effectSize == Approx (-1.0));  // (3-5)/2
+
+    REQUIRE (
+        run (1000.0).pValue == Approx (1.0 / 9.0)
+    );  // #{>=}=0
+    REQUIRE (run (0.0).pValue == Approx (1.0));  // all >= 0
+  }
+
+  SECTION ("zero-variance null yields no effect size")
+  {
+    auto draw = [] { return 3.0; };
+    const auto res = run_monte_carlo (3.0, draw, identity, 100);
+    REQUIRE_FALSE (res.effectSize.has_value());
+    REQUIRE (res.pValue == Approx (1.0));
+  }
+
+  SECTION ("deterministic under a fixed seed; p-value in (0,1]")
+  {
+    std::vector<int32_t> pop (200);
+    for (std::size_t i = 0; i < pop.size(); ++i) {
+      pop[i] = static_cast<int32_t> (i);
+    }
+    auto run = [&] (uint32_t seed) {
+      std::mt19937 rng (seed);
+      auto draw = [&]() {
+        return subsample_wo_replace (pop, 20, rng);
+      };
+      auto stat = [] (const std::vector<int32_t>& s) {
+        return static_cast<double> (
+            count_pairs_within_1d (s, 5)
+        );
+      };
+      return run_monte_carlo (10.0, draw, stat, 500);
+    };
+    const auto a = run (99);
+    const auto b = run (99);
+    REQUIRE (a.pValue == Approx (b.pValue));
+    REQUIRE (
+        a.effectSize.has_value() == b.effectSize.has_value()
+    );
+    if (a.effectSize && b.effectSize) {
+      REQUIRE (*a.effectSize == Approx (*b.effectSize));
+    }
+    REQUIRE (a.pValue > 0.0);
+    REQUIRE (a.pValue <= 1.0);
+  }
+}
+
+TEST_CASE ("subsample_wo_replace")
+{
+  const std::vector<int> obs{10, 20, 30, 40, 50};
+
+  SECTION ("size, membership, no replacement")
+  {
+    std::mt19937 rng (7);
+    const auto s = subsample_wo_replace (obs, 3, rng);
+    REQUIRE (s.size() == 3);
+    const std::set<int> uniq (s.begin(), s.end());
+    REQUIRE (uniq.size() == 3);
+    for (const int x : s) {
+      REQUIRE (
+          std::find (obs.begin(), obs.end(), x) != obs.end()
+      );
+    }
+  }
+
+  SECTION ("deterministic under identical seed")
+  {
+    std::mt19937 rngA (7);
+    std::mt19937 rngB (7);
+    REQUIRE (
+        subsample_wo_replace (obs, 3, rngA) ==
+        subsample_wo_replace (obs, 3, rngB)
+    );
+  }
+
+  SECTION ("n == nObs yields a full permutation")
+  {
+    std::mt19937 rng (1);
+    const auto full =
+        subsample_wo_replace (obs, obs.size(), rng);
+    const std::set<int> uniq (full.begin(), full.end());
+    REQUIRE (uniq.size() == obs.size());
+  }
+
+  SECTION ("n == 0 yields empty")
+  {
+    std::mt19937 rng (1);
+    REQUIRE (subsample_wo_replace (obs, 0, rng).empty());
+  }
+}
+
+// --- compute layer (compute_field.hpp) --- //
 
 namespace {
 
@@ -40,9 +220,9 @@ TEST_CASE ("variant_stats registry")
   const auto stats = variant_stats();
   REQUIRE (
       stats.size() == 4
-  );  // QRK, TRK, MLAS, RCMPLX — the full package
+  );  // QRK, TJAC, MLAS, RCMPLX — the full package
   REQUIRE (by_id (stats, "QRK").field.nValues == 2);
-  REQUIRE (by_id (stats, "TRK").field.nValues == 2);
+  REQUIRE (by_id (stats, "TJAC").field.nValues == 2);
   REQUIRE (by_id (stats, "MLAS").field.nValues == 2);
   REQUIRE (by_id (stats, "RCMPLX").field.nValues == 1);
 }
@@ -62,10 +242,8 @@ TEST_CASE ("compute QRK (query-position clustering)")
         supporting, all, REF_PLACEHOLDER, rng, true
     };
     const auto r = qrk.compute (in);
-    REQUIRE (r.size() == 2);
-    REQUIRE_FALSE (r[0].value.has_value());
-    REQUIRE (r[0].reason == REASON_INSUFFICIENT_SUPPORT);
-    REQUIRE (r[1].reason == REASON_INSUFFICIENT_SUPPORT);
+    REQUIRE_FALSE (r.has_value());
+    REQUIRE (r.error() == REASON_INSUFFICIENT_SUPPORT);
   }
 
   SECTION ("missing with insufficient background")
@@ -78,7 +256,8 @@ TEST_CASE ("compute QRK (query-position clustering)")
         supporting, all, REF_PLACEHOLDER, rng, true
     };
     const auto r = qrk.compute (in);
-    REQUIRE (r[0].reason == REASON_INSUFFICIENT_BACKGROUND);
+    REQUIRE_FALSE (r.has_value());
+    REQUIRE (r.error() == REASON_INSUFFICIENT_BACKGROUND);
   }
 
   SECTION ("suppressed when read lengths are heterogeneous")
@@ -93,10 +272,8 @@ TEST_CASE ("compute QRK (query-position clustering)")
         supporting, all, REF_PLACEHOLDER, rng, false
     };
     const auto r = qrk.compute (in);
-    REQUIRE_FALSE (r[0].value.has_value());
-    REQUIRE_FALSE (r[1].value.has_value());
-    REQUIRE (r[0].reason == REASON_HETEROGENEOUS_READ_LENGTH);
-    REQUIRE (r[1].reason == REASON_HETEROGENEOUS_READ_LENGTH);
+    REQUIRE_FALSE (r.has_value());
+    REQUIRE (r.error() == REASON_HETEROGENEOUS_READ_LENGTH);
   }
 
   SECTION ("tight support vs spread background is extreme")
@@ -111,11 +288,35 @@ TEST_CASE ("compute QRK (query-position clustering)")
         supporting, all, REF_PLACEHOLDER, rng, true
     };
     const auto r = qrk.compute (in);
-    REQUIRE (r[0].value.has_value());  // effect size
-    REQUIRE (r[1].value.has_value());  // p-value
-    REQUIRE (*r[0].value > 0.0);  // more clustered than the null
-    REQUIRE (*r[1].value < 0.05);  // significant
-    REQUIRE (*r[1].value > 0.0);
+    REQUIRE (r.has_value());
+    REQUIRE (r->size() == 2);  // matches the registry's nValues
+    REQUIRE ((*r)[0].value.has_value());  // effect size
+    REQUIRE ((*r)[1].value.has_value());  // p-value
+    REQUIRE (
+        *(*r)[0].value > 0.0
+    );  // more clustered than the null
+    REQUIRE (*(*r)[1].value < 0.05);  // significant
+    REQUIRE (*(*r)[1].value > 0.0);
+  }
+
+  SECTION ("whole statistic skipped when the null has no spread")
+  {
+    // Every background position is identical, so every draw of 4 yields the
+    // same C(4,2) = 6 pairs within radius 5 and the null is degenerate. The
+    // z-score is then undefined and the p-value is pinned by the degeneracy
+    // rather than the data, so neither subfield is reportable.
+    PileupFeatures supporting;
+    supporting.qPos = {50, 50, 50, 50};
+    PileupFeatures all;
+    for (int32_t i = 0; i < 100; ++i) {
+      all.qPos.push_back (50);
+    }
+    VariantStatInputs in{
+        supporting, all, REF_PLACEHOLDER, rng, true
+    };
+    const auto r = qrk.compute (in);
+    REQUIRE_FALSE (r.has_value());
+    REQUIRE (r.error() == REASON_ZERO_VARIANCE);
   }
 
   SECTION ("deterministic under a fixed seed")
@@ -136,15 +337,35 @@ TEST_CASE ("compute QRK (query-position clustering)")
     };
     const auto a = qrk.compute (inA);
     const auto b = qrk.compute (inB);
-    REQUIRE (a[0].value.has_value());
-    REQUIRE (*a[0].value == Approx (*b[0].value));
-    REQUIRE (*a[1].value == Approx (*b[1].value));
+    REQUIRE (a.has_value());
+    REQUIRE (b.has_value());
+    REQUIRE ((*a)[0].value.has_value());
+    REQUIRE (*(*a)[0].value == Approx (*(*b)[0].value));
+    REQUIRE (*(*a)[1].value == Approx (*(*b)[1].value));
   }
 }
 
-TEST_CASE ("compute TRK (template-endpoint clustering)")
+namespace {
+
+// Templates of three very different lengths, all covering ~1000, positions
+// jittered so no two coincide. Under a min(len) denominator almost every
+// pair here is fully nested and scores 1.0; under Jaccard they do not.
+std::vector<TemplateEndpoints> mixed_length_background()
 {
-  const auto trk = by_id (variant_stats(), "TRK");
+  std::vector<TemplateEndpoints> out;
+  for (int64_t i = 0; i < 30; ++i) {
+    out.push_back ({1000 - 10 - i, 1000 + 10 - i});
+    out.push_back ({1000 - 100 - i, 1000 + 100 - i});
+    out.push_back ({1000 - 200 - i, 1000 + 200 - i});
+  }
+  return out;
+}
+
+}  // namespace
+
+TEST_CASE ("compute TJAC (graded pairwise template overlap)")
+{
+  const auto tjac = by_id (variant_stats(), "TJAC");
 
   SECTION ("missing with insufficient support")
   {
@@ -158,9 +379,30 @@ TEST_CASE ("compute TRK (template-endpoint clustering)")
     VariantStatInputs in{
         supporting, all, REF_PLACEHOLDER, rng, true
     };
-    const auto r = trk.compute (in);
-    REQUIRE_FALSE (r[0].value.has_value());
-    REQUIRE (r[0].reason == REASON_INSUFFICIENT_SUPPORT);
+    const auto r = tjac.compute (in);
+    REQUIRE_FALSE (r.has_value());
+    REQUIRE (r.error() == REASON_INSUFFICIENT_SUPPORT);
+  }
+
+  SECTION ("missing with insufficient background")
+  {
+    std::mt19937 rng (1);
+    PileupFeatures supporting;
+    supporting.endpoints = {{100, 300}, {101, 301}, {102, 302}};
+    PileupFeatures all;
+    all.endpoints = {
+        {100, 300},
+        {101, 301},
+        {102, 302},
+        {500, 700},
+        {900, 1100}
+    };  // 5 < 2*3
+    VariantStatInputs in{
+        supporting, all, REF_PLACEHOLDER, rng, true
+    };
+    const auto r = tjac.compute (in);
+    REQUIRE_FALSE (r.has_value());
+    REQUIRE (r.error() == REASON_INSUFFICIENT_BACKGROUND);
   }
 
   SECTION ("clustered endpoints vs spread background is extreme")
@@ -172,17 +414,115 @@ TEST_CASE ("compute TRK (template-endpoint clustering)")
     };  // near-identical templates
     PileupFeatures all;
     for (int64_t i = 0; i < 100; ++i) {
-      // spread over 0..99 (manhattan 2*|i-j|), so draws have a spread of
-      // within-radius counts and the null has non-zero variance.
+      // spread over 0..99, so draws have a spread of pairwise overlap and
+      // the null has non-zero variance.
       all.endpoints.push_back ({i, i + 200});
     }
     VariantStatInputs in{
         supporting, all, REF_PLACEHOLDER, rng, true
     };
-    const auto r = trk.compute (in);
-    REQUIRE (r[0].value.has_value());
-    REQUIRE (*r[0].value > 0.0);
-    REQUIRE (*r[1].value < 0.05);
+    const auto r = tjac.compute (in);
+    REQUIRE (r.has_value());
+    REQUIRE ((*r)[0].value.has_value());
+    REQUIRE (*(*r)[0].value > 0.0);
+    REQUIRE (*(*r)[1].value < 0.05);
+  }
+
+  SECTION (
+      "a support set typical of the background does not fire"
+  )
+  {
+    std::mt19937 rng (2);
+    PileupFeatures all;
+    for (int64_t i = 0; i < 100; ++i) {
+      all.endpoints.push_back ({i, i + 200});
+    }
+    PileupFeatures supporting;  // drawn from the same population
+    supporting.endpoints = {
+        all.endpoints[7], all.endpoints[31], all.endpoints[62],
+        all.endpoints[88]
+    };
+    VariantStatInputs in{
+        supporting, all, REF_PLACEHOLDER, rng, true
+    };
+    const auto r = tjac.compute (in);
+    REQUIRE (r.has_value());
+    REQUIRE ((*r)[0].value.has_value());
+    REQUIRE (
+        *(*r)[0].value < 0.0
+    );  // less overlap than a typical draw
+    REQUIRE (*(*r)[1].value > 0.1);
+  }
+
+  SECTION ("length disparity alone does not fire")
+  {
+    // Nested templates of wildly different lengths, against a background of
+    // the same length mixture. A min(len) denominator would score nearly
+    // every pair here at 1.0; Jaccard must not read that as coincidence.
+    std::mt19937 rng (2);
+    PileupFeatures supporting;
+    supporting.endpoints = {
+        {990, 1010}, {900, 1100}, {995, 1015}, {800, 1200}
+    };
+    PileupFeatures all;
+    all.endpoints = mixed_length_background();
+    VariantStatInputs in{
+        supporting, all, REF_PLACEHOLDER, rng, true
+    };
+    const auto r = tjac.compute (in);
+    REQUIRE (r.has_value());
+    REQUIRE ((*r)[0].value.has_value());
+    REQUIRE (*(*r)[1].value > 0.1);
+  }
+
+  SECTION (
+      "coincident templates fire against a length-disparate "
+      "background"
+  )
+  {
+    // The regression guard for the Jaccard-over-min(len) decision. The
+    // background here is mostly nested pairs, so a min(len) denominator
+    // leaves the null sitting at ~94% of its ceiling and this genuinely
+    // coincident support set is invisible to it (measured z 0.62, p 0.16).
+    // Jaccard keeps the null near 39% of ceiling, so the same set stands
+    // out sharply.
+    std::mt19937 rng (2);
+    PileupFeatures supporting;
+    supporting.endpoints = {
+        {950, 1050}, {950, 1050}, {951, 1051}, {950, 1050}
+    };
+    PileupFeatures all;
+    all.endpoints = mixed_length_background();
+    VariantStatInputs in{
+        supporting, all, REF_PLACEHOLDER, rng, true
+    };
+    const auto r = tjac.compute (in);
+    REQUIRE (r.has_value());
+    REQUIRE ((*r)[0].value.has_value());
+    REQUIRE (*(*r)[0].value > 2.0);
+    REQUIRE (*(*r)[1].value < 0.05);
+  }
+
+  SECTION ("whole statistic skipped when the null has no spread")
+  {
+    // Every background template is identical, so every pair in every draw
+    // scores Jaccard 1.0 and every draw sums to the same 6.0. Degenerate null,
+    // so neither the z-score nor its p-value is reportable.
+    std::mt19937 rng (2);
+    PileupFeatures supporting;
+    supporting.endpoints = {
+        {100, 300}, {100, 300}, {100, 300}, {100, 300}
+    };
+    PileupFeatures all;
+    for (int64_t i = 0; i < 100; ++i) {
+      all.endpoints.push_back ({100, 300});
+    }
+    VariantStatInputs in{
+        supporting, all, REF_PLACEHOLDER, rng, true
+    };
+    const auto r = tjac.compute (in);
+    REQUIRE_FALSE (r.has_value());
+    REQUIRE (r.error() == REASON_ZERO_VARIANCE);
   }
 
   SECTION (
@@ -201,9 +541,10 @@ TEST_CASE ("compute TRK (template-endpoint clustering)")
     VariantStatInputs in{
         supporting, all, REF_PLACEHOLDER, rng, false
     };
-    const auto r = trk.compute (in);
+    const auto r = tjac.compute (in);
+    REQUIRE (r.has_value());
     REQUIRE (
-        r[0].value.has_value()
+        (*r)[0].value.has_value()
     );  // computed despite heterogeneity
   }
 }
@@ -223,13 +564,17 @@ TEST_CASE ("compute MLAS (median normalised alignment score)")
         supporting, all, REF_PLACEHOLDER, rng, true
     };
     const auto r = mlas.compute (in);
-    REQUIRE (r.size() == 2);
-    REQUIRE (*r[0].value == Approx (0.7));
-    REQUIRE (*r[1].value == Approx (0.5));
+    REQUIRE (r.has_value());
+    REQUIRE (r->size() == 2);
+    REQUIRE (*(*r)[0].value == Approx (0.7));
+    REQUIRE (*(*r)[1].value == Approx (0.5));
   }
 
   SECTION ("missing when the supporting group is empty")
   {
+    // MLAS's subfields are independent summaries, not one inference, so this
+    // is a per-subfield skip and not a whole-statistic one: the background
+    // median stays reportable.
     PileupFeatures supporting;  // no reads
     PileupFeatures all;
     all.normalisedAs = {0.3, 0.6};
@@ -237,9 +582,10 @@ TEST_CASE ("compute MLAS (median normalised alignment score)")
         supporting, all, REF_PLACEHOLDER, rng, true
     };
     const auto r = mlas.compute (in);
-    REQUIRE_FALSE (r[0].value.has_value());
-    REQUIRE (r[0].reason == REASON_NO_SUPPORT);
-    REQUIRE (r[1].value.has_value());
+    REQUIRE (r.has_value());
+    REQUIRE_FALSE ((*r)[0].value.has_value());
+    REQUIRE ((*r)[0].reason == REASON_NO_SUPPORT);
+    REQUIRE ((*r)[1].value.has_value());
   }
 }
 
@@ -256,8 +602,8 @@ TEST_CASE ("compute RCMPLX (reference complexity)")
         empty, empty, std::string_view (ref), rng, true
     };
     const auto r = rcmplx.compute (in);
-    REQUIRE_FALSE (r[0].value.has_value());
-    REQUIRE (r[0].reason == REASON_REFERENCE_TOO_SHORT);
+    REQUIRE_FALSE (r.has_value());
+    REQUIRE (r.error() == REASON_REFERENCE_TOO_SHORT);
   }
 
   SECTION ("missing when the slice contains N")
@@ -268,8 +614,8 @@ TEST_CASE ("compute RCMPLX (reference complexity)")
         empty, empty, std::string_view (ref), rng, true
     };
     const auto r = rcmplx.compute (in);
-    REQUIRE_FALSE (r[0].value.has_value());
-    REQUIRE (r[0].reason == REASON_REFERENCE_HAS_N);
+    REQUIRE_FALSE (r.has_value());
+    REQUIRE (r.error() == REASON_REFERENCE_HAS_N);
   }
 
   SECTION ("homopolymer window has low, known complexity")
@@ -281,9 +627,10 @@ TEST_CASE ("compute RCMPLX (reference complexity)")
         empty, empty, std::string_view (ref), rng, true
     };
     const auto r = rcmplx.compute (in);
-    REQUIRE (r[0].value.has_value());
+    REQUIRE (r.has_value());
+    REQUIRE ((*r)[0].value.has_value());
     // entropy_lz76 of 100 identical chars = 2*log2(100)/100 ~= 0.1329
-    REQUIRE (*r[0].value == Approx (0.13287712));
+    REQUIRE (*(*r)[0].value == Approx (0.13287712));
   }
 }
 
@@ -304,12 +651,15 @@ TEST_CASE ("stat_skip_tokens deduplicates within a statistic")
 
   SECTION ("only the missing subfield contributes a token")
   {
+    // MLAS, since it is the only statistic that can reach a partially-missing
+    // result: the joint-inference statistics skip whole or not at all.
+    const VariantStatField mlasField{"MLAS", "", 2};
     const std::vector<StatValue> oneMissing{
-        stat_value (1.0), stat_missing (REASON_ZERO_VARIANCE)
+        stat_value (0.7), stat_missing (REASON_NO_BACKGROUND)
     };
-    const auto tokens = stat_skip_tokens (field, oneMissing);
+    const auto tokens = stat_skip_tokens (mlasField, oneMissing);
     REQUIRE (tokens.size() == 1);
-    REQUIRE (tokens[0] == "QRK:zero_variance");
+    REQUIRE (tokens[0] == "MLAS:no_background");
   }
 
   SECTION ("no missing subfields -> no tokens")
@@ -319,4 +669,23 @@ TEST_CASE ("stat_skip_tokens deduplicates within a statistic")
     };
     REQUIRE (stat_skip_tokens (field, present).empty());
   }
+}
+
+TEST_CASE (
+    "stat_all_missing expands a skip to the registry's arity"
+)
+{
+  const auto twoValued =
+      stat_all_missing ({"QRK", "", 2}, REASON_ZERO_VARIANCE);
+  REQUIRE (twoValued.size() == 2);
+  for (const auto& v : twoValued) {
+    REQUIRE_FALSE (v.value.has_value());
+    REQUIRE (v.reason == REASON_ZERO_VARIANCE);
+  }
+
+  const auto oneValued = stat_all_missing (
+      {"RCMPLX", "", 1}, REASON_REFERENCE_HAS_N
+  );
+  REQUIRE (oneValued.size() == 1);
+  REQUIRE (oneValued[0].reason == REASON_REFERENCE_HAS_N);
 }

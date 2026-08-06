@@ -15,7 +15,7 @@ WORKDIR /src
 COPY . .
 
 RUN cmake -S . -B build \
-        -DCMAKE_BUILD_TYPE=Release \
+        -DCMAKE_BUILD_TYPE=RelWithDebInfo \
         -DMAKE_MAIN=ON \
         -DMAKE_DAUGHTER=ON \
     && cmake --build build --parallel "$(nproc)" \

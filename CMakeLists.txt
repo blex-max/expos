@@ -11,7 +11,12 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 set(CMAKE_POLICY_VERSION_MINIMUM 3.5)  # for argparse
 
-option(ENABLE_DEBUG_FLAGS "Enable extra debug compile options" OFF)
+if(NOT CMAKE_BUILD_TYPE)
+  message(STATUS "No CMAKE_BUILD_TYPE specified; defaulting to RelWithDebInfo")
+  set(CMAKE_BUILD_TYPE RelWithDebInfo CACHE STRING "Build type" FORCE)
+endif()
+
+option(ENABLE_DEBUG_FLAGS "Enable sanitizers and full debug info" OFF)
 
 option(MAKE_MAIN "Compile main expos binary" ON)
 option(MAKE_TEST "Compile tests binary" OFF)
@@ -95,33 +100,16 @@ set(COMMON_WARNINGS
   -Wdouble-promotion -Wformat=2
 )
 
-# //--- internal libs ---//
-# add_library(lib_stats INTERFACE)
-
-# target_include_directories(lib_stats INTERFACE
-#   ${CMAKE_CURRENT_SOURCE_DIR}/src
-# )
-
-# if(MAKE_MAIN OR MAKE_TEST)
-#   add_library(lib_expos STATIC
-#     src/expos/pileup.cpp
-#     src/expos/support.cpp
-#     src/expos/variant_record.cpp
-#     src/expos/cli.cpp
-#   )
-#   target_compile_options(lib_expos PRIVATE
-#     ${COMMON_WARNINGS}
-#   )
-#   target_include_directories(lib_expos PUBLIC
-#     ${CMAKE_CURRENT_SOURCE_DIR}/src
-#     ${CMAKE_CURRENT_SOURCE_DIR}/src/expos
-#   )
-#   target_link_libraries(lib_expos PUBLIC
-#     plog::plog
-#     cxxopts::cxxopts
-#     ${HTSLIB_TARGET}
-#   )
-# endif()
+set(COMMON_DEBUG_FLAGS "")
+if(ENABLE_DEBUG_FLAGS)
+  set(COMMON_DEBUG_FLAGS
+    -g3 -fno-omit-frame-pointer
+    -fsanitize=address,undefined
+    -fno-sanitize-recover=all
+    -UNDEBUG  # optimised build types define NDEBUG, stripping assert()
+  )
+  message(STATUS "ENABLE_DEBUG_FLAGS: building with ASan + UBSan")
+endif()
 
 # //--- testing ---//
 if(MAKE_TEST)
@@ -145,10 +133,18 @@ if(MAKE_TEST)
     tests/test_background_guard.cpp
     src/shared/stats.cpp
     src/expos/variant_stats.cpp
+    src/expos/compute_field.cpp
     src/expos/background_guard.cpp
   )
+  # Keep assert() preconditions live regardless of build type -- every
+  # optimised config defines NDEBUG, which would otherwise strip them.
   target_compile_options(test-expos PRIVATE
     ${COMMON_WARNINGS}
+    ${COMMON_DEBUG_FLAGS}
+    -UNDEBUG
+  )
+  target_link_options(test-expos PRIVATE
+    ${COMMON_DEBUG_FLAGS}
   )
   target_include_directories(test-expos PRIVATE
     ${COMMON_INCLUDES}
@@ -171,12 +167,17 @@ if(MAKE_MAIN)
     src/expos/extract_pileup.cpp
     src/expos/pileup_features.cpp
     src/expos/variant_stats.cpp
+    src/expos/compute_field.cpp
     src/expos/vcf_record.cpp
     src/hts/hts_types.cpp
     src/shared/stats.cpp
   )
   target_compile_options(expos PRIVATE
     ${COMMON_WARNINGS}
+    ${COMMON_DEBUG_FLAGS}
+  )
+  target_link_options(expos PRIVATE
+    ${COMMON_DEBUG_FLAGS}
   )
   target_compile_definitions(expos PRIVATE
     EXPOS_VERSION="${PROJECT_VERSION}"
@@ -200,6 +201,10 @@ if(MAKE_DAUGHTER)
   )
   target_compile_options(estimate-entropy PRIVATE
     ${COMMON_WARNINGS}
+    ${COMMON_DEBUG_FLAGS}
+  )
+  target_link_options(estimate-entropy PRIVATE
+    ${COMMON_DEBUG_FLAGS}
   )
   target_include_directories(estimate-entropy PRIVATE
     ${COMMON_INCLUDES}
