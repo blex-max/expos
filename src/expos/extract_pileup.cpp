@@ -5,6 +5,7 @@
 
 #include <algorithm>
 #include <array>
+#include <cerrno>
 #include <cstdint>
 #include <expected>
 #include <optional>
@@ -29,18 +30,16 @@ static std::expected<TemplateEndpoints, Err> extract_endpoints (
         )
     ));
   }
-  if (bam_aux_type (raw_mc) != 'Z') {
+  auto* const mc{bam_aux2Z (raw_mc)};
+  if (mc == NULL && errno == EINVAL) {
     return std::unexpected (make_err (
         fmt::format (
-            "MC tag is not of type 'Z' for read {}. "
-            "Record data corrupt; type 'Z' is mandated "
-            "for MC tag by SAM format spec. Try samtools"
-            "fixmate?",
+            "MC tag is not a string type for read {}. Try "
+            "samtools fixmate?",
             qname
         )
     ));
   }
-  auto* const mc{bam_aux2Z (raw_mc)};
   if (bam_parse_cigar (mc, NULL, bCigBuf) < 1) {
     return std::unexpected (make_err ((fmt::format (
         "unable to parse MC tag {} as cigar string "
@@ -77,24 +76,21 @@ static std::expected<double, Err> extract_normalised_as (
 )
 {
   const auto* qname = bam_get_qname (b1);
-  auto* const raw_as = bam_aux_get (b1, "AS");
-  if (raw_as == NULL) {
+  auto* const rawAs = bam_aux_get (b1, "AS");
+  if (rawAs == NULL) {
     return std::unexpected (
         make_err (fmt::format ("no AS tag for read {}", qname))
     );
   }
-  const auto asType = bam_aux_type (raw_as);
-  if (asType != 'i' && asType != 'C') {
+  const auto intAs = bam_aux2i (rawAs);
+  if (intAs == 0 && errno == EINVAL) {
     return std::unexpected (make_err (
         fmt::format (
-            "AS tag is not an integer type for read {}; SAM "
-            "spec "
-            "mandates type 'i'",
-            qname
+            "AS tag is not an integer type for read {}", qname
         )
     ));
   }
-  return static_cast<double> (bam_aux2i (raw_as)) /
+  return static_cast<double> (intAs) /
          static_cast<double> (b1->core.l_qseq);
 }
 
