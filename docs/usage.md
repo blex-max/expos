@@ -85,18 +85,18 @@ These are the header lines from an output VCF describing the INFO fields added. 
   Monte-Carlo results for spatial clustering of mutant query positions:
   [0]standardised effect size (z-score) versus simulation against all reads;
   [1]one-sided p-value.
-  Effect sizes greater than ~2.0 with a significant p-value may indicate a spurious variant.
+  Effect sizes greater than ~3.0 with a significant p-value may indicate a spurious variant.
   """>
 
 ##INFO=<
-  ID=TRK,
+  ID=TJAC,
   Number=2,
   Type=Float,
   Description="""
-  Monte-Carlo results for spatial clustering of mutant template endpoints:
+  Monte-Carlo results for graded pairwise overlap of mutant templates:
   [0]standardised effect size (z-score) versus simulation against all reads;
   [1]one-sided p-value.
-  Effect sizes greater than ~2.0 with a significant p-value may indicate a spurious variant.
+  Effect sizes greater than ~3.0 with a significant p-value may indicate a spurious variant.
   """>
 
 ##INFO=<
@@ -131,7 +131,7 @@ These are the header lines from an output VCF describing the INFO fields added. 
   """>
 ```
 
-Effect size is a standardised z-score relative to the simulated null distribution: 0.0 indicates no difference from background, positive values indicate tighter clustering than background (negative values looser), and values beyond ~2.0 are roughly two standard deviations from the mean of the null. The p-value is one-sided, giving the probability that a random subsample of the background would produce a statistic at least as extreme as the observed value. In blunt summary, effect sizes greater than ~2.0 combined with small p-values, especially if found in a low complexity region as indicated by `RCMPLX`, may indicate a spurious variant call.
+Effect size is a standardised z-score relative to the simulated null distribution: 0.0 indicates no difference from background, positive values indicate tighter clustering than background, and the value is expressed directly in standard deviations of that null. The p-value is one-sided, giving the probability that a random subsample of the background would produce a statistic at least as extreme as the observed value. A large effect size combined with a small p-value, especially if found in a low complexity region as indicated by `RCMPLX`, may indicate a spurious variant call. A z-score of 3.0 is approximately the 1% false-positive point for each. It is not constant across support sizes — with only five supporting reads the true rate at 3.0 is nearer 2%, and low support is common in somatic calling.
 
 Every output VCF also carries provenance in its header: a `##source` line (program, version and UTC timestamp) and an `##expos_command` line recording the invocation.
 
@@ -143,10 +143,10 @@ Every output VCF also carries provenance in its header: a `##source` line (progr
 `expos` attempts to handle invalid records gracefully. When it cannot compute a statistic it writes a VCF missing value (`.`) for that field and records the reason in `EXPOS_SKIP` as one or more `<scope>:<reason>` tokens:
 
 - **Whole-record skips** use the `record` scope. Multiallelic records (`record:multiallelic`) and complex/untypeable records (`record:complex`) are passed through unannotated. Records skipped by `--skip-filtered` are not marked.
-- **Per-statistic skips** use the statistic's ID as the scope, e.g. `QRK:insufficient_support`, `TRK:zero_variance`, `RCMPLX:reference_has_n`.
+- **Per-statistic skips** use the statistic's ID as the scope, e.g. `QRK:insufficient_support`, `TJAC:zero_variance`, `RCMPLX:reference_has_n`.
 
 !!! note "QRK"
-  `QRK` may be suppressed with `QRK:heterogeneous_read_length` when the primary sample's reads at a locus have markedly uneven lengths, since query position is an offset within a read and a mixed read-length population confounds it. `TRK` has no equivalent per-statistic reason; read-length heterogeneity doesn't apply.
+  `QRK` may be suppressed with `QRK:heterogeneous_read_length` when the primary sample's reads at a locus have markedly uneven lengths, since query position is an offset within a read and a mixed read-length population confounds it. `TJAC` has no equivalent per-statistic reason; template endpoints track fragment boundaries, not read length, so read-length heterogeneity doesn't apply.
 
 !!! note "insufficent power"
   If insufficient reads are available to perform testing, expos skip will record the `insufficient_background` reason.
@@ -155,6 +155,8 @@ Every output VCF also carries provenance in its header: a `##source` line (progr
 ## Filtering Pipeline Examples
 
 The following are some examples of how the annotations made by `expos` might be used for variant filtering downstream.
+
+The annotations are meant to be read together rather than in isolation. A variant tripping several is therefore much more suspect than one tripping any single test. The examples below add flags separately rather than combining them into one expression so that the count remains visible in the `FILTER` column.
 
 ### **Broad Flagging Pipeline**
 
@@ -172,8 +174,8 @@ strictly a recommendation, though it is statistically defensible.
 # note that for brevity no additional background sample is provided, but providing one
 # (e.g. a matched normal) via --bg can add a lot of statistical power if one is available.
 # 3, 4: statisically-backed flagging on distribution/clustering stats;
-# flagging variants where observations are at least 4x as tightly clustered as the background
-# and the difference is statistically significant (P <= 0.05).
+# flagging variants whose clustering sits about three standard deviations above
+# the background and is statistically significant (P <= 0.05).
 # 6: heuristic/rule-of-thumb on poor alignment score on supporting reads in regions
 # of low reference complexity;
 # 7: heuristic/rule-of-thumb flagging on poor alignment score
@@ -182,11 +184,11 @@ strictly a recommendation, though it is statistically defensible.
 bcftools filter -Ov \
   --mode + \
   -s QPOS_CLUSTER \
-  -e'(INFO/QRK[0] >= 2.0 & INFO/QRK[1] < 0.05)' |
+  -e'(INFO/QRK[0] >= 3.0 & INFO/QRK[1] < 0.05)' |
 bcftools filter -Ov \
   --mode + \
-  -s TEMPLATE_CLUSTER \
-  -e'(INFO/TRK[0] >= 2.0 & INFO/TRK[1] < 0.05)' |
+  -s TEMPLATE_OVERLAP \
+  -e'(INFO/TJAC[0] >= 3.0 & INFO/TJAC[1] < 0.05)' |
 bcftools filter -Ov \
   --mode + \
   -s POOR_ALN_REG \
@@ -208,7 +210,7 @@ looks specifically for clustered variants in low complexity regions
 bcftools filter -Oz \
   --mode + \
   -s LOW_CMPLX_CLUSTER \
-  -e'INFO/QRK[0] >= 2.0 & INFO/QRK[1] < 0.05 & INFO/RCMPLX < 1.5' > my.flagged.vcf.gz
+  -e'INFO/QRK[0] >= 3.0 & INFO/QRK[1] < 0.05 & INFO/RCMPLX < 1.5' > my.flagged.vcf.gz
 ```
 
 At the cost of missing more generic variants with spurious looking spatial properties.
@@ -218,13 +220,13 @@ At the cost of missing more generic variants with spurious looking spatial prope
 Thresholds for p-value and effect size can be tuned:
 
 ```bash
-# relaxed p-val, very large effect size (8x as clustered)
+# relaxed p-val, and an effect size well beyond the calibrated 1% point
 # an example of the concept, again not a recommendation per se
 ./path/to/expos -u my.vcf ref.fa my.bam |
 bcftools filter -Oz \
   --mode + \
   -s QPOS_CLUSTER_2 \
-  -e'INFO/QRK[0] >= 3.0 & INFO/QRK[1] < 0.1' > my.flagged.vcf.gz
+  -e'INFO/QRK[0] >= 4.5 & INFO/QRK[1] < 0.1' > my.flagged.vcf.gz
 ```
 
 ## Thresholding on Complexity (`RCMPLX`)
@@ -242,6 +244,6 @@ bcftools filter -Oz \
 
 GIAB's difficult regions cluster tightly around a median of ~1.47, over half a bit below the rest of the genome (median ~1.9-1.93) and with roughly double the spread. This is the basis for the `RCMPLX < 1.5` heuristic used in the filtering examples above: it sits almost exactly at the median of GIAB's difficult-region strata, and comfortably below the bulk of the rest of the genome.
 
-!!! note "Not a hard boundary"
+!!! note "Caveat"
     The two distributions overlap substantially (the "outside" regions still have a minimum as low as 0.38-0.86), so `RCMPLX` is best treated as a continuous risk factor to combine with other statistics, not a clean binary classifier of "difficult" vs "normal" sequence.
 

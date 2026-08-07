@@ -1,12 +1,12 @@
 # Concepts & Theory
 
-`expos` performs fast statistical assessment of spatial clustering in mutant reads and templates. The program implements Monte-Carlo simulation to assess deviation from the total set of reads covering a given variant. Ripley’s K, a standard metric in spatial inference, is used to evidence clustering, and effect sizes and p-values are reported. Since artefactual variants are disproportionately associated with regions of low sequence complexity, an estimate of the complexity of the reference region spanned by the supporting templates for a given variant is also reported. The complete statistical analysis reported may be encoded directly into a VCF and allows for robust flagging of these false-positive variants.
+`expos` performs fast statistical assessment of spatial clustering in mutant reads and templates. The program implements Monte-Carlo simulation to assess deviation from the total set of reads covering a given variant. Clustering of query positions is evidenced with Ripley’s K, a standard metric in spatial inference; coincidence between templates is measured as graded pairwise overlap. Effect sizes and p-values are reported for both. Since artefactual variants are disproportionately associated with regions of low sequence complexity, an estimate of the complexity of the reference region spanned by the supporting templates for a given variant is also reported. The complete statistical analysis reported may be encoded directly into a VCF and allows for robust flagging of false-positive variants.
 
 An idealised model of sequencing can be instructive in setting expectations against which to verify reads supporting a putative mutation. Assume paired-end sequencing, at a fixed read length. For a base sequenced to infinite read-depth in some sample under ideal conditions, an intuitive expectation is that the distribution of the query position of this base on the sequenced reads would approximate the uniform distribution. Or, in other words, we do not expect the sequencing process to dramatically prefer any particular genomic location around our base of interest, and, identically, it would be surprising for the reads covering the base to all exhibit that base at the same query position in each read. A corollary is that a similar principle must apply to the templates from which the reads were amplified – we do not expect homogeneity in their endpoint coordinates either. An extreme deviation from these expectations – identical endpoints between groups of reads and/or templates – forms the basis of duplicate marking as performed by samtools and biobambam. In essence, `expos` looks for deviation of this nature but using a reference distribution of reads covering the region rather than an idealised model.
 
 ## Spatial Clustering Walkthrough
 
-`expos` looks for clustering in query position of variant supporting reads (and template endpoints).
+`expos` looks for clustering in query position of variant supporting reads.
 Here's a simple example using a spatial density plot to show query position of the genomic location on the reads spanning that location:
 
 ![A variant with clustered query position compared to reference](images/clustered-variant.svg)
@@ -38,9 +38,6 @@ For completeness, here is a slightly more nuanced case with mixed clustering. It
 | 23.961      | 0.0004  |
 
 `expos` makes clarification easy. Despite the presence of some distinct clustering in the query postion of each allele, the mutant supporting reads again exhibit strong unique clustering as compared to random subsamples of the total set, and there is only a miniscule possibility that a set of reads with those properties could have been drawn from the total set. Note that the effect size here exceeds that of the first example: because the z-score is normalised by the standard deviation of the null distribution, a tighter or less variable null (which can arise from a smaller number of supporting reads, or a less variable background population) will amplify the score even when the visual degree of clustering appears similar. The effect size therefore reflects how unusual the observed clustering is relative to its own particular background, not a direct measure of the absolute degree of clustering.
-
-!!! note "Template Endpoints"
-    `expos` analyses template endpoints identically as described here, except in two dimensions using the start and end coordinates.
 
 !!! note "Data Source"
     Data for these examples was synthetically generated, and is available with the repo in `example-data/`.
