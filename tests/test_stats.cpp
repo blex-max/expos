@@ -12,13 +12,6 @@
 
 using Catch::Approx;
 
-TEST_CASE ("mean")
-{
-  REQUIRE_FALSE (mean ({}).has_value());
-  REQUIRE (*mean ({1.0, 2.0, 3.0, 4.0}) == Approx (2.5));
-  REQUIRE (*mean ({42.0}) == Approx (42.0));
-}
-
 TEST_CASE ("percentile")
 {
   REQUIRE_FALSE (

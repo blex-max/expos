@@ -46,18 +46,34 @@ std::size_t brute_pairs_1d (
 
 }  // namespace
 
+namespace {
+
+// count_pairs_within_1d takes a mutable span and sorts through it, so each
+// case needs its own storage. Returns the count for a fresh copy of `v`.
+std::size_t pairs_of (std::vector<int32_t> v, uint64_t r)
+{
+  return count_pairs_within_1d (v, r);
+}
+
+}  // namespace
+
 TEST_CASE ("count_pairs_within_1d")
 {
-  REQUIRE (count_pairs_within_1d ({}, 5) == 0);
-  REQUIRE (count_pairs_within_1d ({5}, 10) == 0);
-  REQUIRE (count_pairs_within_1d ({1, 2, 3}, 2) == 2);
-  REQUIRE (count_pairs_within_1d ({1, 2, 3}, 3) == 3);
-  REQUIRE (
-      count_pairs_within_1d ({7, 7, 7}, 1) == 3
-  );  // dups, dist 0 < 1
-  REQUIRE (
-      count_pairs_within_1d ({1, 2, 3}, 0) == 0
-  );  // radius 0 -> none
+  REQUIRE (pairs_of ({}, 5) == 0);
+  REQUIRE (pairs_of ({5}, 10) == 0);
+  REQUIRE (pairs_of ({1, 2, 3}, 2) == 2);
+  REQUIRE (pairs_of ({1, 2, 3}, 3) == 3);
+  REQUIRE (pairs_of ({7, 7, 7}, 1) == 3);  // dups, dist 0 < 1
+  REQUIRE (pairs_of ({1, 2, 3}, 0) == 0);  // radius 0 -> none
+
+  SECTION ("sorts its argument in place")
+  {
+    // The in-place sort is what lets the Monte-Carlo draws reuse one buffer;
+    // callers whose data must survive pass a copy.
+    std::vector<int32_t> v{30, 10, 20};
+    count_pairs_within_1d (v, 5);
+    REQUIRE (v == std::vector<int32_t>{10, 20, 30});
+  }
 
   SECTION ("randomised cross-check against a brute-force oracle")
   {
@@ -71,10 +87,9 @@ TEST_CASE ("count_pairs_within_1d")
         vals.push_back (valDist (rng));
       }
       const uint64_t radius = rng() % 20;
-      REQUIRE (
-          count_pairs_within_1d (vals, radius) ==
-          brute_pairs_1d (vals, radius)
-      );
+      // Brute force first: the call below reorders `vals`.
+      const std::size_t expected = brute_pairs_1d (vals, radius);
+      REQUIRE (count_pairs_within_1d (vals, radius) == expected);
     }
   }
 }
@@ -127,10 +142,11 @@ TEST_CASE ("run_monte_carlo")
     }
     auto run = [&] (uint32_t seed) {
       std::mt19937 rng (seed);
+      SubsampleScratch<int32_t> scratch;
       auto draw = [&]() {
-        return subsample_wo_replace (pop, 20, rng);
+        return subsample_wo_replace (pop, 20, rng, scratch);
       };
-      auto stat = [] (const std::vector<int32_t>& s) {
+      auto stat = [] (std::span<int32_t> s) {
         return static_cast<double> (
             count_pairs_within_1d (s, 5)
         );
@@ -158,7 +174,8 @@ TEST_CASE ("subsample_wo_replace")
   SECTION ("size, membership, no replacement")
   {
     std::mt19937 rng (7);
-    const auto s = subsample_wo_replace (obs, 3, rng);
+    SubsampleScratch<int> scratch;
+    const auto s = subsample_wo_replace (obs, 3, rng, scratch);
     REQUIRE (s.size() == 3);
     const std::set<int> uniq (s.begin(), s.end());
     REQUIRE (uniq.size() == 3);
@@ -169,21 +186,25 @@ TEST_CASE ("subsample_wo_replace")
     }
   }
 
-  SECTION ("deterministic under identical seed")
+  SECTION (
+      "deterministic under identical seed and fresh scratch"
+  )
   {
-    std::mt19937 rngA (7);
-    std::mt19937 rngB (7);
-    REQUIRE (
-        subsample_wo_replace (obs, 3, rngA) ==
-        subsample_wo_replace (obs, 3, rngB)
-    );
+    auto draw = [&] (uint32_t seed) {
+      std::mt19937 rng (seed);
+      SubsampleScratch<int> scratch;
+      const auto s = subsample_wo_replace (obs, 3, rng, scratch);
+      return std::vector<int> (s.begin(), s.end());
+    };
+    REQUIRE (draw (7) == draw (7));
   }
 
   SECTION ("n == nObs yields a full permutation")
   {
     std::mt19937 rng (1);
+    SubsampleScratch<int> scratch;
     const auto full =
-        subsample_wo_replace (obs, obs.size(), rng);
+        subsample_wo_replace (obs, obs.size(), rng, scratch);
     const std::set<int> uniq (full.begin(), full.end());
     REQUIRE (uniq.size() == obs.size());
   }
@@ -191,7 +212,71 @@ TEST_CASE ("subsample_wo_replace")
   SECTION ("n == 0 yields empty")
   {
     std::mt19937 rng (1);
-    REQUIRE (subsample_wo_replace (obs, 0, rng).empty());
+    SubsampleScratch<int> scratch;
+    REQUIRE (
+        subsample_wo_replace (obs, 0, rng, scratch).empty()
+    );
+  }
+
+  SECTION ("one scratch survives a changing population size")
+  {
+    // The index permutation is only valid for the population it was built
+    // for, so a size change must rebuild it rather than resize it.
+    std::mt19937 rng (3);
+    SubsampleScratch<int32_t> scratch;
+    for (const std::size_t nObs : {60U, 17U, 60U, 200U, 5U}) {
+      std::vector<int32_t> pop (nObs);
+      for (std::size_t i = 0; i < nObs; ++i) {
+        pop[i] = static_cast<int32_t> (i);
+      }
+      const std::size_t n = nObs / 2;
+      const auto s = subsample_wo_replace (pop, n, rng, scratch);
+      REQUIRE (s.size() == n);
+      const std::set<int32_t> uniq (s.begin(), s.end());
+      REQUIRE (uniq.size() == n);  // still no replacement
+      for (const int32_t v : s) {
+        REQUIRE (v >= 0);
+        REQUIRE (v < static_cast<int32_t> (nObs));
+      }
+    }
+  }
+
+  SECTION ("repeated draws from one scratch stay uniform")
+  {
+    // The scratch carries its permutation between draws rather than
+    // re-initialising it, which is what makes a draw O(n) instead of
+    // O(population). That is only sound if the carried permutation biases
+    // nothing: draw k+1 applies a fresh independent partial Fisher-Yates and
+    // then maps through a fixed bijection, and a bijection of a uniform
+    // n-subset is a uniform n-subset. This is the test for that claim.
+    constexpr std::size_t nObs = 40;
+    constexpr std::size_t n = 8;
+    constexpr std::size_t nDraws = 40000;
+
+    std::vector<int32_t> pop (nObs);
+    for (std::size_t i = 0; i < nObs; ++i) {
+      pop[i] = static_cast<int32_t> (i);
+    }
+
+    std::mt19937 rng (20260806);
+    SubsampleScratch<int32_t> scratch;
+    std::vector<std::size_t> hits (nObs, 0);
+    for (std::size_t d = 0; d < nDraws; ++d) {
+      for (const int32_t v :
+           subsample_wo_replace (pop, n, rng, scratch)) {
+        ++hits[static_cast<std::size_t> (v)];
+      }
+    }
+
+    const double expected = static_cast<double> (nDraws * n) /
+                            static_cast<double> (nObs);
+    double chi2 = 0.0;
+    for (const std::size_t h : hits) {
+      const double d = static_cast<double> (h) - expected;
+      chi2 += (d * d) / expected;
+    }
+    // 39 df; the 0.1% upper tail is 72.05. A biased carry blows well past it.
+    REQUIRE (chi2 < 72.05);
   }
 }
 
@@ -238,10 +323,10 @@ TEST_CASE ("compute QRK (query-position clustering)")
     supporting.qPos = {10};
     PileupFeatures all;
     all.qPos = {0, 5, 10, 15, 20, 25};
-    VariantStatInputs in{
-        supporting, all, REF_PLACEHOLDER, rng, true
-    };
-    const auto r = qrk.compute (in);
+    VariantStatInputs in{supporting, all, REF_PLACEHOLDER};
+    McState mc{std::move (rng), {}, {}};
+    const StatContext ctx{mc, true};
+    const auto r = qrk.compute (in, ctx);
     REQUIRE_FALSE (r.has_value());
     REQUIRE (r.error() == REASON_INSUFFICIENT_SUPPORT);
   }
@@ -252,10 +337,10 @@ TEST_CASE ("compute QRK (query-position clustering)")
     supporting.qPos = {10, 11, 12};
     PileupFeatures all;
     all.qPos = {10, 11, 12, 40, 90};  // 5 < 2*3
-    VariantStatInputs in{
-        supporting, all, REF_PLACEHOLDER, rng, true
-    };
-    const auto r = qrk.compute (in);
+    VariantStatInputs in{supporting, all, REF_PLACEHOLDER};
+    McState mc{std::move (rng), {}, {}};
+    const StatContext ctx{mc, true};
+    const auto r = qrk.compute (in, ctx);
     REQUIRE_FALSE (r.has_value());
     REQUIRE (r.error() == REASON_INSUFFICIENT_BACKGROUND);
   }
@@ -268,10 +353,10 @@ TEST_CASE ("compute QRK (query-position clustering)")
     for (int32_t i = 0; i < 200; ++i) {
       all.qPos.push_back (i);
     }
-    VariantStatInputs in{
-        supporting, all, REF_PLACEHOLDER, rng, false
-    };
-    const auto r = qrk.compute (in);
+    VariantStatInputs in{supporting, all, REF_PLACEHOLDER};
+    McState mc{std::move (rng), {}, {}};
+    const StatContext ctx{mc, false};
+    const auto r = qrk.compute (in, ctx);
     REQUIRE_FALSE (r.has_value());
     REQUIRE (r.error() == REASON_HETEROGENEOUS_READ_LENGTH);
   }
@@ -284,10 +369,10 @@ TEST_CASE ("compute QRK (query-position clustering)")
     for (int32_t i = 0; i < 200; ++i) {
       all.qPos.push_back (i);  // spread 0..199
     }
-    VariantStatInputs in{
-        supporting, all, REF_PLACEHOLDER, rng, true
-    };
-    const auto r = qrk.compute (in);
+    VariantStatInputs in{supporting, all, REF_PLACEHOLDER};
+    McState mc{std::move (rng), {}, {}};
+    const StatContext ctx{mc, true};
+    const auto r = qrk.compute (in, ctx);
     REQUIRE (r.has_value());
     REQUIRE (r->size() == 2);  // matches the registry's nValues
     REQUIRE ((*r)[0].value.has_value());  // effect size
@@ -311,10 +396,10 @@ TEST_CASE ("compute QRK (query-position clustering)")
     for (int32_t i = 0; i < 100; ++i) {
       all.qPos.push_back (50);
     }
-    VariantStatInputs in{
-        supporting, all, REF_PLACEHOLDER, rng, true
-    };
-    const auto r = qrk.compute (in);
+    VariantStatInputs in{supporting, all, REF_PLACEHOLDER};
+    McState mc{std::move (rng), {}, {}};
+    const StatContext ctx{mc, true};
+    const auto r = qrk.compute (in, ctx);
     REQUIRE_FALSE (r.has_value());
     REQUIRE (r.error() == REASON_ZERO_VARIANCE);
   }
@@ -329,14 +414,14 @@ TEST_CASE ("compute QRK (query-position clustering)")
     }
     std::mt19937 rngA (7);
     std::mt19937 rngB (7);
-    VariantStatInputs inA{
-        supporting, all, REF_PLACEHOLDER, rngA, true
-    };
-    VariantStatInputs inB{
-        supporting, all, REF_PLACEHOLDER, rngB, true
-    };
-    const auto a = qrk.compute (inA);
-    const auto b = qrk.compute (inB);
+    VariantStatInputs inA{supporting, all, REF_PLACEHOLDER};
+    McState mcA{std::move (rngA), {}, {}};
+    const StatContext ctxA{mcA, true};
+    VariantStatInputs inB{supporting, all, REF_PLACEHOLDER};
+    McState mcB{std::move (rngB), {}, {}};
+    const StatContext ctxB{mcB, true};
+    const auto a = qrk.compute (inA, ctxA);
+    const auto b = qrk.compute (inB, ctxB);
     REQUIRE (a.has_value());
     REQUIRE (b.has_value());
     REQUIRE ((*a)[0].value.has_value());
@@ -376,10 +461,10 @@ TEST_CASE ("compute TJAC (graded pairwise template overlap)")
     all.endpoints = {
         {100, 300}, {110, 320}, {500, 700}, {900, 1100}
     };
-    VariantStatInputs in{
-        supporting, all, REF_PLACEHOLDER, rng, true
-    };
-    const auto r = tjac.compute (in);
+    VariantStatInputs in{supporting, all, REF_PLACEHOLDER};
+    McState mc{std::move (rng), {}, {}};
+    const StatContext ctx{mc, true};
+    const auto r = tjac.compute (in, ctx);
     REQUIRE_FALSE (r.has_value());
     REQUIRE (r.error() == REASON_INSUFFICIENT_SUPPORT);
   }
@@ -397,10 +482,10 @@ TEST_CASE ("compute TJAC (graded pairwise template overlap)")
         {500, 700},
         {900, 1100}
     };  // 5 < 2*3
-    VariantStatInputs in{
-        supporting, all, REF_PLACEHOLDER, rng, true
-    };
-    const auto r = tjac.compute (in);
+    VariantStatInputs in{supporting, all, REF_PLACEHOLDER};
+    McState mc{std::move (rng), {}, {}};
+    const StatContext ctx{mc, true};
+    const auto r = tjac.compute (in, ctx);
     REQUIRE_FALSE (r.has_value());
     REQUIRE (r.error() == REASON_INSUFFICIENT_BACKGROUND);
   }
@@ -418,10 +503,10 @@ TEST_CASE ("compute TJAC (graded pairwise template overlap)")
       // the null has non-zero variance.
       all.endpoints.push_back ({i, i + 200});
     }
-    VariantStatInputs in{
-        supporting, all, REF_PLACEHOLDER, rng, true
-    };
-    const auto r = tjac.compute (in);
+    VariantStatInputs in{supporting, all, REF_PLACEHOLDER};
+    McState mc{std::move (rng), {}, {}};
+    const StatContext ctx{mc, true};
+    const auto r = tjac.compute (in, ctx);
     REQUIRE (r.has_value());
     REQUIRE ((*r)[0].value.has_value());
     REQUIRE (*(*r)[0].value > 0.0);
@@ -442,10 +527,10 @@ TEST_CASE ("compute TJAC (graded pairwise template overlap)")
         all.endpoints[7], all.endpoints[31], all.endpoints[62],
         all.endpoints[88]
     };
-    VariantStatInputs in{
-        supporting, all, REF_PLACEHOLDER, rng, true
-    };
-    const auto r = tjac.compute (in);
+    VariantStatInputs in{supporting, all, REF_PLACEHOLDER};
+    McState mc{std::move (rng), {}, {}};
+    const StatContext ctx{mc, true};
+    const auto r = tjac.compute (in, ctx);
     REQUIRE (r.has_value());
     REQUIRE ((*r)[0].value.has_value());
     REQUIRE (
@@ -466,10 +551,10 @@ TEST_CASE ("compute TJAC (graded pairwise template overlap)")
     };
     PileupFeatures all;
     all.endpoints = mixed_length_background();
-    VariantStatInputs in{
-        supporting, all, REF_PLACEHOLDER, rng, true
-    };
-    const auto r = tjac.compute (in);
+    VariantStatInputs in{supporting, all, REF_PLACEHOLDER};
+    McState mc{std::move (rng), {}, {}};
+    const StatContext ctx{mc, true};
+    const auto r = tjac.compute (in, ctx);
     REQUIRE (r.has_value());
     REQUIRE ((*r)[0].value.has_value());
     REQUIRE (*(*r)[1].value > 0.1);
@@ -493,10 +578,10 @@ TEST_CASE ("compute TJAC (graded pairwise template overlap)")
     };
     PileupFeatures all;
     all.endpoints = mixed_length_background();
-    VariantStatInputs in{
-        supporting, all, REF_PLACEHOLDER, rng, true
-    };
-    const auto r = tjac.compute (in);
+    VariantStatInputs in{supporting, all, REF_PLACEHOLDER};
+    McState mc{std::move (rng), {}, {}};
+    const StatContext ctx{mc, true};
+    const auto r = tjac.compute (in, ctx);
     REQUIRE (r.has_value());
     REQUIRE ((*r)[0].value.has_value());
     REQUIRE (*(*r)[0].value > 2.0);
@@ -517,10 +602,10 @@ TEST_CASE ("compute TJAC (graded pairwise template overlap)")
     for (int64_t i = 0; i < 100; ++i) {
       all.endpoints.push_back ({100, 300});
     }
-    VariantStatInputs in{
-        supporting, all, REF_PLACEHOLDER, rng, true
-    };
-    const auto r = tjac.compute (in);
+    VariantStatInputs in{supporting, all, REF_PLACEHOLDER};
+    McState mc{std::move (rng), {}, {}};
+    const StatContext ctx{mc, true};
+    const auto r = tjac.compute (in, ctx);
     REQUIRE_FALSE (r.has_value());
     REQUIRE (r.error() == REASON_ZERO_VARIANCE);
   }
@@ -538,10 +623,10 @@ TEST_CASE ("compute TJAC (graded pairwise template overlap)")
     for (int64_t i = 0; i < 100; ++i) {
       all.endpoints.push_back ({i, i + 200});
     }
-    VariantStatInputs in{
-        supporting, all, REF_PLACEHOLDER, rng, false
-    };
-    const auto r = tjac.compute (in);
+    VariantStatInputs in{supporting, all, REF_PLACEHOLDER};
+    McState mc{std::move (rng), {}, {}};
+    const StatContext ctx{mc, false};
+    const auto r = tjac.compute (in, ctx);
     REQUIRE (r.has_value());
     REQUIRE (
         (*r)[0].value.has_value()
@@ -560,10 +645,10 @@ TEST_CASE ("compute MLAS (median normalised alignment score)")
     supporting.normalisedAs = {0.5, 0.7, 0.9};  // median 0.7
     PileupFeatures all;
     all.normalisedAs = {0.2, 0.4, 0.6, 0.8};  // median 0.5
-    VariantStatInputs in{
-        supporting, all, REF_PLACEHOLDER, rng, true
-    };
-    const auto r = mlas.compute (in);
+    VariantStatInputs in{supporting, all, REF_PLACEHOLDER};
+    McState mc{std::move (rng), {}, {}};
+    const StatContext ctx{mc, true};
+    const auto r = mlas.compute (in, ctx);
     REQUIRE (r.has_value());
     REQUIRE (r->size() == 2);
     REQUIRE (*(*r)[0].value == Approx (0.7));
@@ -578,10 +663,10 @@ TEST_CASE ("compute MLAS (median normalised alignment score)")
     PileupFeatures supporting;  // no reads
     PileupFeatures all;
     all.normalisedAs = {0.3, 0.6};
-    VariantStatInputs in{
-        supporting, all, REF_PLACEHOLDER, rng, true
-    };
-    const auto r = mlas.compute (in);
+    VariantStatInputs in{supporting, all, REF_PLACEHOLDER};
+    McState mc{std::move (rng), {}, {}};
+    const StatContext ctx{mc, true};
+    const auto r = mlas.compute (in, ctx);
     REQUIRE (r.has_value());
     REQUIRE_FALSE ((*r)[0].value.has_value());
     REQUIRE ((*r)[0].reason == REASON_NO_SUPPORT);
@@ -598,10 +683,10 @@ TEST_CASE ("compute RCMPLX (reference complexity)")
   SECTION ("missing when the slice is shorter than the window")
   {
     const std::string ref (99, 'A');
-    VariantStatInputs in{
-        empty, empty, std::string_view (ref), rng, true
-    };
-    const auto r = rcmplx.compute (in);
+    VariantStatInputs in{empty, empty, std::string_view (ref)};
+    McState mc{std::move (rng), {}, {}};
+    const StatContext ctx{mc, true};
+    const auto r = rcmplx.compute (in, ctx);
     REQUIRE_FALSE (r.has_value());
     REQUIRE (r.error() == REASON_REFERENCE_TOO_SHORT);
   }
@@ -610,10 +695,10 @@ TEST_CASE ("compute RCMPLX (reference complexity)")
   {
     std::string ref (150, 'A');
     ref[75] = 'N';
-    VariantStatInputs in{
-        empty, empty, std::string_view (ref), rng, true
-    };
-    const auto r = rcmplx.compute (in);
+    VariantStatInputs in{empty, empty, std::string_view (ref)};
+    McState mc{std::move (rng), {}, {}};
+    const StatContext ctx{mc, true};
+    const auto r = rcmplx.compute (in, ctx);
     REQUIRE_FALSE (r.has_value());
     REQUIRE (r.error() == REASON_REFERENCE_HAS_N);
   }
@@ -623,10 +708,10 @@ TEST_CASE ("compute RCMPLX (reference complexity)")
     const std::string ref (
         100, 'A'
     );  // exactly one 100-base window
-    VariantStatInputs in{
-        empty, empty, std::string_view (ref), rng, true
-    };
-    const auto r = rcmplx.compute (in);
+    VariantStatInputs in{empty, empty, std::string_view (ref)};
+    McState mc{std::move (rng), {}, {}};
+    const StatContext ctx{mc, true};
+    const auto r = rcmplx.compute (in, ctx);
     REQUIRE (r.has_value());
     REQUIRE ((*r)[0].value.has_value());
     // entropy_lz76 of 100 identical chars = 2*log2(100)/100 ~= 0.1329
