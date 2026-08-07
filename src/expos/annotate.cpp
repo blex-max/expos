@@ -29,6 +29,8 @@ static constexpr std::size_t MIN_READS_FOR_LEN_CHECK = 10;
 static constexpr std::size_t MIN_TEMPLATES_FOR_LEN_CHECK = 10;
 static constexpr double READ_LEN_REL_IQR_TOL = 0.10;
 static constexpr double MEDIAN_REL_TOL = 0.10;
+// Reference flank either side of the REF allele, in bases, for RCMPLX.
+static constexpr int64_t RCMPLX_FLANK = 400;
 
 // User-facing warning
 static void warn (const std::string& msg)
@@ -106,26 +108,26 @@ static PileupPosOrErr make_record_pileup_pos (
   return PileupPosition{*tidConvRet, r.ptr->pos};
 }
 
-// Reference bases spanned by the supporting templates, upper-cased. Empty
-// when there are no supporting templates (RCMPLX then reports missing).
-static RefSliceOrErr supporting_ref_slice (
-    const VcfRec& r, const FastaFile& ref,
-    const PileupFeatures& supporting
+// Reference bases around the variant, upper-cased: the REF allele span padded
+// by RCMPLX_FLANK either side. Deliberately independent of the alignments —
+// the span of the supporting templates is defined by the very reads whose
+// reliability RCMPLX helps assess, and one mismapped mate stretches it
+// arbitrarily (megabases, in practice). Short near a contig edge, in which
+// case RCMPLX reports reference_too_short.
+static RefSliceOrErr variant_ref_slice (
+    const VcfRec& r, const FastaFile& ref
 )
 {
-  if (supporting.endpoints.empty()) {
-    return std::string{};
-  }
-  int64_t spanStart = supporting.endpoints.front().first;
-  int64_t spanEnd = supporting.endpoints.front().second;
-  for (const auto& [lo, hi] : supporting.endpoints) {
-    spanStart = std::min (spanStart, lo);
-    spanEnd = std::max (spanEnd, hi);
-  }
+  const int64_t sliceStart =
+      std::max<int64_t> (0, r.ptr->pos - RCMPLX_FLANK);
+  const int64_t sliceEnd =
+      r.ptr->pos + r.ptr->rlen +
+      RCMPLX_FLANK;  // faidx clamps to contig end
 
   const std::string_view contig =
       bcf_hdr_id2name (r.hdr, r.ptr->rid);
-  auto sliceRet = fetch_region (ref, contig, spanStart, spanEnd);
+  auto sliceRet =
+      fetch_region (ref, contig, sliceStart, sliceEnd);
   if (!sliceRet) {
     return std::unexpected (sliceRet.error());
   }
@@ -219,7 +221,7 @@ static VoidOrErr annotate_record (
     merge (all, ru_bg);
   }
 
-  auto sliceRet = supporting_ref_slice (r, ctx.ref, supporting);
+  auto sliceRet = variant_ref_slice (r, ctx.ref);
   if (!sliceRet) {
     return std::unexpected (sliceRet.error());
   }

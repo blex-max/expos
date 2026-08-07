@@ -115,7 +115,7 @@ These are the header lines from an output VCF describing the INFO fields added. 
   Type=Float,
   Description="""
   Mean 100-base window complexity (Lempel-Ziv 76 entropy rate) of the
-  reference region spanned by supporting templates.
+  reference within 400 bases either side of the REF allele.
   """>
 
 ##INFO=<

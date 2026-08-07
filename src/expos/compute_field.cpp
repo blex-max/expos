@@ -123,21 +123,25 @@ static ValuesOrSkip compute_rcmplx (
     const VariantStatInputs& in, const StatContext&
 )
 {
-  constexpr std::size_t k_windowSize = 100;
+  constexpr size_t k_winSz = 100;
+  constexpr size_t k_winStep = 10;
+
   const std::string_view ref = in.refSlice;
   // too-short spans have no full window; masked/ambiguous bases make the
   // complexity meaningless.
-  if (ref.size() < k_windowSize) {
+  if (ref.size() < k_winSz) {
     return std::unexpected (REASON_REFERENCE_TOO_SHORT);
   }
   if (ref.find_first_of ("Nn") != std::string_view::npos) {
     return std::unexpected (REASON_REFERENCE_HAS_N);
   }
+
   double entropySum = 0.0;
-  std::size_t nWin = 0;
-  for (; nWin + k_windowSize <= ref.size();
-       ++nWin) {  // step of 1
-    entropySum += entropy_lz76 (ref.substr (nWin, k_windowSize));
+  size_t nWin = 0;
+  for (size_t winStart = 0; winStart + k_winSz <= ref.size();
+       winStart += k_winStep) {
+    entropySum += entropy_lz76 (ref.substr (winStart, k_winSz));
+    ++nWin;
   }
   const double meanWindowEntropy =
       entropySum / static_cast<double> (nWin);
@@ -176,7 +180,7 @@ constexpr std::string_view RCMPLX_HEADER =
     "100-base "
     "window complexity (Lempel-Ziv 76 entropy rate) of the "
     "reference "
-    "region spanned by supporting templates.\">";
+    "within 400 bases either side of the REF allele.\">";
 constexpr std::string_view EXPOS_SKIP_HEADER =
     "##INFO=<ID=EXPOS_SKIP,Number=.,Type=String,Description="
     "\"Why expos "
