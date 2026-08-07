@@ -4,14 +4,30 @@
 
 #include <expected>
 #include <optional>
-#include <random>
 #include <span>
 #include <string>
 #include <string_view>
 #include <vector>
 
 #include "expos/pileup_features.hpp"
+#include "expos/variant_stats.hpp"
 #include "shared/err.hpp"
+
+// --- generic infrastructure for calculating all variant stats --- //
+
+// Per-record features
+struct VariantStatInputs {
+  const PileupFeatures& supporting;  // observed sample reads
+  const PileupFeatures&
+      all;  // all reads, including additional samples
+  std::string_view refSlice;  // reference span
+};
+
+struct StatContext {
+  McState& mc;
+  bool
+      readLenHomogeneous;  // false suppresses read-length-sensitive stats
+};
 
 // A VariantStat is one domain-specific statistic annotated onto a variant
 // as a VCF INFO field. The per-variant loop iterates variant_stats() and
@@ -48,26 +64,17 @@ inline StatValue stat_or (
   return v ? stat_value (*v) : stat_missing (reasonIfMissing);
 }
 
-struct VariantStatInputs {
-  const PileupFeatures& supporting;  // observed sample reads
-  const PileupFeatures&
-      all;  // all reads, including additional samples
-  std::string_view refSlice;  // reference span
-  std::mt19937& rng;
-  bool
-      readLenHomogeneous;  // false suppresses read-length-sensitive stats
-};
-
 // A compute function returns either one StatValue per subfield, or a single
 // reason the whole statistic is missing.
 using ValuesOrSkip =
     std::expected<std::vector<StatValue>, std::string_view>;
-using VariantStatFn =
-    ValuesOrSkip (*) (const VariantStatInputs&);
+using ComputeFn = ValuesOrSkip (*) (
+    const VariantStatInputs&, const StatContext&
+);
 
 struct VariantStat {
   VariantStatField field;
-  VariantStatFn compute;
+  ComputeFn compute;
 };
 
 std::span<const VariantStat> variant_stats();

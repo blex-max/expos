@@ -17,9 +17,6 @@ double entropy_lz76 (std::string_view s);
 
 // --- summary statistics --- //
 
-// Arithmetic mean; nullopt for an empty sample.
-std::optional<double> mean (const std::vector<double>& v);
-
 // Linear-interpolated percentile at fraction pt (0 < pt < 1); nullopt for
 // an empty sample.
 static constexpr double PERCENTILE_MEDIAN = 0.5;

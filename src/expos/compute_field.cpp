@@ -32,11 +32,13 @@ static std::optional<std::string_view> size_guard (
 
 // --- statistics --- //
 
-static ValuesOrSkip compute_qrk (const VariantStatInputs& in)
+static ValuesOrSkip compute_qrk (
+    const VariantStatInputs& in, const StatContext& ctx
+)
 {
   // Query position is an offset within the read, so a heterogeneous read
   // population would confound
-  if (!in.readLenHomogeneous) {
+  if (!ctx.readLenHomogeneous) {
     return std::unexpected (REASON_HETEROGENEOUS_READ_LENGTH);
   }
 
@@ -47,13 +49,19 @@ static ValuesOrSkip compute_qrk (const VariantStatInputs& in)
     return std::unexpected (*reason);
   }
 
+  // count_pairs_within_1d sorts, so the observed statistic works on a copy
+  // and the record's features stay const. One copy per record, not per draw.
+  std::vector<int32_t> obsSorted = obs;
   const double observedStat = static_cast<double> (
-      count_pairs_within_1d (obs, k_qposRadius)
+      count_pairs_within_1d (obsSorted, k_qposRadius)
   );
+
   auto draw = [&] {
-    return subsample_wo_replace (bg, obs.size(), in.rng);
+    return subsample_wo_replace (
+        bg, obs.size(), ctx.mc.rng, ctx.mc.qPos
+    );
   };
-  auto stat = [&] (decltype (bg) sample) {
+  auto stat = [&] (std::span<int32_t> sample) {
     return static_cast<double> (
         count_pairs_within_1d (sample, k_qposRadius)
     );
@@ -63,7 +71,7 @@ static ValuesOrSkip compute_qrk (const VariantStatInputs& in)
 }
 
 static ValuesOrSkip compute_template_jaccard (
-    const VariantStatInputs& in
+    const VariantStatInputs& in, const StatContext& ctx
 )
 {
   const auto& obs = in.supporting.endpoints;
@@ -78,8 +86,10 @@ static ValuesOrSkip compute_template_jaccard (
 
   const auto obsJaccardSum = pairwise_jaccard_sum (obs);
 
-  const auto drawFn = [&]() {
-    return subsample_wo_replace (bg, obs.size(), in.rng);
+  const auto drawFn = [&] {
+    return subsample_wo_replace (
+        bg, obs.size(), ctx.mc.rng, ctx.mc.endpoints
+    );
   };
 
   const auto mc = run_monte_carlo (
@@ -91,7 +101,9 @@ static ValuesOrSkip compute_template_jaccard (
 
 // The only statistic with independently-missing subfields: two unrelated
 // medians, either of which can be absent while the other is reportable.
-static ValuesOrSkip compute_mlas (const VariantStatInputs& in)
+static ValuesOrSkip compute_mlas (
+    const VariantStatInputs& in, const StatContext&
+)
 {
   return std::vector<StatValue>{
       stat_or (
@@ -107,7 +119,9 @@ static ValuesOrSkip compute_mlas (const VariantStatInputs& in)
   };
 }
 
-static ValuesOrSkip compute_rcmplx (const VariantStatInputs& in)
+static ValuesOrSkip compute_rcmplx (
+    const VariantStatInputs& in, const StatContext&
+)
 {
   constexpr std::size_t k_windowSize = 100;
   const std::string_view ref = in.refSlice;

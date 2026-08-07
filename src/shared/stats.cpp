@@ -3,9 +3,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstddef>
-#include <optional>
 #include <string_view>
-#include <vector>
 
 double entropy_lz76 (std::string_view s)
 {
@@ -56,18 +54,4 @@ double entropy_lz76 (std::string_view s)
   // result is bits (entropy) per character
   return (static_cast<double> (lzCmplx) * log2 (nChar)) /
          static_cast<double> (nChar);
-}
-
-std::optional<double> mean (const std::vector<double>& v)
-{
-  if (v.empty()) {
-    return std::nullopt;
-  }
-  long double sum = 0.0L;
-  for (const double x : v) {
-    sum += static_cast<long double> (x);
-  }
-  return static_cast<double> (
-      sum / static_cast<long double> (v.size())
-  );
 }

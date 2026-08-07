@@ -7,6 +7,7 @@
 #include <numeric>
 #include <optional>
 #include <random>
+#include <span>
 #include <utility>
 #include <vector>
 
@@ -14,14 +15,17 @@
 
 // --- query position spatial clustering (Ripley's K) --- //
 
-// Ripley's K in its general sums, over every point, that point's
+// Ripley's K in its general form sums, over every point, that point's
 // neighbour count within the radius. Here the unordered pair count is returned
 // directly, because the constants (intensity normalisation, etc.)
 // all cancel when the count is compared against a same-size Monte-Carlo null.
 
 // Count unordered pairs whose 1-D separation is strictly < radius.
+// Sorts pts in place, so callers holding data that must survive the call
+// pass a copy. Taking a mutable view rather than a value is what lets the
+// Monte-Carlo draws reuse one buffer instead of copying per draw.
 std::size_t count_pairs_within_1d (
-    std::vector<int32_t> pts, uint64_t radius
+    std::span<int32_t> pts, uint64_t radius
 );
 
 // --- template overlap --- //
@@ -32,16 +36,12 @@ size_t overlap (
 
 size_t size (const TemplateEndpoints& t);
 
-// Fraction of the union of two templates that they share. Unlike a
-// min(len) denominator this does not saturate when one template is nested
-// in a longer one, so the null keeps headroom for real coincidence to show
-// against. Reaches 1.0 only for identical intervals.
 double jaccard (
     const TemplateEndpoints& a, const TemplateEndpoints& b
 );
 
 double pairwise_jaccard_sum (
-    const std::vector<TemplateEndpoints>& obs
+    std::span<const TemplateEndpoints> obs
 );
 
 // --- monte carlo --- //
@@ -91,27 +91,51 @@ McResult run_monte_carlo (
   return res;
 }
 
-// Uniform sample of size n drawn without replacement from obs, via a
-// partial Fisher-Yates shuffle of an index vector.
+// Reusable buffers for repeated draws from one population.
+template <class T>
+struct SubsampleScratch {
+  std::vector<std::size_t> idxBuf;
+  std::vector<T> subsampleBuf;
+};
+
+// Per-run mutable state for the Monte-Carlo statistics: the shared RNG stream
+// and one scratch per statistic. Built once for the whole record loop, so the
+// buffers reach a high-water mark and stop reallocating. A new Monte-Carlo
+// statistic adds a scratch here alongside its compute_ function and registry
+// row.
+struct McState {
+  std::mt19937 rng;
+  SubsampleScratch<int32_t> qPos;
+  SubsampleScratch<TemplateEndpoints> endpoints;
+};
+
+// Uniform sample of size n drawn without replacement from obs, via a partial
+// Fisher-Yates shuffle of scratch's persistent index permutation. The returned
+// span views scratch.sampleBuf and is valid until the next draw from the same
 // Precondition: n <= obs.size.
 template <class T>
-std::vector<T> subsample_wo_replace (
-    const std::vector<T>& obs, std::size_t n, std::mt19937& rng
+std::span<T> subsample_wo_replace (
+    const std::vector<T>& obs, std::size_t n, std::mt19937& rng,
+    SubsampleScratch<T>& scratch
 )
 {
   const std::size_t nObs = obs.size();
   assert (n <= nObs);
-  std::vector<std::size_t> idx (nObs);
-  std::iota (idx.begin(), idx.end(), std::size_t{0});
-  std::vector<T> out;
-  out.reserve (n);
+  if (scratch.idxBuf.size() != nObs) {
+    scratch.idxBuf.resize (nObs);
+    std::iota (
+        scratch.idxBuf.begin(), scratch.idxBuf.end(),
+        std::size_t{0}
+    );
+  }
+  scratch.subsampleBuf.clear();
   for (std::size_t i = 0; i < n; ++i) {
     std::uniform_int_distribution<std::size_t> dist (
         i, nObs - 1
     );
     const std::size_t j = dist (rng);
-    std::swap (idx[i], idx[j]);
-    out.push_back (obs[idx[i]]);
+    std::swap (scratch.idxBuf[i], scratch.idxBuf[j]);
+    scratch.subsampleBuf.push_back (obs[scratch.idxBuf[i]]);
   }
-  return out;
+  return scratch.subsampleBuf;
 }

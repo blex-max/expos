@@ -20,6 +20,7 @@
 #include "expos/compute_field.hpp"
 #include "expos/extract_pileup.hpp"
 #include "expos/pileup_features.hpp"
+#include "expos/variant_stats.hpp"
 #include "expos/vcf_record.hpp"
 #include "hts/hts_types.hpp"
 #include "shared/err.hpp"
@@ -141,10 +142,9 @@ static RefSliceOrErr supporting_ref_slice (
 // Compute and encode the expos statistics onto an analysable record in place.
 // nBackgroundExcluded is incremented whenever a background sample is
 // excluded from the merge because its read- or fragment-length
-// distribution looks inconsistent with the primary sample's (see
-// docs/usage.md); the caller tallies it for the end-of-run summary.
+// distribution looks inconsistent with the primary sample's.
 static VoidOrErr annotate_record (
-    const VcfRec& r, const ExposCtx& ctx, std::mt19937& rng,
+    const VcfRec& r, const ExposCtx& ctx, McState& mc,
     std::size_t& nBackgroundExcluded
 )
 {
@@ -225,12 +225,11 @@ static VoidOrErr annotate_record (
   }
   const std::string refSlice = std::move (*sliceRet);
 
-  const VariantStatInputs inputs{
-      supporting, all, refSlice, rng, readLenHomogeneous
-  };
+  const VariantStatInputs inputs{supporting, all, refSlice};
+  const StatContext statCtx{mc, readLenHomogeneous};
   std::vector<std::string> skipTokens;
   for (const auto& stat : variant_stats()) {
-    auto result = stat.compute (inputs);
+    auto result = stat.compute (inputs, statCtx);
     const std::vector<StatValue> values =
         result ? std::move (*result)
                : stat_all_missing (stat.field, result.error());
@@ -244,17 +243,23 @@ static VoidOrErr annotate_record (
       skipTokens.push_back (std::move (token));
     }
   }
+
+  // set skip field, if any skips from compute_*
   if (auto skipRet =
           set_expos_skip (ctx.vcfOut.o_hdr, r.ptr, skipTokens);
       !skipRet) {
     return std::unexpected (skipRet.error());
   }
+
   return {};
 }
 
 VoidOrErr analyse_records (const ExposCtx& ctx)
 {
-  std::mt19937 rng (ctx.seed);
+  // One RNG and set of draw buffers.
+  // Buffers should reach high-water mark over
+  // the first few records and stop reallocating.
+  McState mc{std::mt19937 (ctx.seed), {}, {}};
 
   VcfRec ru_rec;
   ru_rec.ptr = bcf_init();
@@ -298,9 +303,8 @@ VoidOrErr analyse_records (const ExposCtx& ctx)
       }
     }
     else {
-      const auto annotateRet = annotate_record (
-          ru_rec, ctx, rng, nBackgroundExcluded
-      );
+      const auto annotateRet =
+          annotate_record (ru_rec, ctx, mc, nBackgroundExcluded);
       if (!annotateRet) {
         return std::unexpected (annotateRet.error());
       }

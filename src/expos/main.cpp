@@ -254,6 +254,8 @@ int main (int argc, char** argv)
   }
   const auto ctx = std::move (*initRet);
 
+  std::cerr << "analysing records" << std::endl;
+
   auto analyseRet = analyse_records (ctx);
   if (!analyseRet) {
     std::cerr << analyseRet.error().msg << std::endl;

@@ -10,8 +10,9 @@
 #include "expos/pileup_features.hpp"
 
 // --- stats --- //
+
 std::size_t count_pairs_within_1d (
-    std::vector<int32_t> pts, uint64_t radius
+    std::span<int32_t> pts, uint64_t radius
 )
 {
   std::sort (pts.begin(), pts.end());
@@ -61,7 +62,7 @@ double jaccard (
 }
 
 double pairwise_jaccard_sum (
-    const std::vector<TemplateEndpoints>& obs
+    std::span<const TemplateEndpoints> obs
 )
 {
   double jaccardSum = 0.0;
