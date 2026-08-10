@@ -25,7 +25,7 @@ bool eval_support_del (const VcfRec& r, const bam_pileup1_t& p);
 
 struct VcfRec {
   bcf1_t* ptr = nullptr;  // owned
-  bcf_hdr_t* hdr = nullptr;  // unowned
+  bcf_hdr_t* br_hdr = nullptr;
   SupportFn eval_read_support;
 
   // Views into ptr->d.allele[...]; set once per record by

@@ -42,7 +42,7 @@ static ValuesOrSkip compute_qrk (
     return std::unexpected (REASON_HETEROGENEOUS_READ_LENGTH);
   }
 
-  constexpr uint64_t k_qposRadius = 5;
+  constexpr uint64_t QPOS_RADIUS = 5;
   const auto& obs = in.supporting.qPos;
   const auto& bg = in.all.qPos;
   if (const auto reason = size_guard (obs.size(), bg.size())) {
@@ -53,7 +53,7 @@ static ValuesOrSkip compute_qrk (
   // and the record's features stay const. One copy per record, not per draw.
   std::vector<int32_t> obsSorted = obs;
   const double observedStat = static_cast<double> (
-      count_pairs_within_1d (obsSorted, k_qposRadius)
+      count_pairs_within_1d (obsSorted, QPOS_RADIUS)
   );
 
   auto draw = [&] {
@@ -63,7 +63,7 @@ static ValuesOrSkip compute_qrk (
   };
   auto stat = [&] (std::span<int32_t> sample) {
     return static_cast<double> (
-        count_pairs_within_1d (sample, k_qposRadius)
+        count_pairs_within_1d (sample, QPOS_RADIUS)
     );
   };
   const auto mc = run_monte_carlo (observedStat, draw, stat);
@@ -123,13 +123,13 @@ static ValuesOrSkip compute_rcmplx (
     const VariantStatInputs& in, const StatContext&
 )
 {
-  constexpr size_t k_winSz = 100;
-  constexpr size_t k_winStep = 10;
+  constexpr size_t WIN_SZ = 100;
+  constexpr size_t WIN_STEP = 10;
 
   const std::string_view ref = in.refSlice;
   // too-short spans have no full window; masked/ambiguous bases make the
   // complexity meaningless.
-  if (ref.size() < k_winSz) {
+  if (ref.size() < WIN_SZ) {
     return std::unexpected (REASON_REFERENCE_TOO_SHORT);
   }
   if (ref.find_first_of ("Nn") != std::string_view::npos) {
@@ -138,9 +138,9 @@ static ValuesOrSkip compute_rcmplx (
 
   double entropySum = 0.0;
   size_t nWin = 0;
-  for (size_t winStart = 0; winStart + k_winSz <= ref.size();
-       winStart += k_winStep) {
-    entropySum += entropy_lz76 (ref.substr (winStart, k_winSz));
+  for (size_t winStart = 0; winStart + WIN_SZ <= ref.size();
+       winStart += WIN_STEP) {
+    entropySum += entropy_lz76 (ref.substr (winStart, WIN_SZ));
     ++nWin;
   }
   const double meanWindowEntropy =

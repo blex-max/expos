@@ -11,10 +11,10 @@ constexpr std::size_t MAX_STDIN_BYTES =
 
 static bool is_ascii_printable (const std::string& s)
 {
-  constexpr char k_minPrintable = 0x20;
-  constexpr char k_maxPrintable = 0x7E;
+  constexpr char MIN_PRINTABLE = 0x20;
+  constexpr char MAX_PRINTABLE = 0x7E;
   return std::ranges::all_of (s, [] (const char c) {
-    return c > k_minPrintable && c <= k_maxPrintable;
+    return c > MIN_PRINTABLE && c <= MAX_PRINTABLE;
   });
 }
 

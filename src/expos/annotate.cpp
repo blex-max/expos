@@ -74,8 +74,8 @@ static IntOrErr get_aln_contig_for_record_rid (
     const VcfRec& r, const AlnFile& aln
 )
 {
-  const auto* ridName = bcf_hdr_id2name (r.hdr, r.ptr->rid);
-  const auto alnTid = sam_hdr_name2tid (aln.o_hdr, ridName);
+  const auto* ridName = bcf_hdr_id2name (r.br_hdr, r.ptr->rid);
+  const auto alnTid = sam_hdr_name2tid (aln.hdr, ridName);
   if (alnTid == -1) {
     std::string errMsg = "Contig ";
     errMsg += ridName;
@@ -96,8 +96,8 @@ static IntOrErr get_aln_contig_for_record_rid (
   return alnTid;
 }
 
-using PileupPosOrErr = std::expected<PileupPosition, Err>;
-static PileupPosOrErr make_record_pileup_pos (
+using LocusOrErr = std::expected<GenomicLocus, Err>;
+static LocusOrErr make_record_pileup_pos (
     const VcfRec& r, const AlnFile& aln
 )
 {
@@ -105,7 +105,7 @@ static PileupPosOrErr make_record_pileup_pos (
   if (!tidConvRet) {
     return std::unexpected (tidConvRet.error());
   }
-  return PileupPosition{*tidConvRet, r.ptr->pos};
+  return GenomicLocus{*tidConvRet, r.ptr->pos};
 }
 
 // Reference bases around the variant, upper-cased: the REF allele span padded
@@ -125,7 +125,7 @@ static RefSliceOrErr variant_ref_slice (
       RCMPLX_FLANK;  // faidx clamps to contig end
 
   const std::string_view contig =
-      bcf_hdr_id2name (r.hdr, r.ptr->rid);
+      bcf_hdr_id2name (r.br_hdr, r.ptr->rid);
   auto sliceRet =
       fetch_region (ref, contig, sliceStart, sliceEnd);
   if (!sliceRet) {
@@ -236,7 +236,7 @@ static VoidOrErr annotate_record (
         result ? std::move (*result)
                : stat_all_missing (stat.field, result.error());
     const auto encRet = encode_variant_stat (
-        ctx.vcfOut.o_hdr, r.ptr, stat.field, values
+        ctx.vcfOut.hdr, r.ptr, stat.field, values
     );
     if (!encRet) {
       return std::unexpected (encRet.error());
@@ -248,7 +248,7 @@ static VoidOrErr annotate_record (
 
   // set skip field, if any skips from compute_*
   if (auto skipRet =
-          set_expos_skip (ctx.vcfOut.o_hdr, r.ptr, skipTokens);
+          set_expos_skip (ctx.vcfOut.hdr, r.ptr, skipTokens);
       !skipRet) {
     return std::unexpected (skipRet.error());
   }
@@ -265,7 +265,7 @@ VoidOrErr analyse_records (const ExposCtx& ctx)
 
   VcfRec ru_rec;
   ru_rec.ptr = bcf_init();
-  ru_rec.hdr = ctx.vcfIn.o_hdr;
+  ru_rec.br_hdr = ctx.vcfIn.hdr;
 
   // Tallies for the end-of-run summary (stderr, unless --quiet).
   std::size_t nRecords = 0;
@@ -273,7 +273,7 @@ VoidOrErr analyse_records (const ExposCtx& ctx)
   std::size_t nBackgroundExcluded = 0;
 
   while (
-      bcf_read (ctx.vcfIn.o_fh, ctx.vcfIn.o_hdr, ru_rec.ptr) == 0
+      bcf_read (ctx.vcfIn.fh, ctx.vcfIn.hdr, ru_rec.ptr) == 0
   ) {
     if (bcf_unpack (ru_rec.ptr, BCF_UN_ALL) != 0) {
       return std::unexpected (
@@ -297,7 +297,7 @@ VoidOrErr analyse_records (const ExposCtx& ctx)
                  classify_record (ru_rec, ctx.quiet)) {
       ++nSkipped;
       const auto skipRet = set_expos_skip (
-          ctx.vcfOut.o_hdr, ru_rec.ptr,
+          ctx.vcfOut.hdr, ru_rec.ptr,
           {"record:" + std::string (*skipReason)}
       );
       if (!skipRet) {
@@ -313,7 +313,7 @@ VoidOrErr analyse_records (const ExposCtx& ctx)
     }
 
     if (bcf_write (
-            ctx.vcfOut.o_fh, ctx.vcfOut.o_hdr, ru_rec.ptr
+            ctx.vcfOut.fh, ctx.vcfOut.hdr, ru_rec.ptr
         ) != 0) {
       return std::unexpected (make_err (
           "Failed to write record " + stringify_rec (ru_rec)

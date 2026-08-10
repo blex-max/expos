@@ -130,14 +130,14 @@ static VcfOrErr create_output_vcf (
 )
 {
   VcfFile out;
-  out.o_fh = hts_open ("-", uncompressed ? "w" : "wz");
-  if (out.o_fh == nullptr) {
+  out.fh = hts_open ("-", uncompressed ? "w" : "wz");
+  if (out.fh == nullptr) {
     return std::unexpected (
         make_err ("Could not open stdout for writing output VCF")
     );
   }
-  out.o_hdr = bcf_hdr_dup (input.o_hdr);
-  if (out.o_hdr == nullptr) {
+  out.hdr = bcf_hdr_dup (input.hdr);
+  if (out.hdr == nullptr) {
     return std::unexpected (
         make_err ("Could not copy header to output VCF")
     );
@@ -145,12 +145,12 @@ static VcfOrErr create_output_vcf (
 
   // Register INFO fields, write header
   for (const auto& stat : variant_stats()) {
-    auto regRet = register_variant_stat_header (out.o_hdr, stat);
+    auto regRet = register_variant_stat_header (out.hdr, stat);
     if (!regRet) {
       return std::unexpected (regRet.error());
     }
   }
-  if (auto regRet = register_expos_skip_header (out.o_hdr);
+  if (auto regRet = register_expos_skip_header (out.hdr);
       !regRet) {
     return std::unexpected (regRet.error());
   }
@@ -163,20 +163,20 @@ static VcfOrErr create_output_vcf (
       "##source=\"{} v{} {:%Y-%m-%dT%H:%M:%SZ}\"", PROG_NAME,
       VERSION, now
   );
-  if (bcf_hdr_append (out.o_hdr, sourceLine.c_str()) != 0) {
+  if (bcf_hdr_append (out.hdr, sourceLine.c_str()) != 0) {
     return std::unexpected (
         make_err ("Could not add source header line")
     );
   }
   const std::string cmdLine =
       std::format ("##{}_command=\"{}\"", PROG_NAME, invocation);
-  if (bcf_hdr_append (out.o_hdr, cmdLine.c_str()) != 0) {
+  if (bcf_hdr_append (out.hdr, cmdLine.c_str()) != 0) {
     return std::unexpected (
         make_err ("Could not add command header line")
     );
   }
 
-  if (bcf_hdr_write (out.o_fh, out.o_hdr) != 0) {
+  if (bcf_hdr_write (out.fh, out.hdr) != 0) {
     return std::unexpected (
         make_err ("Could not write output VCF header")
     );

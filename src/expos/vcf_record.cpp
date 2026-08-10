@@ -86,7 +86,7 @@ bool eval_support_ins (const VcfRec& r, const bam_pileup1_t& p)
 std::string stringify_rec (const VcfRec& r)
 {
   return fmt::format (
-      "{}:{} (id: {})", bcf_hdr_id2name (r.hdr, r.ptr->rid),
+      "{}:{} (id: {})", bcf_hdr_id2name (r.br_hdr, r.ptr->rid),
       r.ptr->pos + 1, r.ptr->d.id
   );
 }
@@ -138,15 +138,15 @@ bool record_is_filtered (const VcfRec& r)
 
 VoidOrErr check_record_integrity (const VcfRec& r)
 {
-  const auto* uo_rec = r.ptr;
+  const auto* br_rec = r.ptr;
 
-  if (uo_rec->errcode != 0) {
+  if (br_rec->errcode != 0) {
     std::string errMsgOut{"Error while reading VCF record "};
     errMsgOut += stringify_rec (r);
-    constexpr int k_errBufSize = 300;
-    char errBuf[k_errBufSize];
+    constexpr int ERR_BUF_SIZE = 300;
+    char errBuf[ERR_BUF_SIZE];
     const auto* bcfErrMsg =
-        bcf_strerror (uo_rec->errcode, errBuf, k_errBufSize);
+        bcf_strerror (br_rec->errcode, errBuf, ERR_BUF_SIZE);
     if (bcfErrMsg == nullptr) {
       errMsgOut += ", failed to recover error message";
     }

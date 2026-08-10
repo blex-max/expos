@@ -24,7 +24,6 @@ static double read_length_rel_iqr (
          median;  // median >= 1: read length is always positive
 }
 
-constexpr double k_median = 0.5;
 
 static std::optional<double> median_read_length (
     const std::vector<int32_t>& readLen
@@ -37,7 +36,7 @@ static std::optional<double> median_read_length (
             return static_cast<std::size_t> (len);
           }
       ),
-      k_median
+      PERCENTILE_MEDIAN
   );
 }
 
@@ -54,7 +53,7 @@ static std::optional<double> median_fragment_length (
             );
           }
       ),
-      k_median
+      MEDIAN
   );
 }
 
