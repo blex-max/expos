@@ -17,6 +17,7 @@ if(NOT CMAKE_BUILD_TYPE)
 endif()
 
 option(ENABLE_DEBUG_FLAGS "Enable sanitizers and full debug info" OFF)
+option(ENABLE_VEC_REPORT "Report loop vectorisation decisions at compile time" OFF)
 
 option(MAKE_MAIN "Compile main expos binary" ON)
 option(MAKE_TEST "Compile tests binary" OFF)
@@ -101,6 +102,28 @@ set(COMMON_WARNINGS
   -Wimplicit-fallthrough
 )
 
+# Honour `#pragma omp simd`
+set(COMMON_SIMD -fopenmp-simd)
+
+set(COMMON_VEC_REPORT "")
+if(ENABLE_VEC_REPORT)
+  if(CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+    set(COMMON_VEC_REPORT
+      -Rpass=loop-vectorize
+      -Rpass-missed=loop-vectorize
+      -Rpass-analysis=loop-vectorize
+    )
+  elseif(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
+    set(COMMON_VEC_REPORT
+      -fopt-info-vec
+      -fopt-info-vec-missed
+    )
+  else()
+    message(WARNING "ENABLE_VEC_REPORT: no known flags for ${CMAKE_CXX_COMPILER_ID}")
+  endif()
+  message(STATUS "ENABLE_VEC_REPORT: reporting vectorisation decisions")
+endif()
+
 set(COMMON_DEBUG_FLAGS "")
 if(ENABLE_DEBUG_FLAGS)
   set(COMMON_DEBUG_FLAGS
@@ -144,6 +167,8 @@ if(MAKE_TEST)
   # optimised config defines NDEBUG, which would otherwise strip them.
   target_compile_options(test-expos PRIVATE
     ${COMMON_WARNINGS}
+    ${COMMON_SIMD}
+    ${COMMON_VEC_REPORT}
     ${COMMON_DEBUG_FLAGS}
     -UNDEBUG
   )
@@ -180,6 +205,8 @@ if(MAKE_MAIN)
   )
   target_compile_options(expos PRIVATE
     ${COMMON_WARNINGS}
+    ${COMMON_SIMD}
+    ${COMMON_VEC_REPORT}
     ${COMMON_DEBUG_FLAGS}
   )
   target_link_options(expos PRIVATE
@@ -207,6 +234,8 @@ if(MAKE_DAUGHTER)
   )
   target_compile_options(estimate-entropy PRIVATE
     ${COMMON_WARNINGS}
+    ${COMMON_SIMD}
+    ${COMMON_VEC_REPORT}
     ${COMMON_DEBUG_FLAGS}
   )
   target_link_options(estimate-entropy PRIVATE

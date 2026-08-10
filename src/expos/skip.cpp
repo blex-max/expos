@@ -23,7 +23,7 @@ std::string_view to_string (StatSkipReason reason)
     case StatSkipReason::heterogeneousReadLength:
       return "heterogeneous_read_length";
     case StatSkipReason::readLengthUnverified:
-      return "read_length_unverified";
+      return "insufficient_reads_for_test";
     case StatSkipReason::zeroVariance:
       return "zero_variance";
     case StatSkipReason::noSupport:

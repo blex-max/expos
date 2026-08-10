@@ -202,7 +202,8 @@ static VoidOrErr annotate_record (
   if (statCtx.readLenSuppression && !ctx.quiet) {
     expos_warn (
         fmt::format (
-            "{}: primary sample fails the QRK read-length guard "
+            "{}: primary sample fails the QRK read-length "
+            "homogeneity guard "
             "({})",
             stringify_rec (r),
             to_string (*statCtx.readLenSuppression)

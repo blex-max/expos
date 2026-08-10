@@ -66,7 +66,13 @@ double pairwise_jaccard_sum (
 )
 {
   double jaccardSum = 0.0;
+  // attempting to collapse the nested loop
+  // with omp simd collapse(2) does not help
   for (size_t i = 0; i < obs.size(); ++i) {
+// but reduction does.
+// request vectorisation reduction via
+// openmp-simd. Works for clang and gcc
+#pragma omp simd reduction(+ : jaccardSum)
     for (size_t j = i + 1; j < obs.size(); ++j) {
       const auto& tI = obs[i];
       const auto& tJ = obs[j];

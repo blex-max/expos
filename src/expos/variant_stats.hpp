@@ -128,14 +128,18 @@ std::span<T> subsample_wo_replace (
         std::size_t{0}
     );
   }
-  scratch.subsampleBuf.clear();
+  if (scratch.subsampleBuf.size() < n) {
+    scratch.subsampleBuf.resize (n);
+  }
   for (std::size_t i = 0; i < n; ++i) {
     std::uniform_int_distribution<std::size_t> dist (
         i, nObs - 1
     );
     const std::size_t j = dist (rng);
     std::swap (scratch.idxBuf[i], scratch.idxBuf[j]);
-    scratch.subsampleBuf.push_back (obs[scratch.idxBuf[i]]);
+    scratch.subsampleBuf[i] = obs[scratch.idxBuf[i]];
   }
-  return scratch.subsampleBuf;
+  // Only the first n entries were written this call
+  // (any further entries stale)
+  return std::span<T>{scratch.subsampleBuf.data(), n};
 }
