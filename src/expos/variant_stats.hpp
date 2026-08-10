@@ -6,12 +6,12 @@
 #include <cstdint>
 #include <numeric>
 #include <optional>
-#include <random>
 #include <span>
 #include <utility>
 #include <vector>
 
 #include "expos/pileup_features.hpp"
+#include "shared/rng.hpp"
 
 // --- query position spatial clustering (Ripley's K) --- //
 
@@ -91,6 +91,10 @@ McResult run_monte_carlo (
   return res;
 }
 
+// The Monte-Carlo engine. Aliased so a swap is one line here rather than at
+// every construction site.
+using McRng = Mwc192;
+
 // Reusable buffers for repeated draws from one population.
 template <class T>
 struct SubsampleScratch {
@@ -104,7 +108,7 @@ struct SubsampleScratch {
 // statistic adds a scratch here alongside its compute_ function and registry
 // row.
 struct McState {
-  std::mt19937 rng;
+  McRng rng;
   SubsampleScratch<int32_t> qPos;
   SubsampleScratch<TemplateEndpoints> endpoints;
 };
@@ -115,7 +119,7 @@ struct McState {
 // Precondition: n <= obs.size.
 template <class T>
 std::span<T> subsample_wo_replace (
-    const std::vector<T>& obs, std::size_t n, std::mt19937& rng,
+    const std::vector<T>& obs, std::size_t n, McRng& rng,
     SubsampleScratch<T>& scratch
 )
 {
@@ -132,10 +136,9 @@ std::span<T> subsample_wo_replace (
     scratch.subsampleBuf.resize (n);
   }
   for (std::size_t i = 0; i < n; ++i) {
-    std::uniform_int_distribution<std::size_t> dist (
-        i, nObs - 1
-    );
-    const std::size_t j = dist (rng);
+    // dist (i, nObs - 1) was inclusive at both ends,
+    // so the half-open range is nObs - i.
+    const std::size_t j = i + bounded (rng, nObs - i);
     std::swap (scratch.idxBuf[i], scratch.idxBuf[j]);
     scratch.subsampleBuf[i] = obs[scratch.idxBuf[i]];
   }

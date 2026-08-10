@@ -156,6 +156,7 @@ if(MAKE_TEST)
     tests/test_variant_stats.cpp
     tests/test_guards.cpp
     tests/test_skip.cpp
+    tests/test_rng.cpp
     src/shared/stats.cpp
     src/expos/variant_stats.cpp
     src/expos/compute_info_field.cpp

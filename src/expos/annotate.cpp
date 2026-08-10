@@ -257,7 +257,7 @@ VoidOrErr analyse_records (ExposCtx& ctx)
   // One RNG and set of draw buffers.
   // Buffers should reach high-water mark over
   // the first few records and stop reallocating.
-  McState mc{std::mt19937 (ctx.seed), {}, {}};
+  McState mc{McRng (ctx.seed), {}, {}};
 
   VcfRec ru_rec;
   ru_rec.ptr = bcf_init();

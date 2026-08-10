@@ -37,7 +37,7 @@ PileupFeatures make_uniform (
 
 TEST_CASE ("set_qrk_guard (Guard A)")
 {
-  std::mt19937 rng (1);
+  McRng rng (1);
   McState mc{std::move (rng), {}, {}};
 
   SECTION ("homogeneous reads leave QRK enabled")

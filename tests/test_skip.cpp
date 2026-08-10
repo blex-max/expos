@@ -80,7 +80,7 @@ TEST_CASE ("skip reason strings are stable")
   );
   REQUIRE (
       to_string (StatSkipReason::readLengthUnverified) ==
-      "read_length_unverified"
+      "insufficient_reads_for_test"
   );
   REQUIRE (
       to_string (StatSkipReason::zeroVariance) == "zero_variance"
