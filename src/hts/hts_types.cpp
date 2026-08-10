@@ -7,16 +7,61 @@
 #include <plog/Log.h>
 
 #include <optional>
+#include <utility>
 
 #include "shared/err.hpp"
 
-AlnOrErr load_aln (const char* fn)
+AlnFile::AlnFile (AlnFile&& o) noexcept
+    : fh{o.fh}, hdr{o.hdr}, idx{o.idx}, path{std::move (o.path)}
+{
+  o.fh = NULL;
+  o.hdr = NULL;
+  o.idx = NULL;
+}
+
+AlnFile& AlnFile::operator= (AlnFile&& o) noexcept
+{
+  if (this != &o) {
+    if (idx != nullptr) {
+      hts_idx_destroy (idx);
+    }
+    if (hdr != nullptr) {
+      sam_hdr_destroy (hdr);
+    }
+    if (fh != nullptr) {
+      hts_close (fh);
+    }
+    fh = o.fh;
+    hdr = o.hdr;
+    idx = o.idx;
+    path = std::move (o.path);
+    o.fh = NULL;
+    o.hdr = NULL;
+    o.idx = NULL;
+  }
+  return *this;
+}
+
+AlnFile::~AlnFile() noexcept
+{
+  if (idx != nullptr) {
+    hts_idx_destroy (idx);
+  }
+  if (hdr != nullptr) {
+    sam_hdr_destroy (hdr);
+  }
+  if (fh != nullptr) {
+    hts_close (fh);
+  }
+}
+
+AlnOrErr load_aln (const std::string& path)
 {
   AlnFile aln;
-  aln.fh = hts_open (fn, "r");
+  aln.fh = hts_open (path.c_str(), "r");
   if (aln.fh == nullptr) {
     return std::unexpected (make_err (
-        fmt::format ("Could not open alignment file at {}", fn)
+        fmt::format ("Could not open alignment file at {}", path)
     ));
   }
   aln.hdr = sam_hdr_read (aln.fh);
@@ -26,23 +71,60 @@ AlnOrErr load_aln (const char* fn)
         "from alignment file"
     ));
   }
-  aln.idx = sam_index_load (aln.fh, fn);
+  aln.idx = sam_index_load (aln.fh, path.c_str());
   if (aln.idx == nullptr) {
     return std::unexpected (make_err (
-        fmt::format ("Could not load index for {}", fn)
+        fmt::format ("Could not load index for {}", path)
     ));
   }
+
+  aln.path = path;
 
   return aln;
 }
 
-VcfOrErr load_vcf (const char* fn)
+VcfFile::VcfFile (VcfFile&& o) noexcept
+    : fh{o.fh}, hdr{o.hdr}, path{std::move (o.path)}
+{
+  o.fh = NULL;
+  o.hdr = NULL;
+}
+
+VcfFile& VcfFile::operator= (VcfFile&& o) noexcept
+{
+  if (this != &o) {
+    if (hdr != nullptr) {
+      bcf_hdr_destroy (hdr);
+    }
+    if (fh != nullptr) {
+      hts_close (fh);
+    }
+    fh = o.fh;
+    hdr = o.hdr;
+    path = std::move (o.path);
+    o.fh = NULL;
+    o.hdr = NULL;
+  }
+  return *this;
+}
+
+VcfFile::~VcfFile() noexcept
+{
+  if (hdr != nullptr) {
+    bcf_hdr_destroy (hdr);
+  }
+  if (fh != nullptr) {
+    hts_close (fh);
+  }
+}
+
+VcfOrErr load_vcf (const std::string& path)
 {
   VcfFile vcf;
-  vcf.fh = hts_open (fn, "r");
+  vcf.fh = hts_open (path.c_str(), "r");
   if (vcf.fh == nullptr) {
     return std::unexpected (make_err (
-        fmt::format ("Could not open VCF file at {}", fn)
+        fmt::format ("Could not open VCF file at {}", path)
     ));
   }
   vcf.hdr = bcf_hdr_read (vcf.fh);
@@ -52,22 +134,52 @@ VcfOrErr load_vcf (const char* fn)
     );
   }
 
+  vcf.path = path;
+
   return vcf;
 }
 
-FastaOrErr load_fasta (const char* fn)
+FastaFile::FastaFile (FastaFile&& o) noexcept
+    : fai{o.fai}, path{std::move (o.path)}
+{
+  o.fai = nullptr;
+}
+
+FastaFile& FastaFile::operator= (FastaFile&& o) noexcept
+{
+  if (this != &o) {
+    if (fai != nullptr) {
+      fai_destroy (fai);
+    }
+    fai = o.fai;
+    path = std::move (o.path);
+    o.fai = nullptr;
+  }
+  return *this;
+}
+
+FastaFile::~FastaFile()
+{
+  if (fai != nullptr) {
+    fai_destroy (fai);
+  }
+}
+
+FastaOrErr load_fasta (const std::string& path)
 {
   FastaFile ff;
 
   ff.fai = fai_load3_format (
-      fn, NULL, NULL, 0, fai_format_options::FAI_FASTA
+      path.c_str(), NULL, NULL, 0, fai_format_options::FAI_FASTA
   );
 
   if (ff.fai == nullptr) {
     return std::unexpected (make_err (
-        fmt::format ("Could not open fasta file at {}", fn)
+        fmt::format ("Could not open fasta file at {}", path)
     ));
   }
+
+  ff.path = path;
 
   return ff;
 }
@@ -99,76 +211,16 @@ RefSliceOrErr fetch_region (
   return out;
 }
 
-extern "C" {
-int pileup_func (void* data, bam1_t* b)
+PileupContext::PileupContext (const AlnFile& aln)
+    : br_fh{aln.fh}, br_fhIdx{aln.idx}
 {
-  constexpr uint16_t EXCLUDE_BITS = 3840;
-  const PileupContext* d = (PileupContext*)(data);
-  int ret = -1;
-
-  // find the next good read
-  while (true) {
-    ret = sam_itr_next (d->br_fh, d->it, b);
-    if (ret < 0) {
-      break;     // EOF/err
-    }
-    if ((b->core.flag & EXCLUDE_BITS) == 0) {
-      break;  // primary, non-dup, non-qcfail, non-supplementary read
-    }
-  }
-  return ret;
-}
 }
 
-PileupOrErr prepare_pileup (
-    const AlnFile& aln, const GenomicLocus& pos
-)
+PileupContext::~PileupContext()
 {
-  PreparedPileup out;
-
-  auto* alnIter =
-      sam_itr_queryi (aln.idx, pos.tid, pos.pos, pos.pos + 1);
-  if (alnIter == NULL) {
-    return std::unexpected{make_err (
-        "sam_itr_queryi: failed "
-        "to create iterator"
-    )};
+  if (it != nullptr) {
+    hts_itr_destroy (it);
   }
-
-  PileupContext pc{aln};
-  pc.it = alnIter;
-  auto* plp = bam_plp_init (pileup_func, &pc);
-  if (plp == NULL) {
-    return std::unexpected{make_err (
-        "bam_plp_init: failed to initialise "
-        "pileup engine"
-    )};
-  }
-  out.plpBacking = plp;
-
-  int64_t plpPos = -1;
-  int plpTid = -1;
-  int nPlp = -1;
-  const bam_pileup1_t* plpArr;
-  PLOGD << "Iterating pileup";
-  while ((plpArr = bam_plp64_auto (
-              out.plpBacking, &plpTid, &plpPos, &nPlp
-          )) != 0) {
-    if (nPlp < 0 || plpTid < 0 || plpPos < 0) {
-      return std::unexpected{
-          make_err ("bam_plp64_auto: pileup failed")
-      };
-    }
-    if (plpPos < pos.pos) {
-      continue;  // doesn't cover variant
-    }
-    PLOGD << "Position found";
-    out.plpArr = plpArr;
-    out.nPlp = static_cast<size_t> (nPlp);
-    return out;
-  }
-  PLOGD << "Position not covered by alignment file";
-  return {};
 }
 
 ForwardPileupIterator::~ForwardPileupIterator()
@@ -230,7 +282,7 @@ ForwardPileupIterator init_pileup_iterator (
   return out;
 }
 
-AdvResultOrErr try_advance_pileup (
+AdvResOrErr try_advance_pileup (
     ForwardPileupIterator& pc, const GenomicLocus& to
 )
 {
@@ -238,32 +290,35 @@ AdvResultOrErr try_advance_pileup (
   auto& curs = pc.curs;
   auto& curLoc = curs.locus;
 
-  if (to.pos < 0 || to.tid < 0) {
-    return std::unexpected (PileupAdvErr::invalidLocus);
+  if (to.pos < 0 || to.tid < 0 || to.pos == HTS_POS_MAX) {
+    return std::unexpected (PileupAdvErrCode::invalidLocus);
   }
   if (pc.lastRequest.tid == to.tid &&
       pc.lastRequest.pos > to.pos) {
-    return std::unexpected (PileupAdvErr::locusBehindItr);
+    return std::unexpected (PileupAdvErrCode::locusBehindItr);
   }
-  bool unInit =
-      (curLoc.tid < 0 &&
-       pc.lastRequest.tid < 0);  // first advance request
+  const bool unInit = (curLoc.tid < 0);  // first advance request
   pc.lastRequest = to;
-  bool sameTid = (curLoc.tid == to.tid);
+  const bool sameTid = (curLoc.tid == to.tid);
 
   if (!unInit && sameTid) {
     if (curLoc.pos == to.pos) {
-      return PileupAdvResult::success;
+      // Can't be exhausted, since exhausted
+      // sentinel is not a valid input for `to`.
+      // Can't be noCoverage, since cursor
+      // never parks on a 0 coverage location
+      // (htslib never returns non-null when _n_plp = 0).
+      return PileupAdvResCode::success;
     }
     if (curLoc.pos > to.pos) {
       // Assuming correct use (forward iteration only)
       // then the position MUST have had no coverage
       // to get to this state.
-      return PileupAdvResult::noCoverage;
+      return PileupAdvResCode::noCoverage;
     }
   }
 
-  bool needSeek =
+  const bool needSeek =
       unInit || !sameTid ||
       (to.pos - curLoc.pos) > ForwardPileupIterator::SEEK_GAP;
 
@@ -272,7 +327,7 @@ AdvResultOrErr try_advance_pileup (
         ctx->br_fhIdx, to.tid, to.pos, HTS_POS_MAX
     );
     if (alnIter == NULL) {
-      return std::unexpected (PileupAdvErr::samItrFailed);
+      return std::unexpected (PileupAdvErrCode::samItrFailed);
     }
     if (ctx->it != nullptr) {
       hts_itr_destroy (ctx->it);
@@ -288,37 +343,42 @@ AdvResultOrErr try_advance_pileup (
   while ((plpArr = bam_plp64_auto (
               pc.plpIt, &plpTid, &plpPos, &nPlp
           )) != 0) {
-    if (nPlp < 0 || plpTid < 0 || plpPos < 0) {
-      return std::unexpected (PileupAdvErr::pileupEngineFailed);
-    }
     if (plpPos == to.pos) {
       curs.plpArr = plpArr;
       curs.nReads = static_cast<size_t> (nPlp);
       curLoc = to;
-      return PileupAdvResult::success;
+      return PileupAdvResCode::success;
     }
     if (plpPos > to.pos) {
       curs.plpArr = plpArr;
       curs.nReads = static_cast<size_t> (nPlp);
       // parked at
       curLoc = {plpTid, plpPos};
-      return PileupAdvResult::noCoverage;
+      return PileupAdvResCode::noCoverage;
     }
   }
+  // nPlp alone carries error info
+  if (nPlp < 0) {
+    return std::unexpected (
+        PileupAdvErrCode::pileupEngineFailed
+    );
+  }
+  // null return + _n_plp = 0: EOF,
   // iterator exhausted before `to` found.
   curs.plpArr = nullptr;
   curs.nReads = 0;
-  // parked at
-  curLoc = {plpTid, plpPos};
-  return PileupAdvResult::exhausted;
+  // parked at (EOF sentinel)
+  curLoc = {to.tid, HTS_POS_MAX};
+  return PileupAdvResCode::exhausted;
 }
 
-std::optional<PileupView> read (
-    const ForwardPileupIterator& pc, const GenomicLocus& at
+PileupViewOrNone read (
+    const ForwardPileupIterator& pc,
+    const GenomicLocus& expectedLocus
 )
 {
-  if (pc.curs.locus != at) {
-    return std::nullopt;
+  if (pc.curs.locus != expectedLocus) {
+    return std::unexpected (std::nullopt);
   }
   return std::span (pc.curs.plpArr, pc.curs.nReads);
 }

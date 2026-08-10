@@ -1,13 +1,14 @@
 // Unit tests for the variant statistics layer: the clustering, overlap and
 // Monte-Carlo primitives in variant_stats.hpp, then the compute functions in
-// compute_field.hpp built on them. The latter are exercised through the
-// public variant_stats() registry, so they stay internal.
+// compute_info_field.hpp built on them. The latter are exercised through
+// the public expos_field_registry(), so they stay internal.
 
 #include <algorithm>
 #include <catch2/catch_approx.hpp>
 #include <catch2/catch_test_macros.hpp>
 #include <cstddef>
 #include <cstdint>
+#include <optional>
 #include <random>
 #include <set>
 #include <span>
@@ -16,8 +17,10 @@
 #include <string_view>
 #include <vector>
 
-#include "expos/compute_field.hpp"
+#include "expos/compute_info_field.hpp"
+#include "expos/encode_info_field.hpp"
 #include "expos/pileup_features.hpp"
+#include "expos/skip.hpp"
 #include "expos/variant_stats.hpp"
 
 using Catch::Approx;
@@ -280,7 +283,7 @@ TEST_CASE ("subsample_wo_replace")
   }
 }
 
-// --- compute layer (compute_field.hpp) --- //
+// --- compute layer (compute_info_field.hpp) --- //
 
 namespace {
 
@@ -302,7 +305,7 @@ constexpr std::string_view REF_PLACEHOLDER{};
 
 TEST_CASE ("variant_stats registry")
 {
-  const auto stats = variant_stats();
+  const auto stats = expos_field_registry();
   REQUIRE (
       stats.size() == 4
   );  // QRK, TJAC, MLAS, RCMPLX — the full package
@@ -314,7 +317,7 @@ TEST_CASE ("variant_stats registry")
 
 TEST_CASE ("compute QRK (query-position clustering)")
 {
-  const auto qrk = by_id (variant_stats(), "QRK");
+  const auto qrk = by_id (expos_field_registry(), "QRK");
   std::mt19937 rng (1);
 
   SECTION ("missing with insufficient support")
@@ -325,10 +328,10 @@ TEST_CASE ("compute QRK (query-position clustering)")
     all.qPos = {0, 5, 10, 15, 20, 25};
     VariantStatInputs in{supporting, all, REF_PLACEHOLDER};
     McState mc{std::move (rng), {}, {}};
-    const StatContext ctx{mc, true};
+    const StatContext ctx{mc, std::nullopt};
     const auto r = qrk.compute (in, ctx);
     REQUIRE_FALSE (r.has_value());
-    REQUIRE (r.error() == REASON_INSUFFICIENT_SUPPORT);
+    REQUIRE (r.error() == StatSkipReason::insufficientSupport);
   }
 
   SECTION ("missing with insufficient background")
@@ -336,13 +339,17 @@ TEST_CASE ("compute QRK (query-position clustering)")
     PileupFeatures supporting;
     supporting.qPos = {10, 11, 12};
     PileupFeatures all;
-    all.qPos = {10, 11, 12, 40, 90};  // 5 < 2*3
+    all.qPos = {
+        10, 11, 12, 40, 90
+    };  // 5: under 2*3, and under the floor
     VariantStatInputs in{supporting, all, REF_PLACEHOLDER};
     McState mc{std::move (rng), {}, {}};
-    const StatContext ctx{mc, true};
+    const StatContext ctx{mc, std::nullopt};
     const auto r = qrk.compute (in, ctx);
     REQUIRE_FALSE (r.has_value());
-    REQUIRE (r.error() == REASON_INSUFFICIENT_BACKGROUND);
+    REQUIRE (
+        r.error() == StatSkipReason::insufficientBackground
+    );
   }
 
   SECTION ("suppressed when read lengths are heterogeneous")
@@ -355,10 +362,83 @@ TEST_CASE ("compute QRK (query-position clustering)")
     }
     VariantStatInputs in{supporting, all, REF_PLACEHOLDER};
     McState mc{std::move (rng), {}, {}};
-    const StatContext ctx{mc, false};
+    const StatContext ctx{
+        mc, StatSkipReason::heterogeneousReadLength
+    };
     const auto r = qrk.compute (in, ctx);
     REQUIRE_FALSE (r.has_value());
-    REQUIRE (r.error() == REASON_HETEROGENEOUS_READ_LENGTH);
+    REQUIRE (
+        r.error() == StatSkipReason::heterogeneousReadLength
+    );
+  }
+
+  // The ratio alone would admit this: 6 background against 2 supporting is
+  // comfortably over 2x. But 6 gives C(6,2) = 15 distinct subsamples to
+  // build a null from, so the absolute floor has to catch it.
+  SECTION (
+      "a background over the ratio but under the floor is "
+      "refused"
+  )
+  {
+    PileupFeatures supporting;
+    supporting.qPos = {50, 51};
+    PileupFeatures all;
+    all.qPos = {10, 20, 30,
+                40, 50, 51};  // 6 >= 2*2, but < MIN_BACKGROUND
+    VariantStatInputs in{supporting, all, REF_PLACEHOLDER};
+    McState mc{std::move (rng), {}, {}};
+    const StatContext ctx{mc, std::nullopt};
+    const auto r = qrk.compute (in, ctx);
+    REQUIRE_FALSE (r.has_value());
+    REQUIRE (
+        r.error() == StatSkipReason::insufficientBackground
+    );
+  }
+
+  // The guard fails closed on a primary with too few reads to measure the
+  // spread. That is not the same claim as reads of uneven length, and the
+  // token has to say which one happened.
+  SECTION (
+      "unverifiable read lengths are reported as unverified"
+  )
+  {
+    PileupFeatures supporting;
+    supporting.qPos = {50, 51, 52, 53};
+    PileupFeatures all;
+    for (int32_t i = 0; i < 200; ++i) {
+      all.qPos.push_back (i);
+    }
+    VariantStatInputs in{supporting, all, REF_PLACEHOLDER};
+    McState mc{std::move (rng), {}, {}};
+    const StatContext ctx{
+        mc, StatSkipReason::readLengthUnverified
+    };
+    const auto r = qrk.compute (in, ctx);
+    REQUIRE_FALSE (r.has_value());
+    REQUIRE (r.error() == StatSkipReason::readLengthUnverified);
+  }
+
+  // A locus too thin to test is reported as thin, whatever the read-length
+  // guard concluded: the size check runs first precisely so that a site
+  // with no reads never gets a verdict on its read-length distribution.
+  SECTION (
+      "too little support outranks a read-length suppression"
+  )
+  {
+    const PileupFeatures
+        supporting;  // no supporting reads at all
+    PileupFeatures all;
+    for (int32_t i = 0; i < 200; ++i) {
+      all.qPos.push_back (i);
+    }
+    VariantStatInputs in{supporting, all, REF_PLACEHOLDER};
+    McState mc{std::move (rng), {}, {}};
+    const StatContext ctx{
+        mc, StatSkipReason::heterogeneousReadLength
+    };
+    const auto r = qrk.compute (in, ctx);
+    REQUIRE_FALSE (r.has_value());
+    REQUIRE (r.error() == StatSkipReason::insufficientSupport);
   }
 
   SECTION ("tight support vs spread background is extreme")
@@ -371,7 +451,7 @@ TEST_CASE ("compute QRK (query-position clustering)")
     }
     VariantStatInputs in{supporting, all, REF_PLACEHOLDER};
     McState mc{std::move (rng), {}, {}};
-    const StatContext ctx{mc, true};
+    const StatContext ctx{mc, std::nullopt};
     const auto r = qrk.compute (in, ctx);
     REQUIRE (r.has_value());
     REQUIRE (r->size() == 2);  // matches the registry's nValues
@@ -398,10 +478,10 @@ TEST_CASE ("compute QRK (query-position clustering)")
     }
     VariantStatInputs in{supporting, all, REF_PLACEHOLDER};
     McState mc{std::move (rng), {}, {}};
-    const StatContext ctx{mc, true};
+    const StatContext ctx{mc, std::nullopt};
     const auto r = qrk.compute (in, ctx);
     REQUIRE_FALSE (r.has_value());
-    REQUIRE (r.error() == REASON_ZERO_VARIANCE);
+    REQUIRE (r.error() == StatSkipReason::zeroVariance);
   }
 
   SECTION ("deterministic under a fixed seed")
@@ -416,10 +496,10 @@ TEST_CASE ("compute QRK (query-position clustering)")
     std::mt19937 rngB (7);
     VariantStatInputs inA{supporting, all, REF_PLACEHOLDER};
     McState mcA{std::move (rngA), {}, {}};
-    const StatContext ctxA{mcA, true};
+    const StatContext ctxA{mcA, std::nullopt};
     VariantStatInputs inB{supporting, all, REF_PLACEHOLDER};
     McState mcB{std::move (rngB), {}, {}};
-    const StatContext ctxB{mcB, true};
+    const StatContext ctxB{mcB, std::nullopt};
     const auto a = qrk.compute (inA, ctxA);
     const auto b = qrk.compute (inB, ctxB);
     REQUIRE (a.has_value());
@@ -450,7 +530,7 @@ std::vector<TemplateEndpoints> mixed_length_background()
 
 TEST_CASE ("compute TJAC (graded pairwise template overlap)")
 {
-  const auto tjac = by_id (variant_stats(), "TJAC");
+  const auto tjac = by_id (expos_field_registry(), "TJAC");
 
   SECTION ("missing with insufficient support")
   {
@@ -463,10 +543,10 @@ TEST_CASE ("compute TJAC (graded pairwise template overlap)")
     };
     VariantStatInputs in{supporting, all, REF_PLACEHOLDER};
     McState mc{std::move (rng), {}, {}};
-    const StatContext ctx{mc, true};
+    const StatContext ctx{mc, std::nullopt};
     const auto r = tjac.compute (in, ctx);
     REQUIRE_FALSE (r.has_value());
-    REQUIRE (r.error() == REASON_INSUFFICIENT_SUPPORT);
+    REQUIRE (r.error() == StatSkipReason::insufficientSupport);
   }
 
   SECTION ("missing with insufficient background")
@@ -481,13 +561,40 @@ TEST_CASE ("compute TJAC (graded pairwise template overlap)")
         {102, 302},
         {500, 700},
         {900, 1100}
-    };  // 5 < 2*3
+    };  // 5: under 2*3, and under the floor
     VariantStatInputs in{supporting, all, REF_PLACEHOLDER};
     McState mc{std::move (rng), {}, {}};
-    const StatContext ctx{mc, true};
+    const StatContext ctx{mc, std::nullopt};
     const auto r = tjac.compute (in, ctx);
     REQUIRE_FALSE (r.has_value());
-    REQUIRE (r.error() == REASON_INSUFFICIENT_BACKGROUND);
+    REQUIRE (
+        r.error() == StatSkipReason::insufficientBackground
+    );
+  }
+
+  // TJAC sizes on templates, so the floor is counted in templates here --
+  // the same guard applied to a different population.
+  SECTION (
+      "a background over the ratio but under the floor is "
+      "refused"
+  )
+  {
+    std::mt19937 rng (1);
+    PileupFeatures supporting;
+    supporting.endpoints = {{100, 300}, {101, 301}};
+    PileupFeatures all;
+    for (int64_t i = 0; i < 6;
+         ++i) {  // 6 >= 2*2, but < MIN_BACKGROUND
+      all.endpoints.push_back ({i, i + 200});
+    }
+    VariantStatInputs in{supporting, all, REF_PLACEHOLDER};
+    McState mc{std::move (rng), {}, {}};
+    const StatContext ctx{mc, std::nullopt};
+    const auto r = tjac.compute (in, ctx);
+    REQUIRE_FALSE (r.has_value());
+    REQUIRE (
+        r.error() == StatSkipReason::insufficientBackground
+    );
   }
 
   SECTION ("clustered endpoints vs spread background is extreme")
@@ -505,7 +612,7 @@ TEST_CASE ("compute TJAC (graded pairwise template overlap)")
     }
     VariantStatInputs in{supporting, all, REF_PLACEHOLDER};
     McState mc{std::move (rng), {}, {}};
-    const StatContext ctx{mc, true};
+    const StatContext ctx{mc, std::nullopt};
     const auto r = tjac.compute (in, ctx);
     REQUIRE (r.has_value());
     REQUIRE ((*r)[0].value.has_value());
@@ -529,7 +636,7 @@ TEST_CASE ("compute TJAC (graded pairwise template overlap)")
     };
     VariantStatInputs in{supporting, all, REF_PLACEHOLDER};
     McState mc{std::move (rng), {}, {}};
-    const StatContext ctx{mc, true};
+    const StatContext ctx{mc, std::nullopt};
     const auto r = tjac.compute (in, ctx);
     REQUIRE (r.has_value());
     REQUIRE ((*r)[0].value.has_value());
@@ -553,7 +660,7 @@ TEST_CASE ("compute TJAC (graded pairwise template overlap)")
     all.endpoints = mixed_length_background();
     VariantStatInputs in{supporting, all, REF_PLACEHOLDER};
     McState mc{std::move (rng), {}, {}};
-    const StatContext ctx{mc, true};
+    const StatContext ctx{mc, std::nullopt};
     const auto r = tjac.compute (in, ctx);
     REQUIRE (r.has_value());
     REQUIRE ((*r)[0].value.has_value());
@@ -580,7 +687,7 @@ TEST_CASE ("compute TJAC (graded pairwise template overlap)")
     all.endpoints = mixed_length_background();
     VariantStatInputs in{supporting, all, REF_PLACEHOLDER};
     McState mc{std::move (rng), {}, {}};
-    const StatContext ctx{mc, true};
+    const StatContext ctx{mc, std::nullopt};
     const auto r = tjac.compute (in, ctx);
     REQUIRE (r.has_value());
     REQUIRE ((*r)[0].value.has_value());
@@ -604,10 +711,10 @@ TEST_CASE ("compute TJAC (graded pairwise template overlap)")
     }
     VariantStatInputs in{supporting, all, REF_PLACEHOLDER};
     McState mc{std::move (rng), {}, {}};
-    const StatContext ctx{mc, true};
+    const StatContext ctx{mc, std::nullopt};
     const auto r = tjac.compute (in, ctx);
     REQUIRE_FALSE (r.has_value());
-    REQUIRE (r.error() == REASON_ZERO_VARIANCE);
+    REQUIRE (r.error() == StatSkipReason::zeroVariance);
   }
 
   SECTION (
@@ -625,7 +732,9 @@ TEST_CASE ("compute TJAC (graded pairwise template overlap)")
     }
     VariantStatInputs in{supporting, all, REF_PLACEHOLDER};
     McState mc{std::move (rng), {}, {}};
-    const StatContext ctx{mc, false};
+    const StatContext ctx{
+        mc, StatSkipReason::heterogeneousReadLength
+    };
     const auto r = tjac.compute (in, ctx);
     REQUIRE (r.has_value());
     REQUIRE (
@@ -636,7 +745,7 @@ TEST_CASE ("compute TJAC (graded pairwise template overlap)")
 
 TEST_CASE ("compute MLAS (median normalised alignment score)")
 {
-  const auto mlas = by_id (variant_stats(), "MLAS");
+  const auto mlas = by_id (expos_field_registry(), "MLAS");
   std::mt19937 rng (1);
 
   SECTION ("medians of supporting and all")
@@ -647,7 +756,7 @@ TEST_CASE ("compute MLAS (median normalised alignment score)")
     all.normalisedAs = {0.2, 0.4, 0.6, 0.8};  // median 0.5
     VariantStatInputs in{supporting, all, REF_PLACEHOLDER};
     McState mc{std::move (rng), {}, {}};
-    const StatContext ctx{mc, true};
+    const StatContext ctx{mc, std::nullopt};
     const auto r = mlas.compute (in, ctx);
     REQUIRE (r.has_value());
     REQUIRE (r->size() == 2);
@@ -665,18 +774,18 @@ TEST_CASE ("compute MLAS (median normalised alignment score)")
     all.normalisedAs = {0.3, 0.6};
     VariantStatInputs in{supporting, all, REF_PLACEHOLDER};
     McState mc{std::move (rng), {}, {}};
-    const StatContext ctx{mc, true};
+    const StatContext ctx{mc, std::nullopt};
     const auto r = mlas.compute (in, ctx);
     REQUIRE (r.has_value());
     REQUIRE_FALSE ((*r)[0].value.has_value());
-    REQUIRE ((*r)[0].reason == REASON_NO_SUPPORT);
+    REQUIRE ((*r)[0].reason == StatSkipReason::noSupport);
     REQUIRE ((*r)[1].value.has_value());
   }
 }
 
 TEST_CASE ("compute RCMPLX (reference complexity)")
 {
-  const auto rcmplx = by_id (variant_stats(), "RCMPLX");
+  const auto rcmplx = by_id (expos_field_registry(), "RCMPLX");
   std::mt19937 rng (1);
   const PileupFeatures empty;
 
@@ -685,10 +794,10 @@ TEST_CASE ("compute RCMPLX (reference complexity)")
     const std::string ref (99, 'A');
     VariantStatInputs in{empty, empty, std::string_view (ref)};
     McState mc{std::move (rng), {}, {}};
-    const StatContext ctx{mc, true};
+    const StatContext ctx{mc, std::nullopt};
     const auto r = rcmplx.compute (in, ctx);
     REQUIRE_FALSE (r.has_value());
-    REQUIRE (r.error() == REASON_REFERENCE_TOO_SHORT);
+    REQUIRE (r.error() == StatSkipReason::referenceTooShort);
   }
 
   SECTION ("missing when the slice contains N")
@@ -697,10 +806,10 @@ TEST_CASE ("compute RCMPLX (reference complexity)")
     ref[75] = 'N';
     VariantStatInputs in{empty, empty, std::string_view (ref)};
     McState mc{std::move (rng), {}, {}};
-    const StatContext ctx{mc, true};
+    const StatContext ctx{mc, std::nullopt};
     const auto r = rcmplx.compute (in, ctx);
     REQUIRE_FALSE (r.has_value());
-    REQUIRE (r.error() == REASON_REFERENCE_HAS_N);
+    REQUIRE (r.error() == StatSkipReason::referenceHasN);
   }
 
   SECTION ("homopolymer window has low, known complexity")
@@ -710,7 +819,7 @@ TEST_CASE ("compute RCMPLX (reference complexity)")
     );  // exactly one 100-base window
     VariantStatInputs in{empty, empty, std::string_view (ref)};
     McState mc{std::move (rng), {}, {}};
-    const StatContext ctx{mc, true};
+    const StatContext ctx{mc, std::nullopt};
     const auto r = rcmplx.compute (in, ctx);
     REQUIRE (r.has_value());
     REQUIRE ((*r)[0].value.has_value());
@@ -719,40 +828,48 @@ TEST_CASE ("compute RCMPLX (reference complexity)")
   }
 }
 
-TEST_CASE ("stat_skip_tokens deduplicates within a statistic")
+TEST_CASE ("stat_skips deduplicates within a statistic")
 {
   const VariantStatField field{"QRK", "", 2};
 
-  SECTION ("both subfields share a reason -> one token")
+  SECTION ("both subfields share a reason -> one skip")
   {
     const std::vector<StatValue> bothMissing{
-        stat_missing (REASON_INSUFFICIENT_SUPPORT),
-        stat_missing (REASON_INSUFFICIENT_SUPPORT)
+        StatValue{
+            std::nullopt, StatSkipReason::insufficientSupport
+        },
+        StatValue{
+            std::nullopt, StatSkipReason::insufficientSupport
+        }
     };
-    const auto tokens = stat_skip_tokens (field, bothMissing);
-    REQUIRE (tokens.size() == 1);
-    REQUIRE (tokens[0] == "QRK:insufficient_support");
+    const auto skips = stat_skips (field, bothMissing);
+    REQUIRE (skips.size() == 1);
+    REQUIRE (
+        to_info_format (skips[0]) == "QRK:insufficient_support"
+    );
   }
 
-  SECTION ("only the missing subfield contributes a token")
+  SECTION ("only the missing subfield contributes a skip")
   {
     // MLAS, since it is the only statistic that can reach a partially-missing
     // result: the joint-inference statistics skip whole or not at all.
     const VariantStatField mlasField{"MLAS", "", 2};
     const std::vector<StatValue> oneMissing{
-        stat_value (0.7), stat_missing (REASON_NO_BACKGROUND)
+        StatValue{0.7, std::nullopt},
+        StatValue{std::nullopt, StatSkipReason::noBackground}
     };
-    const auto tokens = stat_skip_tokens (mlasField, oneMissing);
-    REQUIRE (tokens.size() == 1);
-    REQUIRE (tokens[0] == "MLAS:no_background");
+    const auto skips = stat_skips (mlasField, oneMissing);
+    REQUIRE (skips.size() == 1);
+    REQUIRE (to_info_format (skips[0]) == "MLAS:no_background");
   }
 
-  SECTION ("no missing subfields -> no tokens")
+  SECTION ("no missing subfields -> no skips")
   {
     const std::vector<StatValue> present{
-        stat_value (1.0), stat_value (2.0)
+        StatValue{1.0, std::nullopt},
+        StatValue{2.0, std::nullopt}
     };
-    REQUIRE (stat_skip_tokens (field, present).empty());
+    REQUIRE (stat_skips (field, present).empty());
   }
 }
 
@@ -760,17 +877,18 @@ TEST_CASE (
     "stat_all_missing expands a skip to the registry's arity"
 )
 {
-  const auto twoValued =
-      stat_all_missing ({"QRK", "", 2}, REASON_ZERO_VARIANCE);
+  const auto twoValued = stat_all_missing (
+      {"QRK", "", 2}, StatSkipReason::zeroVariance
+  );
   REQUIRE (twoValued.size() == 2);
   for (const auto& v : twoValued) {
     REQUIRE_FALSE (v.value.has_value());
-    REQUIRE (v.reason == REASON_ZERO_VARIANCE);
+    REQUIRE (v.reason == StatSkipReason::zeroVariance);
   }
 
   const auto oneValued = stat_all_missing (
-      {"RCMPLX", "", 1}, REASON_REFERENCE_HAS_N
+      {"RCMPLX", "", 1}, StatSkipReason::referenceHasN
   );
   REQUIRE (oneValued.size() == 1);
-  REQUIRE (oneValued[0].reason == REASON_REFERENCE_HAS_N);
+  REQUIRE (oneValued[0].reason == StatSkipReason::referenceHasN);
 }

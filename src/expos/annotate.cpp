@@ -1,5 +1,6 @@
 #include "expos/annotate.hpp"
 
+#include <fmt/format.h>
 #include <htslib/sam.h>
 #include <htslib/vcf.h>
 
@@ -7,106 +8,26 @@
 #include <cctype>
 #include <cstddef>
 #include <cstdint>
-#include <format>
 #include <iostream>
-#include <optional>
 #include <random>
 #include <string>
 #include <string_view>
 #include <utility>
 #include <vector>
 
-#include "expos/background_guard.hpp"
-#include "expos/compute_field.hpp"
+#include "expos/compute_info_field.hpp"
+#include "expos/encode_info_field.hpp"
 #include "expos/extract_pileup.hpp"
+#include "expos/guards.hpp"
 #include "expos/pileup_features.hpp"
 #include "expos/variant_stats.hpp"
 #include "expos/vcf_record.hpp"
 #include "hts/hts_types.hpp"
 #include "shared/err.hpp"
+#include "shared/warn.hpp"
 
-static constexpr std::size_t MIN_READS_FOR_LEN_CHECK = 10;
-static constexpr std::size_t MIN_TEMPLATES_FOR_LEN_CHECK = 10;
-static constexpr double READ_LEN_REL_IQR_TOL = 0.10;
-static constexpr double MEDIAN_REL_TOL = 0.10;
 // Reference flank either side of the REF allele, in bases, for RCMPLX.
 static constexpr int64_t RCMPLX_FLANK = 400;
-
-// User-facing warning
-static void warn (const std::string& msg)
-{
-  std::cerr << "warning: " << msg << '\n';
-}
-
-// The reason a record can't be analysed
-// (multiallelic or complex), or nullopt.
-// Precondition: r is unpacked.
-static std::optional<std::string_view> classify_record (
-    VcfRec& r, bool quiet
-)
-{
-  if (r.ptr->n_allele != 2) {
-    if (!quiet) {
-      warn (
-          stringify_rec (r) + " is not biallelic (" +
-          std::to_string (r.ptr->n_allele) +
-          " alleles); passing through unannotated"
-      );
-    }
-    return REASON_MULTIALLELIC;
-  }
-  if (type_record (r) == RecordClass::Unanalysable) {
-    if (!quiet) {
-      warn (
-          stringify_rec (r) +
-          " is complex or untypeable; passing through "
-          "unannotated"
-      );
-    }
-    return REASON_COMPLEX;
-  }
-  return std::nullopt;
-}
-
-// Resolve the record's contig to the alignment file's tid.
-// sam_hdr_name2tid: -1 contig not present in alignment, -2 parse failure.
-static IntOrErr get_aln_contig_for_record_rid (
-    const VcfRec& r, const AlnFile& aln
-)
-{
-  const auto* ridName = bcf_hdr_id2name (r.br_hdr, r.ptr->rid);
-  const auto alnTid = sam_hdr_name2tid (aln.hdr, ridName);
-  if (alnTid == -1) {
-    std::string errMsg = "Contig ";
-    errMsg += ridName;
-    errMsg += " for variant ";
-    errMsg += stringify_rec (r);
-    errMsg += " not found";  // TODO: in alignment file at ...
-    return std::unexpected (make_err (errMsg));
-  }
-  if (alnTid == -2) {
-    std::string errMsg = "Unable to parse contig ";
-    errMsg += ridName;
-    errMsg += " for variant ";
-    errMsg += stringify_rec (r);
-    errMsg +=
-        " as contig name for SAM file";  // TODO in alignment file at ...
-    return std::unexpected (make_err (errMsg));
-  }
-  return alnTid;
-}
-
-using LocusOrErr = std::expected<GenomicLocus, Err>;
-static LocusOrErr make_record_pileup_pos (
-    const VcfRec& r, const AlnFile& aln
-)
-{
-  auto tidConvRet = get_aln_contig_for_record_rid (r, aln);
-  if (!tidConvRet) {
-    return std::unexpected (tidConvRet.error());
-  }
-  return GenomicLocus{*tidConvRet, r.ptr->pos};
-}
 
 // Reference bases around the variant, upper-cased: the REF allele span padded
 // by RCMPLX_FLANK either side. Deliberately independent of the alignments —
@@ -114,7 +35,7 @@ static LocusOrErr make_record_pileup_pos (
 // reliability RCMPLX helps assess, and one mismapped mate stretches it
 // arbitrarily (megabases, in practice). Short near a contig edge, in which
 // case RCMPLX reports reference_too_short.
-static RefSliceOrErr variant_ref_slice (
+static RefSliceOrErr get_variant_ref_slice (
     const VcfRec& r, const FastaFile& ref
 )
 {
@@ -124,10 +45,8 @@ static RefSliceOrErr variant_ref_slice (
       r.ptr->pos + r.ptr->rlen +
       RCMPLX_FLANK;  // faidx clamps to contig end
 
-  const std::string_view contig =
-      bcf_hdr_id2name (r.br_hdr, r.ptr->rid);
   auto sliceRet =
-      fetch_region (ref, contig, sliceStart, sliceEnd);
+      fetch_region (ref, r.contig, sliceStart, sliceEnd);
   if (!sliceRet) {
     return std::unexpected (sliceRet.error());
   }
@@ -141,96 +60,171 @@ static RefSliceOrErr variant_ref_slice (
   return slice;
 }
 
-// Compute and encode the expos statistics onto an analysable record in place.
-// nBackgroundExcluded is incremented whenever a background sample is
-// excluded from the merge because its read- or fragment-length
-// distribution looks inconsistent with the primary sample's.
-static VoidOrErr annotate_record (
-    const VcfRec& r, const ExposCtx& ctx, McState& mc,
-    std::size_t& nBackgroundExcluded
+// Merge every admitted background sample's reads at this locus into
+// _mergeInto, which arrives holding the primary's reads alone.
+static VoidOrErr extract_bg_samples (
+    ExposCtx& ctx, const VcfRec& r, PileupFeatures& _mergeInto
 )
 {
-  const auto posRet = make_record_pileup_pos (r, ctx.aln);
-  if (!posRet) {
-    return std::unexpected (posRet.error());
-  }
-  auto prepRet = prepare_pileup (ctx.aln, *posRet);
-  if (!prepRet) {
-    return std::unexpected (prepRet.error());
-  }
-  const auto plp = std::move (*prepRet);
-
-  PileupFeatures supporting;
-  PileupFeatures all;
-  const auto extractRet =
-      extract_partition_features (plp, r, supporting, all);
-  if (!extractRet) {
-    return std::unexpected (extractRet.error());
+  if (ctx.backgrounds.empty()) {
+    return {};
   }
 
-  // guard QRK
-  const bool readLenHomogeneous =
-      primary_read_length_homogeneous (
-          all, MIN_READS_FOR_LEN_CHECK, READ_LEN_REL_IQR_TOL
-      );
-  if (!readLenHomogeneous && !ctx.quiet) {
-    warn (
-        std::format (
-            "{}: primary sample's read lengths are "
-            "heterogeneous; QRK suppressed",
-            stringify_rec (r)
-        )
-    );
-  }
+  // Snapshot the primary before the first merge below: it is the fixed
+  // point of reference every candidate is judged against, so the outcome
+  // does not depend on which candidates were admitted before it. Taking it
+  // here rather than at the call site keeps that ordering unbreakable, and
+  // keeps a run without --bg from paying for it.
+  const PrimaryGuardStats primaryStats =
+      summarise_primary (_mergeInto);
 
-  // evaluate each background source against the primary
-  // before merging.
   PileupFeatures ru_bg;
-  for (const auto& bg : ctx.backgrounds) {
+  for (auto& bgSamp : ctx.backgrounds) {
     reset (ru_bg);
-    const auto bgPosRet = make_record_pileup_pos (r, bg);
-    if (!bgPosRet) {
-      return std::unexpected (bgPosRet.error());
+    const auto bgLocRet = record_to_aln_locus (r, bgSamp.handle);
+    if (!bgLocRet) {
+      // Both outcomes are fatal for now. Under consideration: hoisting the
+      // rid -> tid resolution onto the AlnBundle, at which point notPresent
+      // becomes "drop this background for this contig, warn once" rather
+      // than killing the run over a background that simply wasn't aligned
+      // against this contig. parseFail stays fatal either way.
+      switch (bgLocRet.error()) {
+        case Rec2LocusErr::notPresent:
+          return std::unexpected (make_err (
+              fmt::format (
+                  "Contig {} (record {}) is not present in the "
+                  "background sample at {}.",
+                  r.contig, stringify_rec (r), bgSamp.handle.path
+              )
+          ));
+        case Rec2LocusErr::parseFail:
+          return std::unexpected (make_err (
+              fmt::format (
+                  "Could not parse contig {} against the header "
+                  "of the background sample at {}.",
+                  r.contig, bgSamp.handle.path
+              )
+          ));
+      }
     }
-    const auto bgPlpRet = prepare_pileup (bg, *bgPosRet);
-    if (!bgPlpRet) {
-      return std::unexpected (bgPlpRet.error());
+    const auto bgLocus = *bgLocRet;
+    const auto bgAdvRet =
+        try_advance_pileup (bgSamp.plpIt, bgLocus);
+    if (!bgAdvRet) {
+      // TODO: stringify error codes
+      return std::unexpected (make_err ("failed to pileup!"));
     }
-    const auto bgExtractRet =
-        extract_features (*bgPlpRet, ru_bg);
-    if (!bgExtractRet) {
-      return std::unexpected (bgExtractRet.error());
+    if (*bgAdvRet == PileupAdvResCode::success) {
+      const auto bgExtractRet = extract_features (
+          *read (bgSamp.plpIt, bgLocus), ru_bg
+      );
+      if (!bgExtractRet) {
+        return std::unexpected (bgExtractRet.error());
+      }
     }
-    const auto reason = evaluate_background (
-        all, ru_bg, MIN_READS_FOR_LEN_CHECK,
-        READ_LEN_REL_IQR_TOL, MIN_TEMPLATES_FOR_LEN_CHECK,
-        MEDIAN_REL_TOL
-    );
-    if (reason != BackgroundGuardReason::Admitted) {
-      ++nBackgroundExcluded;
+    const auto verifyRet =
+        verify_bg_sample (primaryStats, ru_bg);
+    if (!verifyRet) {
       if (!ctx.quiet) {
-        warn (
-            std::format (
+        expos_warn (
+            fmt::format (
                 "{}: background sample excluded ({})",
-                stringify_rec (r), to_string (reason)
+                stringify_rec (r), to_string (verifyRet.error())
             )
         );
       }
       continue;
     }
-    merge (all, ru_bg);
+    merge (_mergeInto, ru_bg);
+  }
+  return {};
+}
+
+// Compute and encode the expos statistics onto an analysable record in place.
+// nBackgroundExcluded is incremented whenever a background sample is
+// excluded from the merge because its read- or fragment-length
+// distribution looks inconsistent with the primary sample.
+static VoidOrErr annotate_record (
+    const VcfRec& r, ExposCtx& ctx, McState& mc
+)
+{
+  // filled by feature extraction for all
+  // relevant reads.
+  PileupFeatures
+      supporting;  // all supporting reads from primary sample
+  PileupFeatures all;  // all reads covering the variant locus,
+  // including any merged in from bg samples.
+
+  const auto posRet = record_to_aln_locus (r, ctx.aln.handle);
+  if (!posRet) {
+    // Under consideration alongside the background case above: whether a
+    // contig the primary alignment has never heard of should stay fatal or
+    // become a record-level skip. Fatal for now.
+    switch (posRet.error()) {
+      case Rec2LocusErr::notPresent:
+        return std::unexpected (make_err (
+            fmt::format (
+                "Contig {} (record {}) is not present in the "
+                "alignment at {}.",
+                r.contig, stringify_rec (r), ctx.aln.handle.path
+            )
+        ));
+      case Rec2LocusErr::parseFail:
+        return std::unexpected (make_err (
+            fmt::format (
+                "Could not parse contig {} against the header "
+                "of "
+                "the alignment at {}.",
+                r.contig, ctx.aln.handle.path
+            )
+        ));
+    }
+  }
+  const auto locus = *posRet;
+  const auto advRet = try_advance_pileup (ctx.aln.plpIt, locus);
+  if (!advRet) {
+    // TODO: stringify error codes
+    return std::unexpected (make_err ("failed to pileup!"));
+  }
+  if (*advRet == PileupAdvResCode::success) {
+    const auto extractRet = extract_partition_features (
+        *read (ctx.aln.plpIt, locus), r, supporting, all
+    );
+    if (!extractRet) {
+      return std::unexpected (extractRet.error());
+    }
   }
 
-  auto sliceRet = variant_ref_slice (r, ctx.ref);
+  StatContext statCtx{mc, std::nullopt};
+  // guard QRK
+  // must be done before any background samples merged
+  set_qrk_guard (statCtx, all);
+  if (statCtx.readLenSuppression && !ctx.quiet) {
+    expos_warn (
+        fmt::format (
+            "{}: primary sample fails the QRK read-length guard "
+            "({})",
+            stringify_rec (r),
+            to_string (*statCtx.readLenSuppression)
+        )
+    );
+  }
+
+  auto bgRet = extract_bg_samples (ctx, r, all);
+  if (!bgRet) {
+    return std::unexpected (bgRet.error());
+  }
+
+  auto sliceRet = get_variant_ref_slice (r, ctx.ref);
   if (!sliceRet) {
     return std::unexpected (sliceRet.error());
   }
   const std::string refSlice = std::move (*sliceRet);
 
   const VariantStatInputs inputs{supporting, all, refSlice};
-  const StatContext statCtx{mc, readLenHomogeneous};
-  std::vector<std::string> skipTokens;
-  for (const auto& stat : variant_stats()) {
+
+  std::vector<Skip> recordSkips;
+  for (const auto& stat : expos_field_registry()) {
     auto result = stat.compute (inputs, statCtx);
     const std::vector<StatValue> values =
         result ? std::move (*result)
@@ -241,22 +235,23 @@ static VoidOrErr annotate_record (
     if (!encRet) {
       return std::unexpected (encRet.error());
     }
-    for (auto& token : stat_skip_tokens (stat.field, values)) {
-      skipTokens.push_back (std::move (token));
+    for (const auto& skip : stat_skips (stat.field, values)) {
+      recordSkips.push_back (skip);
     }
   }
 
   // set skip field, if any skips from compute_*
   if (auto skipRet =
-          set_expos_skip (ctx.vcfOut.hdr, r.ptr, skipTokens);
+          set_expos_skip (ctx.vcfOut.hdr, r.ptr, recordSkips);
       !skipRet) {
     return std::unexpected (skipRet.error());
   }
 
+  // ready for write
   return {};
 }
 
-VoidOrErr analyse_records (const ExposCtx& ctx)
+VoidOrErr analyse_records (ExposCtx& ctx)
 {
   // One RNG and set of draw buffers.
   // Buffers should reach high-water mark over
@@ -267,11 +262,6 @@ VoidOrErr analyse_records (const ExposCtx& ctx)
   ru_rec.ptr = bcf_init();
   ru_rec.br_hdr = ctx.vcfIn.hdr;
 
-  // Tallies for the end-of-run summary (stderr, unless --quiet).
-  std::size_t nRecords = 0;
-  std::size_t nSkipped = 0;
-  std::size_t nBackgroundExcluded = 0;
-
   while (bcf_read (ctx.vcfIn.fh, ctx.vcfIn.hdr, ru_rec.ptr) ==
          0) {
     if (bcf_unpack (ru_rec.ptr, BCF_UN_ALL) != 0) {
@@ -280,34 +270,43 @@ VoidOrErr analyse_records (const ExposCtx& ctx)
       );
     }
 
-    const auto integrityRet = check_record_integrity (ru_rec);
+    const auto integrityRet = check_integrity (ru_rec);
     if (!integrityRet) {
       return std::unexpected (integrityRet.error());
     }
 
-    ++nRecords;
-
     // Unanalysed records passthrough. filter-gated ones untouched (FILTER
-    // already documents them), multiallelic/complex ones with an EXPOS_SKIP.
+    // already documents them), not-biallelic/complex ones with an
+    // EXPOS_SKIP.
     if (ctx.skipFiltered && record_is_filtered (ru_rec)) {
-      ++nSkipped;
-    }
-    else if (const auto skipReason =
-                 classify_record (ru_rec, ctx.quiet)) {
-      ++nSkipped;
-      const auto skipRet = set_expos_skip (
-          ctx.vcfOut.hdr, ru_rec.ptr,
-          {"record:" + std::string (*skipReason)}
-      );
-      if (!skipRet) {
-        return std::unexpected (skipRet.error());
-      }
     }
     else {
-      const auto annotateRet =
-          annotate_record (ru_rec, ctx, mc, nBackgroundExcluded);
-      if (!annotateRet) {
-        return std::unexpected (annotateRet.error());
+      const auto valRet = validate_for_analysis (ru_rec);
+      if (!valRet) {
+        if (!ctx.quiet) {
+          expos_warn (
+              fmt::format (
+                  "Record {} cannot be analysed ({}), passing "
+                  "through unannotated",
+                  stringify_rec (ru_rec),
+                  to_string (valRet.error())
+              )
+          );
+        }
+        const Skip skip = make_record_skip (valRet.error());
+        const auto skipRet = set_expos_skip (
+            ctx.vcfOut.hdr, ru_rec.ptr, {&skip, 1}
+        );
+        if (!skipRet) {
+          return std::unexpected (skipRet.error());
+        }
+      }
+      else {
+        const auto annotateRet =
+            annotate_record (ru_rec, ctx, mc);
+        if (!annotateRet) {
+          return std::unexpected (annotateRet.error());
+        }
       }
     }
 
@@ -320,9 +319,7 @@ VoidOrErr analyse_records (const ExposCtx& ctx)
   }
 
   if (!ctx.quiet) {
-    std::cerr << "expos: " << nRecords << " record(s), "
-              << nSkipped << " skipped, " << nBackgroundExcluded
-              << " background sample(s) excluded\n";
+    std::cerr << "complete" << std::endl;
   }
 
   return {};

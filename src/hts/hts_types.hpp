@@ -7,6 +7,7 @@
 
 #include <expected>
 #include <functional>
+#include <optional>
 #include <span>
 #include <string>
 
@@ -35,94 +36,45 @@ struct AlnFile {
   htsFile* fh = NULL;
   sam_hdr_t* hdr = NULL;
   hts_idx_t* idx = NULL;
+  std::string path;
 
   AlnFile() = default;
+
+  // no copy
   AlnFile (const AlnFile&) = delete;
   AlnFile& operator= (const AlnFile&) = delete;
 
-  ~AlnFile() noexcept
-  {
-    if (idx != nullptr) {
-      hts_idx_destroy (idx);
-    }
-    if (hdr != nullptr) {
-      sam_hdr_destroy (hdr);
-    }
-    if (fh != nullptr) {
-      hts_close (fh);
-    }
-  }
+  // move ok
+  AlnFile (AlnFile&& o) noexcept;
+  AlnFile& operator= (AlnFile&& o) noexcept;
 
-  AlnFile (AlnFile&& o) noexcept
-      : fh{o.fh}, hdr{o.hdr}, idx{o.idx}
-  {
-    o.fh = NULL;
-    o.hdr = NULL;
-    o.idx = NULL;
-  }
-
-  AlnFile& operator= (AlnFile&& o) noexcept
-  {
-    if (this != &o) {
-      if (idx != nullptr) {
-        hts_idx_destroy (idx);
-      }
-      if (hdr != nullptr) {
-        sam_hdr_destroy (hdr);
-      }
-      if (fh != nullptr) {
-        hts_close (fh);
-      }
-      fh = o.fh;
-      hdr = o.hdr;
-      idx = o.idx;
-      o.fh = NULL;
-      o.hdr = NULL;
-      o.idx = NULL;
-    }
-    return *this;
-  }
+  ~AlnFile() noexcept;
 };
 
 using AlnOrErr = std::expected<AlnFile, Err>;
-AlnOrErr load_aln (const char* fn);
+AlnOrErr load_aln (const std::string& path);
 
 struct FastaFile {
   faidx_t* fai = nullptr;
+  std::string path;
 
   operator faidx_t*() const noexcept { return fai; }
 
   FastaFile() = default;
+
+  // no copy
   FastaFile (const FastaFile& o) = delete;
   FastaFile& operator= (const FastaFile& o) = delete;
 
-  FastaFile (FastaFile&& o) noexcept : fai{o.fai}
-  {
-    o.fai = nullptr;
-  }
+  // move ok
+  FastaFile (FastaFile&& o) noexcept;
+  FastaFile& operator= (FastaFile&& o) noexcept;
 
-  FastaFile& operator= (FastaFile&& o) noexcept
-  {
-    if (this != &o) {
-      if (fai != nullptr) {
-        fai_destroy (fai);
-      }
-      fai = o.fai;
-      o.fai = nullptr;
-    }
-    return *this;
-  }
-
-  ~FastaFile()
-  {
-    if (fai != nullptr) {
-      fai_destroy (fai);
-    }
-  }
+  ~FastaFile();
 };
 
 using FastaOrErr = std::expected<FastaFile, Err>;
-FastaOrErr load_fasta (const char* fn);
+FastaOrErr load_fasta (const std::string& path);
 
 using RefSliceOrErr = std::expected<std::string, Err>;
 RefSliceOrErr fetch_region (
@@ -133,89 +85,23 @@ RefSliceOrErr fetch_region (
 struct VcfFile {
   htsFile* fh = NULL;
   bcf_hdr_t* hdr = NULL;
+  std::string path;
 
   VcfFile() = default;
+
+  // no copy
   VcfFile (const VcfFile&) = delete;
   VcfFile& operator= (const VcfFile&) = delete;
 
-  ~VcfFile() noexcept
-  {
-    if (hdr != nullptr) {
-      bcf_hdr_destroy (hdr);
-    }
-    if (fh != nullptr) {
-      hts_close (fh);
-    }
-  }
+  // move ok
+  VcfFile (VcfFile&& o) noexcept;
+  VcfFile& operator= (VcfFile&& o) noexcept;
 
-  VcfFile (VcfFile&& o) noexcept : fh{o.fh}, hdr{o.hdr}
-  {
-    o.fh = NULL;
-    o.hdr = NULL;
-  }
-
-  VcfFile& operator= (VcfFile&& o) noexcept
-  {
-    if (this != &o) {
-      if (hdr != nullptr) {
-        bcf_hdr_destroy (hdr);
-      }
-      if (fh != nullptr) {
-        hts_close (fh);
-      }
-      fh = o.fh;
-      hdr = o.hdr;
-      o.fh = NULL;
-      o.hdr = NULL;
-    }
-    return *this;
-  }
+  ~VcfFile() noexcept;
 };
 
 using VcfOrErr = std::expected<VcfFile, Err>;
-VcfOrErr load_vcf (const char* fn);
-
-struct PreparedPileup {
-  bam_plp_t plpBacking = nullptr;   // owned
-  // View into plpBacking's buffer; invalidated by the next
-  // bam_plp64_auto or bam_plp_reset on plpBacking.
-  const bam_pileup1_t* plpArr = nullptr;
-  size_t nPlp = 0;
-
-  ~PreparedPileup()
-  {
-    if (plpBacking != nullptr) {
-      bam_plp_destroy (plpBacking);
-    }
-    plpArr = nullptr;
-  }
-  PreparedPileup() = default;
-  PreparedPileup (PreparedPileup&) = delete;
-  PreparedPileup& operator= (PreparedPileup&) = delete;
-  PreparedPileup (PreparedPileup&& o) noexcept
-      : plpBacking (o.plpBacking),
-        plpArr (o.plpArr),
-        nPlp (o.nPlp)
-  {
-    o.plpBacking = nullptr;
-    o.plpArr = nullptr;
-    o.nPlp = 0;
-  };
-  PreparedPileup& operator= (PreparedPileup&&) = delete;
-};
-
-using PileupOrErr = std::expected<PreparedPileup, Err>;
-PileupOrErr prepare_pileup (
-    const AlnFile& aln, const GenomicLocus& pos
-);
-
-// default pileup function: yields primary, non-dup,
-// non-qcfail, non-supplementary reads. Consumes a
-// PileupContext, so usable with any derived context which
-// does not need extra filtering.
-extern "C" int pileup_func (void* data, bam1_t* b);
-
-// SUPERCEDING PreparedPileup
+VcfOrErr load_vcf (const std::string& path);
 
 // pileup iterator type:
 // stateful forward-per-contig iterator
@@ -237,10 +123,7 @@ struct PileupContext {
   hts_idx_t* br_fhIdx;
   hts_itr_t* it = nullptr;  // owned, must destroy
 
-  explicit PileupContext (const AlnFile& aln)
-      : br_fh{aln.fh}, br_fhIdx{aln.idx}
-  {
-  }
+  explicit PileupContext (const AlnFile& aln);
 
   PileupContext (const PileupContext&) = delete;
   PileupContext& operator= (const PileupContext&) = delete;
@@ -248,12 +131,7 @@ struct PileupContext {
   // virtual: ForwardPileupIterator destroys the context
   // through this type, so a derived context must get its
   // own destructor run.
-  virtual ~PileupContext()
-  {
-    if (it != nullptr) {
-      hts_itr_destroy (it);
-    }
-  }
+  virtual ~PileupContext();
 };
 
 struct ForwardPileupIterator {
@@ -289,12 +167,6 @@ struct ForwardPileupIterator {
       ForwardPileupIterator&&
   ) noexcept;
 
-  // constructor
-  friend ForwardPileupIterator init_pileup_iterator (
-      PileupContext* snk_ctx, bam_plp_auto_f fn
-  );
-
- private:
   ForwardPileupIterator() = default;
 };
 
@@ -308,32 +180,44 @@ ForwardPileupIterator init_pileup_iterator (
     PileupContext* snk_ctx, bam_plp_auto_f fn
 );
 
-enum class PileupAdvErr : uint8_t {
+enum class PileupAdvResCode : uint8_t {
+  success,
+  exhausted,
+  noCoverage
+};
+enum class PileupAdvErrCode : uint8_t {
   invalidLocus,
   locusBehindItr,
   samItrFailed,
   pileupEngineFailed
 };
-enum class PileupAdvResult : uint8_t {
-  success,
-  exhausted,
-  noCoverage
-};
 // Move cursor to `to`.
 // Separate to accessing the result as the
 // outcomes are quite rich.
-using AdvResultOrErr =
-    std::expected<PileupAdvResult, PileupAdvErr>;
-[[nodiscard]] AdvResultOrErr try_advance_pileup (
+using AdvResOrErr =
+    std::expected<PileupAdvResCode, PileupAdvErrCode>;
+[[nodiscard]] AdvResOrErr try_advance_pileup (
     ForwardPileupIterator& pc, const GenomicLocus& to
 );
 
-// get non-owning view into pileup at current position.
-// `at` enforces that you are retrieving the position
-// you expected.
-// empty span == no coverage
-// nullopt == cursor not at `at`
+// Non-owning view of the pileup the cursor is currently
+// parked on.
+//
+// unexpected(nullopt) == the cursor is not parked on
+// expectedLocus, which is the case after any
+// try_advance_pileup that did not return `success`: a
+// noCoverage park sits on the next covered position, so its
+// span is typically non-empty but belongs to a different
+// locus; an exhausted park sits on the end sentinel. Only a
+// `success` guarantees a view of the locus asked for.
+//
+// The span aliases plpIt's internal buffer, and so is
+// invalidated by the next try_advance_pileup on the same
+// iterator.
 using PileupView = std::span<const bam_pileup1_t>;
-std::optional<PileupView> read (
-    const ForwardPileupIterator& pc, const GenomicLocus& at
+using PileupViewOrNone =
+    std::expected<PileupView, std::nullopt_t>;
+PileupViewOrNone read (
+    const ForwardPileupIterator& pc,
+    const GenomicLocus& expectedLocus
 );

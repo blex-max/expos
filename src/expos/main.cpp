@@ -1,3 +1,5 @@
+#include <fmt/chrono.h>
+#include <fmt/format.h>
 #include <htslib/vcf.h>
 #include <plog/Formatters/TxtFormatter.h>
 #include <plog/Initializers/ConsoleInitializer.h>
@@ -8,7 +10,6 @@
 #include <cstdint>
 #include <cstdlib>
 #include <expected>
-#include <format>
 #include <iostream>
 #include <sstream>
 #include <string>
@@ -18,7 +19,9 @@
 
 #include "argparse/argparse.hpp"
 #include "expos/annotate.hpp"
-#include "expos/compute_field.hpp"
+#include "expos/compute_info_field.hpp"
+#include "expos/encode_info_field.hpp"
+#include "expos/pileup_fn.hpp"
 #include "hts/hts_types.hpp"
 #include "shared/err.hpp"
 
@@ -144,7 +147,7 @@ static VcfOrErr create_output_vcf (
   }
 
   // Register INFO fields, write header
-  for (const auto& stat : variant_stats()) {
+  for (const auto& stat : expos_field_registry()) {
     auto regRet = register_variant_stat_header (out.hdr, stat);
     if (!regRet) {
       return std::unexpected (regRet.error());
@@ -159,7 +162,7 @@ static VcfOrErr create_output_vcf (
   const auto now = std::chrono::floor<std::chrono::seconds> (
       std::chrono::system_clock::now()
   );
-  const std::string sourceLine = std::format (
+  const std::string sourceLine = fmt::format (
       "##source=\"{} v{} {:%Y-%m-%dT%H:%M:%SZ}\"", PROG_NAME,
       VERSION, now
   );
@@ -169,7 +172,7 @@ static VcfOrErr create_output_vcf (
     );
   }
   const std::string cmdLine =
-      std::format ("##{}_command=\"{}\"", PROG_NAME, invocation);
+      fmt::format ("##{}_command=\"{}\"", PROG_NAME, invocation);
   if (bcf_hdr_append (out.hdr, cmdLine.c_str()) != 0) {
     return std::unexpected (
         make_err ("Could not add command header line")
@@ -190,28 +193,41 @@ static CtxOrErr init_ctx (const ExposArgs& filepaths)
 {
   ExposCtx out;
 
-  auto vcfRet = load_vcf (filepaths.vcfPath.c_str());
+  auto vcfRet = load_vcf (filepaths.vcfPath);
   if (!vcfRet) {
     return std::unexpected (vcfRet.error());
   }
   out.vcfIn = std::move (*vcfRet);
 
-  auto alnRet = load_aln (filepaths.alnPath.c_str());
+  auto alnRet = load_aln (filepaths.alnPath);
   if (!alnRet) {
     return std::unexpected (alnRet.error());
   }
-  out.aln = std::move (*alnRet);
+  out.aln.handle = std::move (*alnRet);
+  // takes ownership of PileupContext
+  out.aln.plpIt = init_pileup_iterator (
+      new PileupContext{out.aln.handle}, pileup_fn
+  );
 
   out.backgrounds.reserve (filepaths.bgPaths.size());
   for (const auto& bgPath : filepaths.bgPaths) {
-    auto bgRet = load_aln (bgPath.c_str());
+    auto bgRet = load_aln (bgPath);
     if (!bgRet) {
       return std::unexpected (bgRet.error());
     }
-    out.backgrounds.push_back (std::move (*bgRet));
+    // too many moves...
+    // Could the initialiser be templated
+    // on the derived pileupcontext type and
+    // take arguments to construct in place?
+    AlnBundle bundle;
+    bundle.handle = std::move (*bgRet);
+    bundle.plpIt = init_pileup_iterator (
+        new PileupContext{bundle.handle}, pileup_fn
+    );
+    out.backgrounds.emplace_back (std::move (bundle));
   }
 
-  auto refRet = load_fasta (filepaths.refPath.c_str());
+  auto refRet = load_fasta (filepaths.refPath);
   if (!refRet) {
     return std::unexpected (refRet.error());
   }
@@ -252,7 +268,7 @@ int main (int argc, char** argv)
     std::cerr << initRet.error().msg << std::endl;
     return EXIT_FAILURE;
   }
-  const auto ctx = std::move (*initRet);
+  auto ctx = std::move (*initRet);
 
   std::cerr << "analysing records" << std::endl;
 

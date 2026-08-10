@@ -12,6 +12,7 @@
 #include <string>
 #include <unordered_set>
 
+#include "hts/hts_types.hpp"
 #include "vcf_record.hpp"
 
 static std::expected<TemplateEndpoints, Err> extract_endpoints (
@@ -94,15 +95,12 @@ static std::expected<double, Err> extract_normalised_as (
          static_cast<double> (b1->core.l_qseq);
 }
 
-VoidOrErr extract_features (
-    const PreparedPileup& plp, PileupFeatures& out
-)
+VoidOrErr extract_features (PileupView plp, PileupFeatures& _out)
 {
   std::unordered_set<std::string> qnamesSeen;
   auto* ru_bCigBuf = bam_init1();
 
-  for (size_t i = 0; i < plp.nPlp; ++i) {
-    const auto& p1 = plp.plpArr[i];
+  for (const auto& p1 : plp) {
     const auto* b1 = p1.b;
 
     const auto mateMapped =
@@ -118,21 +116,21 @@ VoidOrErr extract_features (
           bam_destroy1 (ru_bCigBuf);
           return std::unexpected (epRet.error());
         }
-        out.endpoints.emplace_back (*epRet);
+        _out.endpoints.emplace_back (*epRet);
       }
     }
 
     if (!p1.is_del && !p1.is_refskip && p1.qpos >= 0) {
-      out.qPos.emplace_back (p1.qpos);
+      _out.qPos.emplace_back (p1.qpos);
     }
-    out.readLen.emplace_back (b1->core.l_qseq);
+    _out.readLen.emplace_back (b1->core.l_qseq);
 
     const auto nasRet = extract_normalised_as (b1);
     if (!nasRet) {
       bam_destroy1 (ru_bCigBuf);
       return std::unexpected (nasRet.error());
     }
-    out.normalisedAs.emplace_back (*nasRet);
+    _out.normalisedAs.emplace_back (*nasRet);
   }
 
   bam_destroy1 (ru_bCigBuf);
@@ -141,8 +139,8 @@ VoidOrErr extract_features (
 }
 
 VoidOrErr extract_partition_features (
-    const PreparedPileup& plp, const VcfRec& rec,
-    PileupFeatures& outSupport, PileupFeatures& outAll
+    PileupView plp, const VcfRec& rec,
+    PileupFeatures& _outSupport, PileupFeatures& _outAll
 )
 {
   std::unordered_set<std::string> qnamesSeenSupporting;
@@ -150,9 +148,8 @@ VoidOrErr extract_partition_features (
   auto* ru_bCigBuf = bam_init1();
   std::optional<TemplateEndpoints> ru_endpoints;
 
-  for (size_t i = 0; i < plp.nPlp; ++i) {
+  for (const auto& p1 : plp) {
     ru_endpoints.reset();
-    const auto& p1 = plp.plpArr[i];
     const auto* b1 = p1.b;
 
     const auto mateMapped =
@@ -189,25 +186,25 @@ VoidOrErr extract_partition_features (
     const double normalisedAs = *nasRet;
 
     if (qPosAln) {
-      outAll.qPos.emplace_back (p1.qpos);
+      _outAll.qPos.emplace_back (p1.qpos);
     }
     if (qnameNewAll && ru_endpoints) {
-      outAll.endpoints.emplace_back (*ru_endpoints);
+      _outAll.endpoints.emplace_back (*ru_endpoints);
       qnamesSeenAll.insert (qname);
     }
-    outAll.readLen.emplace_back (b1->core.l_qseq);
-    outAll.normalisedAs.emplace_back (normalisedAs);
+    _outAll.readLen.emplace_back (b1->core.l_qseq);
+    _outAll.normalisedAs.emplace_back (normalisedAs);
 
     if (rec.eval_read_support (rec, p1)) {
       if (qPosAln) {
-        outSupport.qPos.emplace_back (p1.qpos);
+        _outSupport.qPos.emplace_back (p1.qpos);
       }
       if (qnameNewSupporting && ru_endpoints) {
-        outSupport.endpoints.emplace_back (*ru_endpoints);
+        _outSupport.endpoints.emplace_back (*ru_endpoints);
         qnamesSeenSupporting.insert (qname);
       }
-      outSupport.readLen.emplace_back (b1->core.l_qseq);
-      outSupport.normalisedAs.emplace_back (normalisedAs);
+      _outSupport.readLen.emplace_back (b1->core.l_qseq);
+      _outSupport.normalisedAs.emplace_back (normalisedAs);
     }
   }
 

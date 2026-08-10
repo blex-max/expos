@@ -3,6 +3,9 @@
 #include <expected>
 #include <string>
 
+// not convinced of the utility of this header
+// over just aliasing string(_view) as the error type
+
 struct Err {
   std::string msg;  // human-readable, for reporting
 };

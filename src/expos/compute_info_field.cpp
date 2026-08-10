@@ -1,33 +1,64 @@
-#include "compute_field.hpp"
+#include "compute_info_field.hpp"
 
+#include <array>
+#include <cstddef>
+#include <cstdint>
+#include <optional>
+#include <span>
+#include <string_view>
+#include <vector>
+
+#include "expos/guards.hpp"
 #include "expos/variant_stats.hpp"
 #include "shared/stats.hpp"
 
 // --- helpers --- //
 
+// Builders keeping the compute_* functions readable.
+static StatValue stat_value (double v)
+{
+  return {v, std::nullopt};
+}
+
+static StatValue stat_missing (StatSkipReason reason)
+{
+  return {std::nullopt, reason};
+}
+
+static StatValue stat_or (
+    std::optional<double> v, StatSkipReason reasonIfMissing
+)
+{
+  return v ? stat_value (*v) : stat_missing (reasonIfMissing);
+}
+
 static ValuesOrSkip mc_to_fields (const McResult& mc)
 {
   if (!mc.effectSize) {
-    return std::unexpected (REASON_ZERO_VARIANCE);
+    return std::unexpected (StatSkipReason::zeroVariance);
   }
   return std::vector<StatValue>{
       stat_value (*mc.effectSize), stat_value (mc.pValue)
   };
 }
 
-// A statistic needs >= 2 supporting observations and at least twice as
-// many background reads (very, very liberal). Returns the skip reason if a guard fails.
-static std::optional<std::string_view> size_guard (
-    std::size_t nObs, std::size_t nBackground
+void set_qrk_guard (
+    StatContext& sCtx, const PileupFeatures& primaryAll
 )
 {
-  if (nObs < 2) {
-    return REASON_INSUFFICIENT_SUPPORT;
+  if (!sufficient_reads (primaryAll.readLen.size())) {
+    // fail-closed, but say so: too few reads to reach any verdict on
+    // the spread is not the same claim as reads of uneven length.
+    sCtx.readLenSuppression =
+        StatSkipReason::readLengthUnverified;
+    return;
   }
-  if (nBackground < (2 * nObs)) {
-    return REASON_INSUFFICIENT_BACKGROUND;
-  }
-  return std::nullopt;
+  sCtx.readLenSuppression =
+      read_lens_within_tol (primaryAll.readLen)
+          ? std::nullopt
+          : std::optional{
+                StatSkipReason::heterogeneousReadLength
+            };
 }
 
 // --- statistics --- //
@@ -36,17 +67,21 @@ static ValuesOrSkip compute_qrk (
     const VariantStatInputs& in, const StatContext& ctx
 )
 {
-  // Query position is an offset within the read, so a heterogeneous read
-  // population would confound
-  if (!ctx.readLenHomogeneous) {
-    return std::unexpected (REASON_HETEROGENEOUS_READ_LENGTH);
-  }
-
   constexpr uint64_t QPOS_RADIUS = 5;
   const auto& obs = in.supporting.qPos;
   const auto& bg = in.all.qPos;
+
+  // Size before quality: a locus with too few reads must report that it
+  // was too thin, not a verdict on read-length spread that the guard
+  // never had the data to reach.
   if (const auto reason = size_guard (obs.size(), bg.size())) {
     return std::unexpected (*reason);
+  }
+
+  // Query position is an offset within the read, so a heterogeneous read
+  // population would confound
+  if (ctx.readLenSuppression) {
+    return std::unexpected (*ctx.readLenSuppression);
   }
 
   // count_pairs_within_1d sorts, so the observed statistic works on a copy
@@ -110,11 +145,11 @@ static ValuesOrSkip compute_mlas (
           percentile (
               in.supporting.normalisedAs, PERCENTILE_MEDIAN
           ),
-          REASON_NO_SUPPORT
+          StatSkipReason::noSupport
       ),
       stat_or (
           percentile (in.all.normalisedAs, PERCENTILE_MEDIAN),
-          REASON_NO_BACKGROUND
+          StatSkipReason::noBackground
       )
   };
 }
@@ -130,10 +165,10 @@ static ValuesOrSkip compute_rcmplx (
   // too-short spans have no full window; masked/ambiguous bases make the
   // complexity meaningless.
   if (ref.size() < WIN_SZ) {
-    return std::unexpected (REASON_REFERENCE_TOO_SHORT);
+    return std::unexpected (StatSkipReason::referenceTooShort);
   }
   if (ref.find_first_of ("Nn") != std::string_view::npos) {
-    return std::unexpected (REASON_REFERENCE_HAS_N);
+    return std::unexpected (StatSkipReason::referenceHasN);
   }
 
   double entropySum = 0.0;
@@ -181,12 +216,6 @@ constexpr std::string_view RCMPLX_HEADER =
     "window complexity (Lempel-Ziv 76 entropy rate) of the "
     "reference "
     "within 400 bases either side of the REF allele.\">";
-constexpr std::string_view EXPOS_SKIP_HEADER =
-    "##INFO=<ID=EXPOS_SKIP,Number=.,Type=String,Description="
-    "\"Why expos "
-    "produced no value, as '<scope>:<reason>' tokens. Scope is "
-    "'record' "
-    "(whole record skipped) or a statistic ID.\">";
 
 // --- registry --- //
 constexpr std::array<VariantStat, 4> VARIANT_STATS = {{
@@ -196,119 +225,7 @@ constexpr std::array<VariantStat, 4> VARIANT_STATS = {{
     {{"RCMPLX", RCMPLX_HEADER, 1}, &compute_rcmplx},
 }};
 
-std::span<const VariantStat> variant_stats()
+std::span<const VariantStat> expos_field_registry()
 {
   return VARIANT_STATS;
-}
-
-// --- VCF output --- //
-
-VoidOrErr register_variant_stat_header (
-    bcf_hdr_t* hdr, const VariantStat& stat
-)
-{
-  const std::string line{stat.field.headerLine};
-  if (bcf_hdr_append (hdr, line.c_str()) != 0) {
-    return std::unexpected (make_err (
-        "failed to add INFO header line for " +
-        std::string (stat.field.id)
-    ));
-  }
-  return {};
-}
-
-VoidOrErr register_expos_skip_header (bcf_hdr_t* hdr)
-{
-  const std::string line{EXPOS_SKIP_HEADER};
-  if (bcf_hdr_append (hdr, line.c_str()) != 0) {
-    return std::unexpected (
-        make_err ("failed to add EXPOS_SKIP INFO header line")
-    );
-  }
-  return {};
-}
-
-std::vector<StatValue> stat_all_missing (
-    const VariantStatField& field, std::string_view reason
-)
-{
-  return std::vector<StatValue> (
-      static_cast<std::size_t> (field.nValues),
-      stat_missing (reason)
-  );
-}
-
-VoidOrErr encode_variant_stat (
-    bcf_hdr_t* hdr, bcf1_t* rec, const VariantStatField& field,
-    const std::vector<StatValue>& values
-)
-{
-  assert (static_cast<int> (values.size()) == field.nValues);
-
-  // vcf works at float precision
-  std::vector<float> buf (values.size());
-  for (std::size_t i = 0; i < values.size(); ++i) {
-    if (values[i].value) {
-      buf[i] = static_cast<float> (*values[i].value);
-    }
-    else {
-      bcf_float_set_missing (buf[i]);
-    }
-  }
-
-  const std::string id{field.id};
-  if (bcf_update_info_float (
-          hdr, rec, id.c_str(), buf.data(),
-          static_cast<int> (buf.size())
-      ) != 0) {
-    return std::unexpected (make_err (
-        "failed to write INFO field " + std::string (field.id)
-    ));
-  }
-  return {};
-}
-
-std::vector<std::string> stat_skip_tokens (
-    const VariantStatField& field,
-    const std::vector<StatValue>& values
-)
-{
-  std::vector<std::string> tokens;
-  for (const auto& v : values) {
-    if (!v.reason) {
-      continue;
-    }
-    std::string token =
-        std::string (field.id) + ":" + std::string (*v.reason);
-    if (std::find (tokens.begin(), tokens.end(), token) ==
-        tokens.end()) {
-      tokens.push_back (std::move (token));
-    }
-  }
-  return tokens;
-}
-
-VoidOrErr set_expos_skip (
-    bcf_hdr_t* hdr, bcf1_t* rec,
-    const std::vector<std::string>& tokens
-)
-{
-  if (tokens.empty()) {
-    return {};
-  }
-  std::string joined;
-  for (std::size_t i = 0; i < tokens.size(); ++i) {
-    if (i != 0) {
-      joined += ',';
-    }
-    joined += tokens[i];
-  }
-  if (bcf_update_info_string (
-          hdr, rec, "EXPOS_SKIP", joined.c_str()
-      ) != 0) {
-    return std::unexpected (
-        make_err ("failed to write EXPOS_SKIP INFO field")
-    );
-  }
-  return {};
 }

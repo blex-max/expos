@@ -11,7 +11,11 @@ Checks: >
   -misc-use-anonymous-namespace,
   -performance-avoid-endl,
   -readability-identifier-length,
-  -readability-named-parameter
+  -readability-named-parameter,
+  -readability-avoid-const-params-in-decls,
+  -readability-function-cognitive-complexity,
+  -bugprone-suspicious-stringview-data-usage,
+  -performance-enum-size
 
 WarningsAsErrors: ''
 HeaderFilterRegex: 'src/(expos|hts|shared)/'

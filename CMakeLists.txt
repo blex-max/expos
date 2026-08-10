@@ -98,6 +98,7 @@ set(COMMON_WARNINGS
   -Wfloat-equal -Wnon-virtual-dtor
   -Woverloaded-virtual -Wnull-dereference
   -Wdouble-promotion -Wformat=2
+  -Wimplicit-fallthrough
 )
 
 set(COMMON_DEBUG_FLAGS "")
@@ -130,11 +131,14 @@ if(MAKE_TEST)
   add_executable(test-expos
     tests/test_stats.cpp
     tests/test_variant_stats.cpp
-    tests/test_background_guard.cpp
+    tests/test_guards.cpp
+    tests/test_skip.cpp
     src/shared/stats.cpp
     src/expos/variant_stats.cpp
-    src/expos/compute_field.cpp
-    src/expos/background_guard.cpp
+    src/expos/compute_info_field.cpp
+    src/expos/encode_info_field.cpp
+    src/expos/skip.cpp
+    src/expos/guards.cpp
   )
   # Keep assert() preconditions live regardless of build type -- every
   # optimised config defines NDEBUG, which would otherwise strip them.
@@ -163,11 +167,13 @@ if(MAKE_MAIN)
   add_executable(expos
     src/expos/main.cpp
     src/expos/annotate.cpp
-    src/expos/background_guard.cpp
+    src/expos/guards.cpp
     src/expos/extract_pileup.cpp
     src/expos/pileup_features.cpp
     src/expos/variant_stats.cpp
-    src/expos/compute_field.cpp
+    src/expos/compute_info_field.cpp
+    src/expos/encode_info_field.cpp
+    src/expos/skip.cpp
     src/expos/vcf_record.cpp
     src/hts/hts_types.cpp
     src/shared/stats.cpp
