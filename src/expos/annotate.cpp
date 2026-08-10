@@ -272,9 +272,8 @@ VoidOrErr analyse_records (const ExposCtx& ctx)
   std::size_t nSkipped = 0;
   std::size_t nBackgroundExcluded = 0;
 
-  while (
-      bcf_read (ctx.vcfIn.fh, ctx.vcfIn.hdr, ru_rec.ptr) == 0
-  ) {
+  while (bcf_read (ctx.vcfIn.fh, ctx.vcfIn.hdr, ru_rec.ptr) ==
+         0) {
     if (bcf_unpack (ru_rec.ptr, BCF_UN_ALL) != 0) {
       return std::unexpected (
           make_err ("Failed to unpack a VCF record")
@@ -312,9 +311,8 @@ VoidOrErr analyse_records (const ExposCtx& ctx)
       }
     }
 
-    if (bcf_write (
-            ctx.vcfOut.fh, ctx.vcfOut.hdr, ru_rec.ptr
-        ) != 0) {
+    if (bcf_write (ctx.vcfOut.fh, ctx.vcfOut.hdr, ru_rec.ptr) !=
+        0) {
       return std::unexpected (make_err (
           "Failed to write record " + stringify_rec (ru_rec)
       ));

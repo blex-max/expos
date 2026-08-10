@@ -24,7 +24,6 @@ static double read_length_rel_iqr (
          median;  // median >= 1: read length is always positive
 }
 
-
 static std::optional<double> median_read_length (
     const std::vector<int32_t>& readLen
 )
