@@ -9,7 +9,6 @@
 #include <cstddef>
 #include <cstdint>
 #include <iostream>
-#include <random>
 #include <string>
 #include <string_view>
 #include <utility>
@@ -20,10 +19,10 @@
 #include "expos/extract_pileup.hpp"
 #include "expos/guards.hpp"
 #include "expos/pileup_features.hpp"
-#include "expos/variant_stats.hpp"
 #include "expos/vcf_record.hpp"
 #include "hts/hts_types.hpp"
 #include "shared/err.hpp"
+#include "shared/rng.hpp"
 #include "shared/warn.hpp"
 
 // Reference flank either side of the REF allele, in bases, for RCMPLX.
@@ -257,7 +256,7 @@ VoidOrErr analyse_records (ExposCtx& ctx)
   // One RNG and set of draw buffers.
   // Buffers should reach high-water mark over
   // the first few records and stop reallocating.
-  McState mc{McRng (ctx.seed), {}, {}};
+  McState mc{Mwc192 (ctx.seed), {}, {}};
 
   VcfRec ru_rec;
   ru_rec.ptr = bcf_init();

@@ -135,6 +135,14 @@ struct PileupContext {
 };
 
 struct ForwardPileupIterator {
+  // The cost of a seek is ~fixed,
+  // the cost of streaming through reads
+  // scales linearly with sample depth.
+  // ~4000-8000 was found to be optimal on a 100x
+  // depth BAM. Since streaming should be ~2x
+  // cheaper on a 50x bam (closer to intended
+  // samples for expos) set at 10000. May be
+  // suboptimal but it should be close enough.
   static constexpr hts_pos_t SEEK_GAP = 10000;
 
   struct {

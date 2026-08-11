@@ -158,7 +158,6 @@ if(MAKE_TEST)
     tests/test_skip.cpp
     tests/test_rng.cpp
     src/shared/stats.cpp
-    src/expos/variant_stats.cpp
     src/expos/compute_info_field.cpp
     src/expos/encode_info_field.cpp
     src/expos/skip.cpp
@@ -196,7 +195,6 @@ if(MAKE_MAIN)
     src/expos/guards.cpp
     src/expos/extract_pileup.cpp
     src/expos/pileup_features.cpp
-    src/expos/variant_stats.cpp
     src/expos/compute_info_field.cpp
     src/expos/encode_info_field.cpp
     src/expos/skip.cpp
