@@ -29,8 +29,7 @@ Optional arguments:
   --debug             enable debug logging to stderr
 ```
 
-The three positional arguments are **required** and consumed in the order
-`VCF REF ALN`. `VCF` may be `-` to read from stdin. The reference FASTA and
+`VCF` may be `-` to read from stdin. The reference FASTA and
 the alignment must both be indexed (`.fai`, and `.bai`/`.crai` of the same
 name). The annotated VCF is written to stdout. A basic call would then look
 like:
