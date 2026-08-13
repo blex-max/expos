@@ -18,6 +18,7 @@ RUN cmake -S . -B build \
         -DCMAKE_BUILD_TYPE=RelWithDebInfo \
         -DMAKE_MAIN=ON \
         -DMAKE_DAUGHTER=ON \
+        -DMAKE_TEST=OFF \
     && cmake --build build --parallel "$(nproc)" \
     && install -m 0755 build/expos /usr/local/bin/expos \
     && install -m 0755 build/estimate-entropy /usr/local/bin/estimate-entropy

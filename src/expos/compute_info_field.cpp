@@ -53,7 +53,8 @@ static StatValue stat_or (
 // Sorts pts in place, so callers holding data that must survive the call
 // pass a copy. Taking a mutable view rather than a value is what lets the
 // Monte-Carlo draws reuse one buffer instead of copying per draw.
-static std::size_t count_pairs_within_1d (
+// Not static for testing purposes
+std::size_t count_pairs_within_1d (
     std::span<int32_t> pts, uint64_t radius
 )
 {

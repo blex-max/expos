@@ -177,6 +177,7 @@ if(MAKE_TEST)
   )
   target_include_directories(test-expos PRIVATE
     ${COMMON_INCLUDES}
+    ${CMAKE_CURRENT_SOURCE_DIR}/tests
   )
   target_link_libraries(test-expos PRIVATE
     Catch2::Catch2WithMain

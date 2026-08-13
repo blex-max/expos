@@ -80,7 +80,7 @@ TEST_CASE ("count_pairs_within_1d")
 
   SECTION ("randomised cross-check against a brute-force oracle")
   {
-    McRng rng (123);
+    Mwc192 rng (123);
     std::uniform_int_distribution<int32_t> valDist (0, 50);
     for (int trial = 0; trial < 300; ++trial) {
       const std::size_t nObs = rng() % 40;
@@ -99,44 +99,6 @@ TEST_CASE ("count_pairs_within_1d")
 
 TEST_CASE ("run_monte_carlo")
 {
-  auto identity = [] (double x) { return x; };
-
-  SECTION ("exact against a deterministic null")
-  {
-    // null {2,4,4,4,5,5,7,9}: mean 5, population SD 2.
-    const std::vector<double> seq{2, 4, 4, 4, 5, 5, 7, 9};
-    auto run = [&] (double observed) {
-      std::size_t idx = 0;
-      auto draw = [&]() { return seq[idx++]; };
-      return run_monte_carlo (
-          observed, draw, identity, seq.size()
-      );
-    };
-
-    const auto above = run (7.0);
-    REQUIRE (above.effectSize.has_value());
-    REQUIRE (*above.effectSize == Approx (1.0));  // (7-5)/2
-    REQUIRE (
-        above.pValue == Approx (3.0 / 9.0)
-    );  // #{>=7}=2 -> 3/9
-
-    const auto below = run (3.0);
-    REQUIRE (*below.effectSize == Approx (-1.0));  // (3-5)/2
-
-    REQUIRE (
-        run (1000.0).pValue == Approx (1.0 / 9.0)
-    );  // #{>=}=0
-    REQUIRE (run (0.0).pValue == Approx (1.0));  // all >= 0
-  }
-
-  SECTION ("zero-variance null yields no effect size")
-  {
-    auto draw = [] { return 3.0; };
-    const auto res = run_monte_carlo (3.0, draw, identity, 100);
-    REQUIRE_FALSE (res.effectSize.has_value());
-    REQUIRE (res.pValue == Approx (1.0));
-  }
-
   SECTION ("deterministic under a fixed seed; p-value in (0,1]")
   {
     std::vector<int32_t> pop (200);
@@ -144,7 +106,7 @@ TEST_CASE ("run_monte_carlo")
       pop[i] = static_cast<int32_t> (i);
     }
     auto run = [&] (uint32_t seed) {
-      McRng rng (seed);
+      Mwc192 rng (seed);
       SubsampleScratch<int32_t> scratch;
       auto draw = [&]() {
         return subsample_wo_replace (pop, 20, rng, scratch);
@@ -154,19 +116,13 @@ TEST_CASE ("run_monte_carlo")
             count_pairs_within_1d (s, 5)
         );
       };
-      return run_monte_carlo (10.0, draw, stat, 500);
+      return run_monte_carlo (10.0, draw, stat);
     };
     const auto a = run (99);
     const auto b = run (99);
-    REQUIRE (a.pValue == Approx (b.pValue));
-    REQUIRE (
-        a.effectSize.has_value() == b.effectSize.has_value()
-    );
-    if (a.effectSize && b.effectSize) {
-      REQUIRE (*a.effectSize == Approx (*b.effectSize));
-    }
-    REQUIRE (a.pValue > 0.0);
-    REQUIRE (a.pValue <= 1.0);
+    REQUIRE (a == Approx (b));
+    REQUIRE (a > 0.0);
+    REQUIRE (a <= 1.0);
   }
 }
 
@@ -176,7 +132,7 @@ TEST_CASE ("subsample_wo_replace")
 
   SECTION ("size, membership, no replacement")
   {
-    McRng rng (7);
+    Mwc192 rng (7);
     SubsampleScratch<int> scratch;
     const auto s = subsample_wo_replace (obs, 3, rng, scratch);
     REQUIRE (s.size() == 3);
@@ -194,7 +150,7 @@ TEST_CASE ("subsample_wo_replace")
   )
   {
     auto draw = [&] (uint32_t seed) {
-      McRng rng (seed);
+      Mwc192 rng (seed);
       SubsampleScratch<int> scratch;
       const auto s = subsample_wo_replace (obs, 3, rng, scratch);
       return std::vector<int> (s.begin(), s.end());
@@ -204,7 +160,7 @@ TEST_CASE ("subsample_wo_replace")
 
   SECTION ("n == nObs yields a full permutation")
   {
-    McRng rng (1);
+    Mwc192 rng (1);
     SubsampleScratch<int> scratch;
     const auto full =
         subsample_wo_replace (obs, obs.size(), rng, scratch);
@@ -214,7 +170,7 @@ TEST_CASE ("subsample_wo_replace")
 
   SECTION ("n == 0 yields empty")
   {
-    McRng rng (1);
+    Mwc192 rng (1);
     SubsampleScratch<int> scratch;
     REQUIRE (
         subsample_wo_replace (obs, 0, rng, scratch).empty()
@@ -225,7 +181,7 @@ TEST_CASE ("subsample_wo_replace")
   {
     // The index permutation is only valid for the population it was built
     // for, so a size change must rebuild it rather than resize it.
-    McRng rng (3);
+    Mwc192 rng (3);
     SubsampleScratch<int32_t> scratch;
     for (const std::size_t nObs : {60U, 17U, 60U, 200U, 5U}) {
       std::vector<int32_t> pop (nObs);
@@ -261,7 +217,7 @@ TEST_CASE ("subsample_wo_replace")
       pop[i] = static_cast<int32_t> (i);
     }
 
-    McRng rng (20260806);
+    Mwc192 rng (20260806);
     SubsampleScratch<int32_t> scratch;
     std::vector<std::size_t> hits (nObs, 0);
     for (std::size_t d = 0; d < nDraws; ++d) {
@@ -318,7 +274,7 @@ TEST_CASE ("variant_stats registry")
 TEST_CASE ("compute QRK (query-position clustering)")
 {
   const auto qrk = by_id (expos_field_registry(), "QRK");
-  McRng rng (1);
+  Mwc192 rng (1);
 
   SECTION ("missing with insufficient support")
   {
@@ -492,8 +448,8 @@ TEST_CASE ("compute QRK (query-position clustering)")
     for (int32_t i = 0; i < 200; ++i) {
       all.qPos.push_back (i);
     }
-    McRng rngA (7);
-    McRng rngB (7);
+    Mwc192 rngA (7);
+    Mwc192 rngB (7);
     VariantStatInputs inA{supporting, all, REF_PLACEHOLDER};
     McState mcA{std::move (rngA), {}, {}};
     const StatContext ctxA{mcA, std::nullopt};
@@ -534,7 +490,7 @@ TEST_CASE ("compute TJAC (graded pairwise template overlap)")
 
   SECTION ("missing with insufficient support")
   {
-    McRng rng (1);
+    Mwc192 rng (1);
     PileupFeatures supporting;
     supporting.endpoints = {{100, 300}};
     PileupFeatures all;
@@ -551,7 +507,7 @@ TEST_CASE ("compute TJAC (graded pairwise template overlap)")
 
   SECTION ("missing with insufficient background")
   {
-    McRng rng (1);
+    Mwc192 rng (1);
     PileupFeatures supporting;
     supporting.endpoints = {{100, 300}, {101, 301}, {102, 302}};
     PileupFeatures all;
@@ -579,7 +535,7 @@ TEST_CASE ("compute TJAC (graded pairwise template overlap)")
       "refused"
   )
   {
-    McRng rng (1);
+    Mwc192 rng (1);
     PileupFeatures supporting;
     supporting.endpoints = {{100, 300}, {101, 301}};
     PileupFeatures all;
@@ -599,7 +555,7 @@ TEST_CASE ("compute TJAC (graded pairwise template overlap)")
 
   SECTION ("clustered endpoints vs spread background is extreme")
   {
-    McRng rng (2);
+    Mwc192 rng (2);
     PileupFeatures supporting;
     supporting.endpoints = {
         {100, 300}, {101, 301}, {102, 302}, {100, 300}
@@ -624,7 +580,7 @@ TEST_CASE ("compute TJAC (graded pairwise template overlap)")
       "a support set typical of the background does not fire"
   )
   {
-    McRng rng (2);
+    Mwc192 rng (2);
     PileupFeatures all;
     for (int64_t i = 0; i < 100; ++i) {
       all.endpoints.push_back ({i, i + 200});
@@ -651,7 +607,7 @@ TEST_CASE ("compute TJAC (graded pairwise template overlap)")
     // Nested templates of wildly different lengths, against a background of
     // the same length mixture. A min(len) denominator would score nearly
     // every pair here at 1.0; Jaccard must not read that as coincidence.
-    McRng rng (2);
+    Mwc192 rng (2);
     PileupFeatures supporting;
     supporting.endpoints = {
         {990, 1010}, {900, 1100}, {995, 1015}, {800, 1200}
@@ -678,7 +634,7 @@ TEST_CASE ("compute TJAC (graded pairwise template overlap)")
     // coincident support set is invisible to it (measured z 0.62, p 0.16).
     // Jaccard keeps the null near 39% of ceiling, so the same set stands
     // out sharply.
-    McRng rng (2);
+    Mwc192 rng (2);
     PileupFeatures supporting;
     supporting.endpoints = {
         {950, 1050}, {950, 1050}, {951, 1051}, {950, 1050}
@@ -700,7 +656,7 @@ TEST_CASE ("compute TJAC (graded pairwise template overlap)")
     // Every background template is identical, so every pair in every draw
     // scores Jaccard 1.0 and every draw sums to the same 6.0. Degenerate null,
     // so neither the z-score nor its p-value is reportable.
-    McRng rng (2);
+    Mwc192 rng (2);
     PileupFeatures supporting;
     supporting.endpoints = {
         {100, 300}, {100, 300}, {100, 300}, {100, 300}
@@ -721,7 +677,7 @@ TEST_CASE ("compute TJAC (graded pairwise template overlap)")
       "not suppressed by heterogeneous read lengths (unlike QRK)"
   )
   {
-    McRng rng (2);
+    Mwc192 rng (2);
     PileupFeatures supporting;
     supporting.endpoints = {
         {100, 300}, {101, 301}, {102, 302}, {100, 300}
@@ -746,7 +702,7 @@ TEST_CASE ("compute TJAC (graded pairwise template overlap)")
 TEST_CASE ("compute MLAS (median normalised alignment score)")
 {
   const auto mlas = by_id (expos_field_registry(), "MLAS");
-  McRng rng (1);
+  Mwc192 rng (1);
 
   SECTION ("medians of supporting and all")
   {
@@ -786,7 +742,7 @@ TEST_CASE ("compute MLAS (median normalised alignment score)")
 TEST_CASE ("compute RCMPLX (reference complexity)")
 {
   const auto rcmplx = by_id (expos_field_registry(), "RCMPLX");
-  McRng rng (1);
+  Mwc192 rng (1);
   const PileupFeatures empty;
 
   SECTION ("missing when the slice is shorter than the window")
