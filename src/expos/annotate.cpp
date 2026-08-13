@@ -25,19 +25,14 @@
 #include "shared/rng.hpp"
 #include "shared/warn.hpp"
 
-// Reference flank either side of the REF allele, in bases, for RCMPLX.
-static constexpr int64_t RCMPLX_FLANK = 400;
-
-// Reference bases around the variant, upper-cased: the REF allele span padded
-// by RCMPLX_FLANK either side. Deliberately independent of the alignments —
-// the span of the supporting templates is defined by the very reads whose
-// reliability RCMPLX helps assess, and one mismapped mate stretches it
-// arbitrarily (megabases, in practice). Short near a contig edge, in which
-// case RCMPLX reports reference_too_short.
+// Reference bases around the variant
 static RefSliceOrErr get_variant_ref_slice (
     const VcfRec& r, const FastaFile& ref
 )
 {
+  // flank len either side of variant.
+  static constexpr int64_t RCMPLX_FLANK = 250;
+
   const int64_t sliceStart =
       std::max<int64_t> (0, r.ptr->pos - RCMPLX_FLANK);
   const int64_t sliceEnd =
@@ -59,8 +54,7 @@ static RefSliceOrErr get_variant_ref_slice (
   return slice;
 }
 
-// Merge every admitted background sample's reads at this locus into
-// _mergeInto, which arrives holding the primary's reads alone.
+// Merge admitted background sample reads
 static VoidOrErr extract_bg_samples (
     ExposCtx& ctx, const VcfRec& r, PileupFeatures& _mergeInto
 )
@@ -69,11 +63,8 @@ static VoidOrErr extract_bg_samples (
     return {};
   }
 
-  // Snapshot the primary before the first merge below: it is the fixed
-  // point of reference every candidate is judged against, so the outcome
-  // does not depend on which candidates were admitted before it. Taking it
-  // here rather than at the call site keeps that ordering unbreakable, and
-  // keeps a run without --bg from paying for it.
+  // Snapshot the primary before the first merge,
+  // for guards
   const PrimaryGuardStats primaryStats =
       summarise_primary (_mergeInto);
 
@@ -139,10 +130,7 @@ static VoidOrErr extract_bg_samples (
   return {};
 }
 
-// Compute and encode the expos statistics onto an analysable record in place.
-// nBackgroundExcluded is incremented whenever a background sample is
-// excluded from the merge because its read- or fragment-length
-// distribution looks inconsistent with the primary sample.
+// Compute and encode the expos statistics in place.
 static VoidOrErr annotate_record (
     const VcfRec& r, ExposCtx& ctx, McState& mc
 )
@@ -275,9 +263,8 @@ VoidOrErr analyse_records (ExposCtx& ctx)
       return std::unexpected (integrityRet.error());
     }
 
-    // Unanalysed records passthrough. filter-gated ones untouched (FILTER
-    // already documents them), not-biallelic/complex ones with an
-    // EXPOS_SKIP.
+    // Unanalysed records passthrough. filter-gated ones untouched,
+    // not-biallelic/complex ones with EXPOS_SKIP.
     if (ctx.skipFiltered && record_is_filtered (ru_rec)) {
     }
     else {
