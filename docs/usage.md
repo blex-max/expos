@@ -47,10 +47,10 @@ expos my.vcf ref.fa my.bam > annotated.vcf
 
 ### Additional Background Samples
 
-One or more further indexed alignments (typically a matched normal) can
-be merged into the Monte-Carlo background with `--bg`, e.g. `--bg other1.bam other2.bam`.
+One or more additional indexed alignmentscan be merged into the Monte-Carlo background
+with `--bg`, e.g. `--bg other1.bam other2.bam`.
 Supporting reads are always drawn from the primary `ALN` only; the extra samples contribute to
-the background population against which clustering is simulated.
+the background population against which statistics are simulated.
 
 Background samples are only a valid source of statistical power if they were sequenced with the
 same protocol as the primary sample. To guard against this, for each record the pileup of each
@@ -58,17 +58,14 @@ same protocol as the primary sample. To guard against this, for each record the 
 
 - its own read lengths must be internally consistent (not itself a mix of very different read
   lengths);
-- its median read length must match the primary sample's;
-- its median fragment (template) length must match the primary sample's.
+- its median read length must match the primary sample;
+- its median fragment (template) length must match the primary sample.
 
 A source that fails any of these checks is excluded from the background for that record.
-Insufficient reads or templates to evaluate a check also excludes the source,
-rather than assuming validity. A warning is emitted to stderr per exclusion (unless `--quiet`),
-and the total number of exclusions across the whole run is reported in the end-of-run summary.
+A warning is emitted to stderr per exclusion, unless `--quiet` has been passed.
 
-The guards can't catch every possible way two populations might differ. In other words they reduce
+The guards can't catch every possible way two populations might differ. In other words, they reduce
 the risk of an inappropriate background rather than eliminating it.
-
 
 ## Annotations Made
 
@@ -82,9 +79,9 @@ These are the header lines from an output VCF describing the INFO fields added. 
   Number=2,
   Type=Float,
   Description="""
-  Monte-Carlo results for spatial clustering of mutant query positions:
-  [0]standardised effect size (z-score) versus simulation against all reads;
-  [1]one-sided p-value.
+  Spatial clustering of mutant query positions against all reads:
+  [0]standardised effect size (z-score) against the exact null;
+  [1]one-sided Monte-Carlo p-value.
   Effect sizes greater than ~3.0 with a significant p-value may indicate a spurious variant.
   """>
 
@@ -93,9 +90,9 @@ These are the header lines from an output VCF describing the INFO fields added. 
   Number=2,
   Type=Float,
   Description="""
-  Monte-Carlo results for graded pairwise overlap of mutant templates:
-  [0]standardised effect size (z-score) versus simulation against all reads;
-  [1]one-sided p-value.
+  Graded pairwise overlap of mutant templates against all reads:
+  [0]standardised effect size (z-score) against the exact null;
+  [1]one-sided Monte-Carlo p-value.
   Effect sizes greater than ~3.0 with a significant p-value may indicate a spurious variant.
   """>
 
@@ -115,7 +112,7 @@ These are the header lines from an output VCF describing the INFO fields added. 
   Type=Float,
   Description="""
   Mean 100-base window complexity (Lempel-Ziv 76 entropy rate) of the
-  reference within 400 bases either side of the REF allele.
+  reference region flanking 250 bases either side of the variant.
   """>
 
 ##INFO=<
@@ -125,13 +122,13 @@ These are the header lines from an output VCF describing the INFO fields added. 
   Description="""
   Why expos produced no value, as '<scope>:<reason>' tokens.
   Scope is 'record' (whole record skipped) or a statistic ID.
-  Reasons: multiallelic, complex, insufficient_support, insufficient_background,
-  heterogeneous_read_length, zero_variance,
+  Reasons: not_biallelic, complex, insufficient_support, insufficient_background,
+  heterogeneous_read_length, insufficient_reads_for_test, zero_variance,
   no_support, no_background, reference_too_short, reference_has_n.
   """>
 ```
 
-Effect size is a standardised z-score relative to the simulated null distribution: 0.0 indicates no difference from background, positive values indicate tighter clustering than background, and the value is expressed directly in standard deviations of that null. The p-value is one-sided, giving the probability that a random subsample of the background would produce a statistic at least as extreme as the observed value. A large effect size combined with a small p-value, especially if found in a low complexity region as indicated by `RCMPLX`, may indicate a spurious variant call. A z-score of 3.0 is approximately the 1% false-positive point for each. It is not constant across support sizes — with only five supporting reads the true rate at 3.0 is nearer 2%, and low support is common in somatic calling.
+Effect size is a standardised z-score relative to the null distribution: 0.0 indicates no difference from background, positive values indicate tighter clustering than background, and the value is expressed directly in standard deviations of that null. The null here is the distribution of the statistic over every equally-sized subsample of the background, and its mean and standard deviation are computed exactly rather than estimated from draws. Effect size is therefore deterministic and does not move with `--seed`. The p-value is one-sided, giving the probability that a random subsample of the background would produce a statistic at least as extreme as the observed value. *p*-values are estimated by Monte-Carlo sampling; resolution is bounded by the draw count to 0.005. A large effect size combined with a small p-value, especially if found in a low complexity region as indicated by `RCMPLX`, may indicate a spurious variant call. A z-score of 3.0 is approximately the 1% false-positive point for each. It is not constant across support sizes; with only five supporting reads the true rate at 3.0 is nearer 2%, and low support is common in somatic calling.
 
 Every output VCF also carries provenance in its header: a `##source` line (program, version and UTC timestamp) and an `##expos_command` line recording the invocation.
 
@@ -142,14 +139,18 @@ Every output VCF also carries provenance in its header: a `##source` line (progr
 
 `expos` attempts to handle invalid records gracefully. When it cannot compute a statistic it writes a VCF missing value (`.`) for that field and records the reason in `EXPOS_SKIP` as one or more `<scope>:<reason>` tokens:
 
-- **Whole-record skips** use the `record` scope. Multiallelic records (`record:multiallelic`) and complex/untypeable records (`record:complex`) are passed through unannotated. Records skipped by `--skip-filtered` are not marked.
+- **Whole-record skips** use the `record` scope. Records that are not biallelic (`record:not_biallelic`) and complex/untypeable records (`record:complex`) are passed through unannotated. Records skipped by `--skip-filtered` are not marked.
 - **Per-statistic skips** use the statistic's ID as the scope, e.g. `QRK:insufficient_support`, `TJAC:zero_variance`, `RCMPLX:reference_has_n`.
 
 !!! note "QRK"
-  `QRK` may be suppressed with `QRK:heterogeneous_read_length` when the primary sample's reads at a locus have markedly uneven lengths, since query position is an offset within a read and a mixed read-length population confounds it. `TJAC` has no equivalent per-statistic reason; template endpoints track fragment boundaries, not read length, so read-length heterogeneity doesn't apply.
+  `QRK` may be suppressed with `QRK:heterogeneous_read_length` when the primary sample reads have markedly uneven lengths at a locus. Query position is an offset within a read and a mixed read-length population would confound statistics calculated.
 
 !!! note "insufficent power"
-  If insufficient reads are available to perform testing, expos skip will record the `insufficient_background` reason.
+  A locus with fewer than two supporting observations records `insufficient_support`; one whose background pool is smaller than ten, or smaller than twice the support, records `insufficient_background`.
+
+  The absolute floor of ten is about p-value granularity. Both statistics are sums over pairs within the supporting set, so at the minimum support of two the observed value is a single pair and the null is the distribution over every pair the background can supply. Ten background observations give 45 such pairs and a p-value granular to about 0.02; five would give 10 pairs and a granularity of 0.1. Larger supporting sets draw from correspondingly more distinct subsamples, so ten is the worst case rather than the typical one.
+
+  Each statistic counts this on its own population, so the two can disagree at the same locus. `QRK` counts reads with a usable query position, which excludes those deleted or ref-skipped at the site; `TJAC` counts templates, which is roughly half the read count for paired data and zero for unpaired data or reads whose mate is unmapped.
 
 
 ## Filtering Pipeline Examples
