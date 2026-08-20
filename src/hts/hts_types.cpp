@@ -4,7 +4,6 @@
 #include <htslib/faidx.h>
 #include <htslib/hts.h>
 #include <htslib/sam.h>
-#include <plog/Log.h>
 
 #include <optional>
 #include <utility>

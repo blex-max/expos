@@ -37,7 +37,7 @@ struct ExposCtx {
   VcfFile vcfOut;
   AlnBundle aln;
   std::vector<AlnBundle>
-      backgrounds;  // extra MC-background samples (--bg)
+      backgrounds;  // extra MC-background samples (-b/--background-sample)
   FastaFile ref;
   std::uint32_t seed = DEFAULT_SEED;
   bool quiet = false;

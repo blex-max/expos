@@ -34,8 +34,8 @@ Applicable to SNVs, small MNVs, and small indels.
 
 ```
 Usage: expos [--help] [--version] [--seed SEED] [--uncompressed] [--quiet]
-             [--skip-filtered] [--additional-background-samples PATH...]
-             [--debug] VCF REF ALN
+             [--skip-filtered] [--background-sample PATH]...
+             VCF REF ALN
 
 Positional arguments:
   VCF                 input VCF/BCF of variants to annotate
@@ -49,11 +49,11 @@ Optional arguments:
   -u, --uncompressed  write uncompressed VCF (default: bgzip-compressed)
   -q, --quiet         suppress per-record warnings to stderr
   --skip-filtered     only analyse records where FILTER is PASS or . (unset)
-  --bg, --additional-background-samples PATH...
-                      additional indexed alignment file(s) whose reads are
-                      merged into the Monte-Carlo background. Supporting reads
-                      are always taken from the primary ALN only.
-  --debug             enable debug logging to stderr
+  -b, --background-sample PATH
+                      additional indexed alignment file (repeat the flag for
+                      each one) whose reads are merged into the Monte-Carlo
+                      background. Supporting reads are always taken from the
+                      primary ALN only.
 ```
 
 The three positional arguments are required and consumed in the order

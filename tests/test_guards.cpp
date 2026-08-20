@@ -1,5 +1,5 @@
 // Unit tests for guards.hpp: pre-merge admission decisions for
-// additional --bg samples, plus the primary sample's own read-length gate.
+// additional -b/--background-sample samples, plus the primary sample's own read-length gate.
 
 #include <catch2/catch_test_macros.hpp>
 #include <cstdint>

@@ -12,11 +12,6 @@
 // guard thresholds
 static constexpr std::size_t MIN_READS = 10;
 static constexpr std::size_t MIN_TEMPLATES = 10;
-// Smallest background a Monte-Carlo statistic may draw from. Kept separate
-// from MIN_READS and MIN_TEMPLATES despite the shared value: those two ask
-// "enough reads to judge read-length spread?" and "enough templates to
-// compare fragment lengths?", which are different questions about different
-// populations and may want to move independently.
 static constexpr std::size_t MIN_BACKGROUND = 10;
 static constexpr double READ_LEN_REL_IQR_TOL = 0.10;
 static constexpr double MEDIAN_REL_TOL = 0.10;
@@ -38,10 +33,7 @@ bool sufficient_reads (std::size_t nReads)
 // The >= 2 is a definedness bound, not a quality one: below it there are no
 // pairs at all, so every draw scores 0 and the null has no spread (which
 // zero_variance would catch anyway). It is not a claim that 2 observations
-// are enough to mean anything -- see
-// validation/results/null_calibration.low_support.out.txt, where the
-// resampled p-value holds at every support size but a fixed z cutoff does
-// not, which is why the two are meant to be read together.
+// are enough to mean anything
 std::optional<StatSkipReason> size_guard (
     std::size_t nObs, std::size_t nBackground
 )

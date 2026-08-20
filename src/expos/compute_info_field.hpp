@@ -22,8 +22,7 @@
 template <typename DrawFn, typename StatFn>
 double run_monte_carlo (double obsVal, DrawFn draw, StatFn stat)
 {
-  constexpr size_t NSIM_PVAL =
-      200; // resolution of approx 0.005
+  constexpr size_t NSIM_PVAL = 200; // resolution of 0.005
   size_t countGe = 0;
   for (std::size_t k = 1; k <= NSIM_PVAL; ++k) {
     const double s = static_cast<double> (stat (draw()));

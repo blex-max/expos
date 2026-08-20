@@ -1,9 +1,6 @@
 #include <fmt/chrono.h>
 #include <fmt/format.h>
 #include <htslib/vcf.h>
-#include <plog/Formatters/TxtFormatter.h>
-#include <plog/Initializers/ConsoleInitializer.h>
-#include <plog/Log.h>
 
 #include <algorithm>
 #include <chrono>
@@ -38,7 +35,6 @@ struct ExposArgs {
   std::string refPath;
   std::uint32_t seed = DEFAULT_SEED;
   bool uncompressed = false;
-  bool debug = false;
   bool quiet = false;
   bool skipFiltered = false;
   std::vector<std::string> bgPaths;
@@ -59,6 +55,7 @@ static ArgsOrErr parse_args (int argc, char** argv)
   std::replace (invocation.begin(), invocation.end(), '"', '\'');
 
   auto cli = argparse::ArgumentParser ("expos");
+  cli.set_usage_max_line_width (80);
   cli.add_argument ("VCF").help (
       "input VCF/BCF of variants to annotate"
   );
@@ -88,19 +85,17 @@ static ArgsOrErr parse_args (int argc, char** argv)
           "Only analyse records where FILTER is PASS or . "
           "(unset)"
       );
-  cli.add_argument ("--additional-background-samples", "--bg")
+  cli.add_argument ("-b", "--background-sample")
       .default_value (std::vector<std::string>{})
-      .nargs (argparse::nargs_pattern::at_least_one)
+      .append()
+      .nargs (1)
       .metavar ("PATH")
       .help (
-          "additional indexed alignment file(s) whose reads are "
-          "merged into "
-          "the Monte-Carlo background. Supporting reads are "
-          "always taken from the primary ALN only."
+          "additional indexed alignment file/s from which\n"
+          "to merge data into Monte-Carlo background.\n"
+          "Supporting reads are always taken from the\n"
+          "primary ALN only."
       );
-  cli.add_argument ("--debug").flag().help (
-      "enable debug logging to stderr"
-  );
 
   try {
     cli.parse_args (argc, argv);
@@ -117,11 +112,10 @@ static ArgsOrErr parse_args (int argc, char** argv)
       .refPath = cli.get<std::string> ("REF"),
       .seed = cli.get<std::uint32_t> ("--seed"),
       .uncompressed = cli.get<bool> ("--uncompressed"),
-      .debug = cli.get<bool> ("--debug"),
       .quiet = cli.get<bool> ("--quiet"),
       .skipFiltered = cli.get<bool> ("--skip-filtered"),
       .bgPaths = cli.get<std::vector<std::string>> (
-          "--additional-background-samples"
+          "--background-sample"
       ),
       .invocation = std::move (invocation)
   };
@@ -256,12 +250,6 @@ int main (int argc, char** argv)
     return EXIT_FAILURE;
   }
   const auto args = std::move (*argRet);
-
-  if (args.debug) {
-    plog::init<plog::TxtFormatter> (
-        plog::debug, plog::streamStdErr
-    );
-  }
 
   auto initRet = init_ctx (args);
   if (!initRet) {

@@ -31,7 +31,7 @@ static RefSliceOrErr get_variant_ref_slice (
 )
 {
   // flank len either side of variant.
-  static constexpr int64_t RCMPLX_FLANK = 250;
+  static constexpr int64_t RCMPLX_FLANK = 400;
 
   const int64_t sliceStart =
       std::max<int64_t> (0, r.ptr->pos - RCMPLX_FLANK);

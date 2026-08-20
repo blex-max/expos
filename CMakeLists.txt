@@ -9,7 +9,6 @@ set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
-set(CMAKE_POLICY_VERSION_MINIMUM 3.5)  # for argparse
 
 if(NOT CMAKE_BUILD_TYPE)
   message(STATUS "No CMAKE_BUILD_TYPE specified; defaulting to RelWithDebInfo")
@@ -30,33 +29,17 @@ set(HTSLIB_LIBRARY "" CACHE FILEPATH "Absolute path to libhts.{so,dylib,a}")
 # //--- find deps ---//
 find_package(PkgConfig REQUIRED)
 
-include(FetchContent)
-set(FETCHCONTENT_QUIET OFF)
+add_library(argparse INTERFACE)
+target_include_directories(argparse SYSTEM INTERFACE
+  ${CMAKE_CURRENT_SOURCE_DIR}/vendor/argparse/include
+)
 
-FetchContent_Declare(
-    plog
-    GIT_REPOSITORY https://github.com/SergiusTheBest/plog
-    GIT_TAG        1.1.10
-    GIT_SHALLOW    true
-    SYSTEM
+add_library(fmt INTERFACE)
+target_include_directories(fmt SYSTEM INTERFACE
+  ${CMAKE_CURRENT_SOURCE_DIR}/vendor/fmt/include
 )
-FetchContent_MakeAvailable(plog)
-FetchContent_Declare(
-    argparse
-    GIT_REPOSITORY https://github.com/p-ranav/argparse.git
-    GIT_TAG v3.2
-    GIT_SHALLOW TRUE
-    SYSTEM
-)
-FetchContent_MakeAvailable(argparse)
-FetchContent_Declare(
-    fmt
-    GIT_REPOSITORY https://github.com/fmtlib/fmt.git
-    GIT_TAG        12.2.0
-    GIT_SHALLOW    TRUE
-    SYSTEM
-)
-FetchContent_MakeAvailable(fmt)
+target_compile_definitions(fmt INTERFACE FMT_HEADER_ONLY)
+add_library(fmt::fmt-header-only ALIAS fmt)
 
 set(HTSLIB_TARGET "")
 if(HTSLIB_INCLUDE_DIR AND HTSLIB_LIBRARY)
@@ -139,6 +122,7 @@ endif()
 if(MAKE_TEST)
   message(STATUS "Fetching Catch2 for test binary")
   include(FetchContent)
+  set(FETCHCONTENT_QUIET OFF)
 
   FetchContent_Declare(
     Catch2
@@ -219,7 +203,6 @@ if(MAKE_MAIN)
     ${COMMON_INCLUDES}
   )
   target_link_libraries(expos PRIVATE
-    plog::plog
     argparse
     fmt::fmt-header-only
     ${HTSLIB_TARGET}
