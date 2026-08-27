@@ -3,6 +3,7 @@
 #include <fmt/format.h>
 #include <htslib/vcf.h>
 
+#include <cstdint>
 #include <string>
 #include <string_view>
 
@@ -43,7 +44,7 @@ bool eval_support_snp (const VcfRec& r, const bam_pileup1_t& p)
     return false;
   }
 
-  const auto qpos = static_cast<size_t> (p.qpos);
+  const auto qpos = static_cast<uint32_t> (p.qpos);
   const auto qbase =
       seq_nt16_str[bam_seqi (bam_get_seq (p.b), qpos)];
   const auto abase = alt_allele (r)[0];
@@ -56,11 +57,11 @@ bool eval_support_mnp (const VcfRec& r, const bam_pileup1_t& p)
     return false;
   }
 
-  const auto qpos = static_cast<size_t> (p.qpos);
+  const auto qpos = static_cast<uint32_t> (p.qpos);
   const auto alt = alt_allele (r);
 
   std::string read_bases;
-  for (size_t i = 0; i < alt.length(); ++i) {
+  for (uint64_t i = 0; i < alt.length(); ++i) {
     read_bases.push_back (
         seq_nt16_str[bam_seqi (bam_get_seq (p.b), qpos + i)]
     );

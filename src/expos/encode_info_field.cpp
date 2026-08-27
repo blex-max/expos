@@ -2,7 +2,7 @@
 
 #include <algorithm>
 #include <cassert>
-#include <cstddef>
+#include <cstdint>
 #include <optional>
 #include <span>
 #include <string>
@@ -48,7 +48,7 @@ std::vector<StatValue> stat_all_missing (
 )
 {
   return std::vector<StatValue> (
-      static_cast<std::size_t> (field.nValues),
+      static_cast<uint8_t> (field.nValues),
       StatValue{std::nullopt, reason}
   );
 }
@@ -62,7 +62,7 @@ VoidOrErr encode_variant_stat (
 
   // vcf works at float precision
   std::vector<float> buf (values.size());
-  for (std::size_t i = 0; i < values.size(); ++i) {
+  for (uint64_t i = 0; i < values.size(); ++i) {
     if (values[i].value) {
       buf[i] = static_cast<float> (*values[i].value);
     }
@@ -110,7 +110,7 @@ VoidOrErr set_expos_skip (
     return {};
   }
   std::string joined;
-  for (std::size_t i = 0; i < skips.size(); ++i) {
+  for (uint64_t i = 0; i < skips.size(); ++i) {
     if (i != 0) {
       joined += ',';
     }

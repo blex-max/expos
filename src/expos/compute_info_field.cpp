@@ -2,13 +2,13 @@
 
 #include <algorithm>
 #include <array>
-#include <cstddef>
 #include <cstdint>
 #include <optional>
 #include <span>
 #include <string_view>
 #include <vector>
 
+#include "expos/compute_info_field_internal.hpp"
 #include "expos/guards.hpp"
 #include "expos/pileup_features.hpp"
 #include "expos/skip.hpp"
@@ -54,14 +54,14 @@ static StatValue stat_or (
 // pass a copy. Taking a mutable view rather than a value is what lets the
 // Monte-Carlo draws reuse one buffer instead of copying per draw.
 // Not static for testing purposes
-std::size_t count_pairs_within_1d (
+uint64_t count_pairs_within_1d (
     std::span<int32_t> pts, uint64_t radius
 )
 {
   std::sort (pts.begin(), pts.end());
-  std::size_t count = 0;
-  std::size_t l = 0;
-  for (std::size_t r = 0; r < pts.size(); ++r) {
+  uint64_t count = 0;
+  uint64_t l = 0;
+  for (uint64_t r = 0; r < pts.size(); ++r) {
     // advance the left edge until pts[r] - pts[l] < radius. Bounded by r
     // so radius == 0 yields no pairs rather than underflowing. pts are
     // sorted and non-negative, so the diff is a non-negative uint64_t.
@@ -76,20 +76,22 @@ std::size_t count_pairs_within_1d (
 
 // --- template overlap --- //
 
-static size_t overlap (
+static uint32_t overlap (
     const TemplateEndpoints& a, const TemplateEndpoints& b
 )
 {
   const auto overlapLEdge = std::max (a.first, b.first);
   const auto overlapREdge = std::min (a.second, b.second);
   return (overlapREdge > overlapLEdge)
-             ? static_cast<size_t> (overlapREdge - overlapLEdge)
+             ? static_cast<uint32_t> (
+                   overlapREdge - overlapLEdge
+               )
              : 0;
 }
 
-static size_t size (const TemplateEndpoints& t)
+static uint32_t size (const TemplateEndpoints& t)
 {
-  return static_cast<size_t> (t.second - t.first);
+  return static_cast<uint32_t> (t.second - t.first);
 }
 
 // Fraction of the union of two templates that they share. Unlike a
@@ -118,12 +120,12 @@ static double pairwise_jaccard_sum (
   double jaccardSum = 0.0;
   // attempting to collapse the nested loop
   // with omp simd collapse(2) does not help
-  for (size_t i = 0; i < obs.size(); ++i) {
+  for (uint64_t i = 0; i < obs.size(); ++i) {
 // but reduction does!
 // request vectorisation reduction via
 // openmp-simd. Works for clang and gcc
 #pragma omp simd reduction(+ : jaccardSum)
-    for (size_t j = i + 1; j < obs.size(); ++j) {
+    for (uint64_t j = i + 1; j < obs.size(); ++j) {
       jaccardSum += jaccard (obs[i], obs[j]);
     }
   }
@@ -153,7 +155,7 @@ struct NullMoments {
 // -- the three ways two pairs can overlap: identical, sharing one
 // observation, disjoint.
 static NullMoments null_moments (
-    size_t nObs, const KernelTerms& k, size_t nBackground
+    uint64_t nObs, const KernelTerms& k, uint64_t nBackground
 )
 {
   const auto n = static_cast<double> (nObs);
@@ -181,12 +183,13 @@ static KernelTerms qpos_null_terms (
 )
 {
   std::sort (pts.begin(), pts.end());
-  const std::size_t n = pts.size();
-  std::size_t pairCount = 0;
-  std::size_t rowSqSum = 0;
-  std::size_t l = 0;
-  std::size_t r = 0;
-  for (std::size_t c = 0; c < n; ++c) {
+  const uint64_t n = pts.size();
+  uint64_t pairCount = 0;
+  uint64_t rowSqSum =
+      0;  // (r-l) squared, summed over n rows: can exceed uint32_t
+  uint64_t l = 0;
+  uint64_t r = 0;
+  for (uint64_t c = 0; c < n; ++c) {
     // r is monotone in (increases with) c, so it is carried rather than reset; the
     // clamp keeps the window containing c when the previous point had
     // no right neighbour.
@@ -212,14 +215,14 @@ static KernelTerms jaccard_null_terms (
     std::span<const TemplateEndpoints> bg
 )
 {
-  const std::size_t n = bg.size();
+  const uint64_t n = bg.size();
   double t1 = 0.0;
   double t2 = 0.0;
   std::vector<double> rowSum (n, 0.0);
-  for (std::size_t i = 0; i < n; ++i) {
+  for (uint64_t i = 0; i < n; ++i) {
     double iAcc = 0.0;
 #pragma omp simd reduction(+ : t1, t2, iAcc)
-    for (std::size_t j = i + 1; j < n; ++j) {
+    for (uint64_t j = i + 1; j < n; ++j) {
       const double f = jaccard (bg[i], bg[j]);
       t1 += f;
       t2 += f * f;
@@ -230,7 +233,7 @@ static KernelTerms jaccard_null_terms (
   }
   double q = 0.0;
 #pragma omp simd reduction(+ : q)
-  for (std::size_t i = 0; i < n; ++i) {
+  for (uint64_t i = 0; i < n; ++i) {
     q += rowSum[i] * rowSum[i];
   }
   return {t1, t2, q};
@@ -383,8 +386,8 @@ static ValuesOrSkip compute_rcmplx (
     const VariantStatInputs& in, const StatContext&
 )
 {
-  constexpr size_t WIN_SZ = 100;
-  constexpr size_t WIN_STEP = 10;
+  constexpr uint16_t WIN_SZ = 100;
+  constexpr uint16_t WIN_STEP = 10;
 
   const std::string_view ref = in.refSlice;
   // too-short spans have no full window; masked/ambiguous bases make the
@@ -397,8 +400,8 @@ static ValuesOrSkip compute_rcmplx (
   }
 
   double entropySum = 0.0;
-  size_t nWin = 0;
-  for (size_t winStart = 0; winStart + WIN_SZ <= ref.size();
+  uint64_t nWin = 0;
+  for (uint64_t winStart = 0; winStart + WIN_SZ <= ref.size();
        winStart += WIN_STEP) {
     entropySum += entropy_lz76 (ref.substr (winStart, WIN_SZ));
     ++nWin;

@@ -5,6 +5,7 @@
 #include <htslib/hts.h>
 #include <htslib/sam.h>
 
+#include <cstdint>
 #include <optional>
 #include <utility>
 
@@ -203,7 +204,7 @@ RefSliceOrErr fetch_region (
     return std::unexpected (make_err (msg));
   }
 
-  std::string out{seq, static_cast<size_t> (rc)};
+  std::string out{seq, static_cast<uint64_t> (rc)};
 
   free (seq);
 
@@ -344,13 +345,13 @@ AdvResOrErr try_advance_pileup (
           )) != 0) {
     if (plpPos == to.pos) {
       curs.plpArr = plpArr;
-      curs.nReads = static_cast<size_t> (nPlp);
+      curs.nReads = static_cast<uint32_t> (nPlp);
       curLoc = to;
       return PileupAdvResCode::success;
     }
     if (plpPos > to.pos) {
       curs.plpArr = plpArr;
-      curs.nReads = static_cast<size_t> (nPlp);
+      curs.nReads = static_cast<uint32_t> (nPlp);
       // parked at
       curLoc = {plpTid, plpPos};
       return PileupAdvResCode::noCoverage;

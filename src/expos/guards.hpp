@@ -1,6 +1,5 @@
 #pragma once
 
-#include <cstddef>
 #include <cstdint>
 #include <expected>
 #include <optional>
@@ -10,21 +9,21 @@
 #include "expos/pileup_features.hpp"
 #include "expos/skip.hpp"
 
-bool sufficient_reads (std::size_t nReads);
+bool sufficient_reads (uint64_t nReads);
 
 bool read_lens_within_tol (const std::vector<int32_t>& readLen);
 
 // Whether a Monte-Carlo statistic has enough to work with
 // or the reason it does not.
 std::optional<StatSkipReason> size_guard (
-    std::size_t nObs, std::size_t nBackground
+    uint64_t nObs, uint64_t nBackground
 );
 
 // Aggregate stats of primary sample data at one locus,
 // for guard calculations
 struct PrimaryGuardStats {
-  std::size_t nReads = 0;
-  std::size_t nTemplates = 0;
+  uint64_t nReads = 0;
+  uint64_t nTemplates = 0;
   std::optional<double> medianReadLen;  // engaged iff nReads > 0
   std::optional<double>
       medianFragLen;  // engaged iff nTemplates > 0

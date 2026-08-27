@@ -1,7 +1,6 @@
 #pragma once
 
 #include <cassert>
-#include <cstddef>
 #include <cstdint>
 #include <expected>
 #include <numeric>
@@ -22,9 +21,9 @@
 template <typename DrawFn, typename StatFn>
 double run_monte_carlo (double obsVal, DrawFn draw, StatFn stat)
 {
-  constexpr size_t NSIM_PVAL = 200; // resolution of 0.005
-  size_t countGe = 0;
-  for (std::size_t k = 1; k <= NSIM_PVAL; ++k) {
+  constexpr uint16_t NSIM_PVAL = 200; // resolution of 0.005
+  uint16_t countGe = 0;
+  for (uint16_t k = 1; k <= NSIM_PVAL; ++k) {
     const double s = static_cast<double> (stat (draw()));
     if (s >= obsVal) {
       ++countGe;
@@ -39,7 +38,7 @@ double run_monte_carlo (double obsVal, DrawFn draw, StatFn stat)
 // Reusable buffers for repeated draws from one population.
 template <class T>
 struct SubsampleScratch {
-  std::vector<std::size_t> idxBuf;
+  std::vector<uint64_t> idxBuf;
   std::vector<T> subsampleBuf;
 };
 
@@ -60,26 +59,25 @@ struct McState {
 // Precondition: n <= obs.size.
 template <class T>
 std::span<T> subsample_wo_replace (
-    const std::vector<T>& obs, std::size_t n, Mwc192& rng,
+    const std::vector<T>& obs, uint64_t n, Mwc192& rng,
     SubsampleScratch<T>& scratch
 )
 {
-  const std::size_t nObs = obs.size();
+  const uint64_t nObs = obs.size();
   assert (n <= nObs);
   if (scratch.idxBuf.size() != nObs) {
     scratch.idxBuf.resize (nObs);
     std::iota (
-        scratch.idxBuf.begin(), scratch.idxBuf.end(),
-        std::size_t{0}
+        scratch.idxBuf.begin(), scratch.idxBuf.end(), uint64_t{0}
     );
   }
   if (scratch.subsampleBuf.size() < n) {
     scratch.subsampleBuf.resize (n);
   }
-  for (std::size_t i = 0; i < n; ++i) {
+  for (uint64_t i = 0; i < n; ++i) {
     // dist (i, nObs - 1) was inclusive at both ends,
     // so the half-open range is nObs - i.
-    const std::size_t j = i + bounded (rng, nObs - i);
+    const uint64_t j = i + bounded (rng, nObs - i);
     std::swap (scratch.idxBuf[i], scratch.idxBuf[j]);
     scratch.subsampleBuf[i] = obs[scratch.idxBuf[i]];
   }

@@ -27,17 +27,14 @@
 
 // Reference bases around the variant
 static RefSliceOrErr get_variant_ref_slice (
-    const VcfRec& r, const FastaFile& ref
+    const VcfRec& r, const FastaFile& ref, uint16_t flankSize
 )
 {
-  // flank len either side of variant.
-  static constexpr int64_t RCMPLX_FLANK = 400;
-
   const int64_t sliceStart =
-      std::max<int64_t> (0, r.ptr->pos - RCMPLX_FLANK);
+      std::max<int64_t> (0, r.ptr->pos - flankSize);
   const int64_t sliceEnd =
       r.ptr->pos + r.ptr->rlen +
-      RCMPLX_FLANK;  // faidx clamps to contig end
+      flankSize;  // faidx clamps to contig end
 
   auto sliceRet =
       fetch_region (ref, r.contig, sliceStart, sliceEnd);
@@ -203,7 +200,8 @@ static VoidOrErr annotate_record (
     return std::unexpected (bgRet.error());
   }
 
-  auto sliceRet = get_variant_ref_slice (r, ctx.ref);
+  auto sliceRet =
+      get_variant_ref_slice (r, ctx.ref, ctx.flankSize);
   if (!sliceRet) {
     return std::unexpected (sliceRet.error());
   }

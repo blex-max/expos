@@ -6,13 +6,12 @@
 #include "hts/hts_types.hpp"
 #include "shared/err.hpp"
 
-// Default Monte-Carlo seed (overridable with --seed).
-inline constexpr std::uint32_t DEFAULT_SEED = 24601;
+// Default Monte-Carlo seed.
+inline constexpr uint32_t DEFAULT_SEED = 24601;
+// Default reference flank size for complexity analysis.
+inline constexpr uint16_t DEFAULT_FLANK = 400;
 
 struct AlnBundle {
-  // Declaration order is load-bearing: members are destroyed in reverse,
-  // so plpIt (and the hts_itr_t inside its context) dies before the
-  // htsFile and index it was iterating.
   AlnFile handle;  // manages alignment lifetime
   ForwardPileupIterator
       plpIt;  // borrows ptrs from handle, responsible for pileup objects only
@@ -39,9 +38,10 @@ struct ExposCtx {
   std::vector<AlnBundle>
       backgrounds;  // extra MC-background samples (-b/--background-sample)
   FastaFile ref;
-  std::uint32_t seed = DEFAULT_SEED;
+  uint32_t seed = DEFAULT_SEED;
   bool quiet = false;
   bool skipFiltered = false;
+  uint16_t flankSize = DEFAULT_FLANK;
 };
 
 // Annotate every analysable record from ctx.vcfIn into ctx.vcfOut in place;

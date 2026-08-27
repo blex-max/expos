@@ -10,13 +10,13 @@
 #include "shared/stats.hpp"
 
 // guard thresholds
-static constexpr std::size_t MIN_READS = 10;
-static constexpr std::size_t MIN_TEMPLATES = 10;
-static constexpr std::size_t MIN_BACKGROUND = 10;
+static constexpr uint16_t MIN_READS = 10;
+static constexpr uint16_t MIN_TEMPLATES = 10;
+static constexpr uint16_t MIN_BACKGROUND = 10;
 static constexpr double READ_LEN_REL_IQR_TOL = 0.10;
 static constexpr double MEDIAN_REL_TOL = 0.10;
 
-bool sufficient_reads (std::size_t nReads)
+bool sufficient_reads (uint64_t nReads)
 {
   return nReads >= MIN_READS;
 }
@@ -35,7 +35,7 @@ bool sufficient_reads (std::size_t nReads)
 // zero_variance would catch anyway). It is not a claim that 2 observations
 // are enough to mean anything
 std::optional<StatSkipReason> size_guard (
-    std::size_t nObs, std::size_t nBackground
+    uint64_t nObs, uint64_t nBackground
 )
 {
   if (nObs < 2) {
@@ -52,7 +52,7 @@ bool read_lens_within_tol (const std::vector<int32_t>& readLen)
 {
   std::vector<int32_t> lens = readLen;
   std::sort (lens.begin(), lens.end());
-  const std::size_t n = lens.size();
+  const uint64_t n = lens.size();
   const double q1 = lens[n / 4];
   const double median = lens[n / 2];
   const double q3 = lens[3 * n / 4];
@@ -68,7 +68,7 @@ static std::optional<double> median_read_length (
       std::views::transform (
           readLen,
           [] (int32_t len) {
-            return static_cast<std::size_t> (len);
+            return static_cast<uint32_t> (len);
           }
       ),
       PERCENTILE_MEDIAN
@@ -83,7 +83,7 @@ static std::optional<double> median_fragment_length (
       std::views::transform (
           endpoints,
           [] (const auto& span) {
-            return static_cast<std::size_t> (
+            return static_cast<uint32_t> (
                 span.second - span.first
             );
           }

@@ -33,7 +33,8 @@ struct ExposArgs {
   std::string vcfPath;
   std::string alnPath;
   std::string refPath;
-  std::uint32_t seed = DEFAULT_SEED;
+  uint32_t seed = DEFAULT_SEED;
+  uint16_t flankSize = DEFAULT_FLANK;
   bool uncompressed = false;
   bool quiet = false;
   bool skipFiltered = false;
@@ -69,8 +70,20 @@ static ArgsOrErr parse_args (int argc, char** argv)
       .default_value (DEFAULT_SEED)
       .nargs (1)
       .metavar ("SEED")
-      .scan<'u', std::uint32_t>()
+      .scan<'u', uint32_t>()
       .help ("random seed for the Monte-Carlo simulation");
+  cli.add_argument ("--flank")
+      .default_value (DEFAULT_FLANK)
+      .nargs (1)
+      .metavar ("SIZE")
+      .scan<'u', uint16_t>()
+      .help (
+          "Size of reference sequence flanks to retrieve from "
+          "either side of variant, for use in calcuating "
+          "reference complexity. It is suggested to set to "
+          "approximately the average template size for the "
+          "sequencing protocol of the examined sample."
+      );
   cli.add_argument ("-u", "--uncompressed")
       .flag()
       .help (
@@ -110,7 +123,8 @@ static ArgsOrErr parse_args (int argc, char** argv)
       .vcfPath = cli.get<std::string> ("VCF"),
       .alnPath = cli.get<std::string> ("ALN"),
       .refPath = cli.get<std::string> ("REF"),
-      .seed = cli.get<std::uint32_t> ("--seed"),
+      .seed = cli.get<uint32_t> ("--seed"),
+      .flankSize = cli.get<uint16_t> ("--flank"),
       .uncompressed = cli.get<bool> ("--uncompressed"),
       .quiet = cli.get<bool> ("--quiet"),
       .skipFiltered = cli.get<bool> ("--skip-filtered"),
@@ -183,17 +197,17 @@ static VcfOrErr create_output_vcf (
 }
 
 using CtxOrErr = std::expected<ExposCtx, Err>;
-static CtxOrErr init_ctx (const ExposArgs& filepaths)
+static CtxOrErr init_ctx (const ExposArgs& args)
 {
   ExposCtx out;
 
-  auto vcfRet = load_vcf (filepaths.vcfPath);
+  auto vcfRet = load_vcf (args.vcfPath);
   if (!vcfRet) {
     return std::unexpected (vcfRet.error());
   }
   out.vcfIn = std::move (*vcfRet);
 
-  auto alnRet = load_aln (filepaths.alnPath);
+  auto alnRet = load_aln (args.alnPath);
   if (!alnRet) {
     return std::unexpected (alnRet.error());
   }
@@ -203,8 +217,8 @@ static CtxOrErr init_ctx (const ExposArgs& filepaths)
       new PileupContext{out.aln.handle}, pileup_fn
   );
 
-  out.backgrounds.reserve (filepaths.bgPaths.size());
-  for (const auto& bgPath : filepaths.bgPaths) {
+  out.backgrounds.reserve (args.bgPaths.size());
+  for (const auto& bgPath : args.bgPaths) {
     auto bgRet = load_aln (bgPath);
     if (!bgRet) {
       return std::unexpected (bgRet.error());
@@ -221,23 +235,24 @@ static CtxOrErr init_ctx (const ExposArgs& filepaths)
     out.backgrounds.emplace_back (std::move (bundle));
   }
 
-  auto refRet = load_fasta (filepaths.refPath);
+  auto refRet = load_fasta (args.refPath);
   if (!refRet) {
     return std::unexpected (refRet.error());
   }
   out.ref = std::move (*refRet);
 
   auto vcfOutRet = create_output_vcf (
-      out.vcfIn, filepaths.uncompressed, filepaths.invocation
+      out.vcfIn, args.uncompressed, args.invocation
   );
   if (!vcfOutRet) {
     return std::unexpected (vcfOutRet.error());
   }
   out.vcfOut = std::move (*vcfOutRet);
 
-  out.seed = filepaths.seed;
-  out.quiet = filepaths.quiet;
-  out.skipFiltered = filepaths.skipFiltered;
+  out.seed = args.seed;
+  out.flankSize = args.flankSize;
+  out.quiet = args.quiet;
+  out.skipFiltered = args.skipFiltered;
 
   return out;
 }

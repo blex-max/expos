@@ -2,7 +2,7 @@
 
 #include <algorithm>
 #include <cmath>
-#include <cstddef>
+#include <cstdint>
 #include <string_view>
 
 double entropy_lz76 (std::string_view s)
@@ -15,13 +15,13 @@ double entropy_lz76 (std::string_view s)
     return 1;
   }
 
-  size_t i = 0;           // index into prefix substring
-  size_t lzCmplx = 1;     // phrase count
-  size_t prefixLen =
+  uint64_t i = 0;           // index into prefix substring
+  uint64_t lzCmplx = 1;     // phrase count
+  uint64_t prefixLen =
       1;  // length of substring which has been assessed and is now memory
-  size_t compLen =
+  uint64_t compLen =
       1;  // length of the candidate substring component
-  size_t cycleMax = compLen;  // longest match for a cycle
+  uint64_t cycleMax = compLen;  // longest match for a cycle
   while (prefixLen + compLen <= nChar) {
     if (s[i + compLen - 1] ==
         s[prefixLen + compLen -

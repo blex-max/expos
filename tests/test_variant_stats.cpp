@@ -1,7 +1,8 @@
 // Unit tests for the variant statistics layer: the clustering, overlap and
-// Monte-Carlo primitives in variant_stats.hpp, then the compute functions in
-// compute_info_field.hpp built on them. The latter are exercised through
-// the public expos_field_registry(), so they stay internal.
+// Monte-Carlo primitives declared in compute_info_field_internal.hpp, then
+// the compute functions in compute_info_field.hpp built on them. The latter
+// are exercised through the public expos_field_registry(), so they stay
+// internal.
 
 #include <algorithm>
 #include <catch2/catch_approx.hpp>
@@ -18,10 +19,10 @@
 #include <vector>
 
 #include "expos/compute_info_field.hpp"
+#include "expos/compute_info_field_internal.hpp"
 #include "expos/encode_info_field.hpp"
 #include "expos/pileup_features.hpp"
 #include "expos/skip.hpp"
-#include "expos/variant_stats.hpp"
 
 using Catch::Approx;
 

@@ -4,7 +4,7 @@
 #include <cassert>
 #include <cmath>
 #include <concepts>
-#include <cstddef>
+#include <cstdint>
 #include <optional>
 #include <string_view>
 #include <vector>
@@ -35,9 +35,8 @@ std::optional<double> percentile (std::vector<T> obs, double pt)
   const double rank = static_cast<double> (obs.size() - 1) * pt;
   const double lower = std::floor (rank);
   const double frac = rank - lower;
-  const auto lowerI = static_cast<std::size_t> (lower);
-  const auto upperI =
-      static_cast<std::size_t> (std::ceil (rank));
+  const auto lowerI = static_cast<uint64_t> (lower);
+  const auto upperI = static_cast<uint64_t> (std::ceil (rank));
   if (lowerI == upperI) {
     return static_cast<double> (obs[lowerI]);
   }

@@ -5,6 +5,7 @@
 #include <htslib/sam.h>
 #include <htslib/vcf.h>
 
+#include <cstdint>
 #include <expected>
 #include <functional>
 #include <optional>
@@ -149,7 +150,7 @@ struct ForwardPileupIterator {
     // View into plpIt's buffer; invalidated by the next
     // bam_plp64_auto or bam_plp_reset on plpIt.
     const bam_pileup1_t* plpArr = nullptr;
-    size_t nReads = 0;
+    uint32_t nReads = 0;
     GenomicLocus locus{
         -1, -1
     };  // current position. Start invalid.

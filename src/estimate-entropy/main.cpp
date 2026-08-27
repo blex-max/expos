@@ -1,4 +1,5 @@
 #include <algorithm>
+#include <cstdint>
 #include <cstdlib>
 #include <iostream>
 #include <string>
@@ -6,7 +7,7 @@
 #include "argparse/argparse.hpp"
 #include "shared/stats.hpp"
 
-constexpr std::size_t MAX_STDIN_BYTES =
+constexpr uint32_t MAX_STDIN_BYTES =
     1000;  // max input chars per line
 
 static bool is_ascii_printable (const std::string& s)
