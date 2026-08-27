@@ -6,7 +6,7 @@
 - CMake 3.22+
 - [htslib](https://github.com/samtools/htslib) ≥ 1.14
 
-[argparse](https://github.com/p-ranav/argparse), [fmt](https://github.com/fmtlib/fmt) and [plog](https://github.com/SergiusTheBest/plog) are fetched automatically by CMake — no manual install needed.
+[argparse](https://github.com/p-ranav/argparse) and [fmt](https://github.com/fmtlib/fmt) are vendored directly under `vendor/`. Tests additionally fetch [Catch2](https://github.com/catchorg/Catch2) via CMake FetchContent when `MAKE_TEST=ON` - making the test binary therefore requires network access for at least the configure step.
 
 ## **Build from Source**
 

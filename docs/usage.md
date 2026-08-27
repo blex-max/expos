@@ -7,8 +7,8 @@ Usage of the tool is best described by the helptext:
 
 ```
 Usage: expos [--help] [--version] [--seed SEED] [--uncompressed] [--quiet]
-             [--skip-filtered] [--additional-background-samples PATH...]
-             [--debug] VCF REF ALN
+             [--skip-filtered] [--background-sample PATH]...
+             VCF REF ALN
 
 Positional arguments:
   VCF                 input VCF/BCF of variants to annotate
@@ -22,11 +22,10 @@ Optional arguments:
   -u, --uncompressed  write uncompressed VCF (default: bgzip-compressed)
   -q, --quiet         suppress per-record warnings to stderr
   --skip-filtered     only analyse records where FILTER is PASS or . (unset)
-  --bg, --additional-background-samples PATH...
-                      additional indexed alignment file(s) whose reads are
-                      merged into the Monte-Carlo background. Supporting reads
-                      are always taken from the primary ALN only.
-  --debug             enable debug logging to stderr
+  -b, --background-sample PATH
+                      additional indexed alignment file/s from which to
+                      merge data into Monte-Carlo background. Supporting
+                      reads are always taken from the primary ALN only.
 ```
 
 `VCF` may be `-` to read from stdin. The reference FASTA and
@@ -46,19 +45,20 @@ expos my.vcf ref.fa my.bam > annotated.vcf
 
 ### Additional Background Samples
 
-One or more additional indexed alignmentscan be merged into the Monte-Carlo background
-with `--bg`, e.g. `--bg other1.bam other2.bam`.
+One or more additional indexed alignments can be merged into the Monte-Carlo background
+with `-b`/`--background-sample`, repeating the flag once per file, e.g.
+`-b other1.bam -b other2.bam`.
 Supporting reads are always drawn from the primary `ALN` only; the extra samples contribute to
 the background population against which statistics are simulated.
 
 Background samples are only a valid source of statistical power if they were sequenced with the
 same protocol as the primary sample. To guard against this, for each record the pileup of each
-`--bg` sample is evaluated against the primary sample before inclusion. Therefore:
+`-b`/`--background-sample` sample is evaluated against the primary sample before inclusion.
+Therefore at the loci in question:
 
-- its own read lengths must be internally consistent (not itself a mix of very different read
-  lengths);
-- its median read length must match the primary sample;
-- its median fragment (template) length must match the primary sample.
+- read length within the sample must be homogenous;
+- median read length must match the primary sample;
+- median fragment (template) length must match the primary sample.
 
 A source that fails any of these checks is excluded from the background for that record.
 A warning is emitted to stderr per exclusion, unless `--quiet` has been passed.
@@ -172,7 +172,7 @@ strictly a recommendation, though it is statistically defensible.
 # 1: pipe VCF producing program to expos stdin.
 # 2: calculate statistics with expos, reading VCF from stdin (-), output uncompressed VCF to stdout.
 # note that for brevity no additional background sample is provided, but providing one
-# (e.g. a matched normal) via --bg can add a lot of statistical power if one is available.
+# via -b/--background-sample can add a lot of statistical power if one is available.
 # 3, 4: statisically-backed flagging on distribution/clustering stats;
 # flagging variants whose clustering sits about three standard deviations above
 # the background and is statistically significant (P <= 0.05).
