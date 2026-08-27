@@ -35,7 +35,6 @@ struct ExposArgs {
   std::string refPath;
   uint32_t seed = DEFAULT_SEED;
   uint16_t flankSize = DEFAULT_FLANK;
-  bool uncompressed = false;
   bool quiet = false;
   bool skipFiltered = false;
   std::vector<std::string> bgPaths;
@@ -84,11 +83,6 @@ static ArgsOrErr parse_args (int argc, char** argv)
           "approximately the average template size for the "
           "sequencing protocol of the examined sample."
       );
-  cli.add_argument ("-u", "--uncompressed")
-      .flag()
-      .help (
-          "write uncompressed VCF (default: bgzip-compressed)"
-      );
   cli.add_argument ("-q", "--quiet")
       .flag()
       .help ("suppress per-record warnings to stderr");
@@ -125,7 +119,6 @@ static ArgsOrErr parse_args (int argc, char** argv)
       .refPath = cli.get<std::string> ("REF"),
       .seed = cli.get<uint32_t> ("--seed"),
       .flankSize = cli.get<uint16_t> ("--flank"),
-      .uncompressed = cli.get<bool> ("--uncompressed"),
       .quiet = cli.get<bool> ("--quiet"),
       .skipFiltered = cli.get<bool> ("--skip-filtered"),
       .bgPaths = cli.get<std::vector<std::string>> (
@@ -136,12 +129,11 @@ static ArgsOrErr parse_args (int argc, char** argv)
 }
 
 static VcfOrErr create_output_vcf (
-    const VcfFile& input, bool uncompressed,
-    const std::string& invocation
+    const VcfFile& input, const std::string& invocation
 )
 {
   VcfFile out;
-  out.fh = hts_open ("-", uncompressed ? "w" : "wz");
+  out.fh = hts_open ("-", "w");
   if (out.fh == nullptr) {
     return std::unexpected (
         make_err ("Could not open stdout for writing output VCF")
@@ -241,9 +233,8 @@ static CtxOrErr init_ctx (const ExposArgs& args)
   }
   out.ref = std::move (*refRet);
 
-  auto vcfOutRet = create_output_vcf (
-      out.vcfIn, args.uncompressed, args.invocation
-  );
+  auto vcfOutRet =
+      create_output_vcf (out.vcfIn, args.invocation);
   if (!vcfOutRet) {
     return std::unexpected (vcfOutRet.error());
   }
