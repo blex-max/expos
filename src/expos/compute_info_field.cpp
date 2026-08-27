@@ -437,7 +437,9 @@ constexpr std::string_view RCMPLX_HEADER =
     "100-base "
     "window complexity (Lempel-Ziv 76 entropy rate) of the "
     "reference "
-    "within 400 bases either side of the REF allele.\">";
+    "within a flank either side of the REF allele (default 400 "
+    "bases, see --flank; consult the expos_command header "
+    "line for the value used this run).\">";
 
 // --- registry --- //
 constexpr std::array<VariantStat, 4> VARIANT_STATS = {{

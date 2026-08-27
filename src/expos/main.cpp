@@ -77,11 +77,11 @@ static ArgsOrErr parse_args (int argc, char** argv)
       .metavar ("SIZE")
       .scan<'u', uint16_t>()
       .help (
-          "Size of reference sequence flanks to retrieve from "
-          "either side of variant, for use in calcuating "
-          "reference complexity. It is suggested to set to "
-          "approximately the average template size for the "
-          "sequencing protocol of the examined sample."
+          "Size of reference sequence flanks to retrieve from\n"
+          "either side of variant, for use in calcuating\n"
+          "reference complexity. It is suggested to set to\n"
+          "approximately the average template size for the\n"
+          "sequencing protocol used."
       );
   cli.add_argument ("-q", "--quiet")
       .flag()

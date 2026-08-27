@@ -6,7 +6,7 @@
 Usage of the tool is best described by the helptext:
 
 ```
-Usage: expos [--help] [--version] [--seed SEED] [--uncompressed] [--quiet]
+Usage: expos [--help] [--version] [--seed SEED] [--flank SIZE] [--quiet]
              [--skip-filtered] [--background-sample PATH]...
              VCF REF ALN
 
@@ -19,7 +19,11 @@ Optional arguments:
   -h, --help          shows help message and exits
   -v, --version       prints version information and exits
   --seed SEED         random seed for the Monte-Carlo simulation [default: 24601]
-  -u, --uncompressed  write uncompressed VCF (default: bgzip-compressed)
+  --flank SIZE        Size of reference sequence flanks to retrieve from
+                      either side of variant, for use in calcuating
+                      reference complexity. It is suggested to set to
+                      approximately the average template size for the
+                      sequencing protocol used. [default: 400]
   -q, --quiet         suppress per-record warnings to stderr
   --skip-filtered     only analyse records where FILTER is PASS or . (unset)
   -b, --background-sample PATH
@@ -30,8 +34,7 @@ Optional arguments:
 
 `VCF` may be `-` to read from stdin. The reference FASTA and
 the alignment must both be indexed (`.fai`, and `.bai`/`.crai` of the same
-name). The annotated VCF is written to stdout. A basic call would then look
-like:
+name). The annotated VCF is written to stdout. A basic call would then look like:
 
 ```bash
 expos my.vcf ref.fa my.bam > annotated.vcf
@@ -111,7 +114,9 @@ These are the header lines from an output VCF describing the INFO fields added. 
   Type=Float,
   Description="""
   Mean 100-base window complexity (Lempel-Ziv 76 entropy rate) of the
-  reference region flanking 250 bases either side of the variant.
+  reference within a flank either side of the REF allele (default 400
+  bases, see --flank; consult the expos_command header line for the
+  value used this run).
   """>
 
 ##INFO=<
@@ -170,7 +175,7 @@ strictly a recommendation, though it is statistically defensible.
 
 # command by command:
 # 1: pipe VCF producing program to expos stdin.
-# 2: calculate statistics with expos, reading VCF from stdin (-), output uncompressed VCF to stdout.
+# 2: calculate statistics with expos, reading VCF from stdin (-); output to stdout.
 # note that for brevity no additional background sample is provided, but providing one
 # via -b/--background-sample can add a lot of statistical power if one is available.
 # 3, 4: statisically-backed flagging on distribution/clustering stats;
@@ -180,7 +185,7 @@ strictly a recommendation, though it is statistically defensible.
 # of low reference complexity;
 # 7: heuristic/rule-of-thumb flagging on poor alignment score
 # and > write to disk.
-./path/to/expos -u my.vcf ref.fa my.bam |
+./path/to/expos my.vcf ref.fa my.bam |
 bcftools filter -Ov \
   --mode + \
   -s QPOS_CLUSTER \
@@ -206,7 +211,7 @@ scenarios that may be strongly associated with false positive variants. This exa
 looks specifically for clustered variants in low complexity regions
 
 ```bash
-./path/to/expos -u my.vcf ref.fa my.bam |
+./path/to/expos my.vcf ref.fa my.bam |
 bcftools filter -Oz \
   --mode + \
   -s LOW_CMPLX_CLUSTER \
@@ -222,7 +227,7 @@ Thresholds for p-value and effect size can be tuned:
 ```bash
 # relaxed p-val, and an effect size well beyond the calibrated 1% point
 # an example of the concept, again not a recommendation per se
-./path/to/expos -u my.vcf ref.fa my.bam |
+./path/to/expos my.vcf ref.fa my.bam |
 bcftools filter -Oz \
   --mode + \
   -s QPOS_CLUSTER_2 \

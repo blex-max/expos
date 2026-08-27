@@ -31,7 +31,7 @@ Applicable to SNVs, small MNVs, and small indels.
 ## Usage
 
 ```
-Usage: expos [--help] [--version] [--seed SEED] [--uncompressed] [--quiet]
+Usage: expos [--help] [--version] [--seed SEED] [--flank SIZE] [--quiet]
              [--skip-filtered] [--background-sample PATH]...
              VCF REF ALN
 
@@ -44,7 +44,10 @@ Optional arguments:
   -h, --help          shows help message and exits
   -v, --version       prints version information and exits
   --seed SEED         random seed for the Monte-Carlo simulation [default: 24601]
-  -u, --uncompressed  write uncompressed VCF (default: bgzip-compressed)
+  --flank SIZE        size of reference sequence flank to retrieve from either
+                      side of the variant for RCMPLX complexity calculation;
+                      suggested to set to approximately the average template
+                      size for the sequencing protocol used [default: 400]
   -q, --quiet         suppress per-record warnings to stderr
   --skip-filtered     only analyse records where FILTER is PASS or . (unset)
   -b, --background-sample PATH
@@ -56,8 +59,8 @@ Optional arguments:
 
 The three positional arguments are required and consumed in the order
 `VCF REF ALN`. The annotated VCF is written to stdout; the reference FASTA
-and the alignment must both be indexed (`.fai`, and `.bai`/`.crai`). Basic
-usage then looks like:
+and the alignment must both be indexed (`.fai`, and `.bai`/`.crai`).
+Basic usage then looks like:
 ```bash
 expos my.vcf ref.fa my.bam > annotated.vcf
 ```
