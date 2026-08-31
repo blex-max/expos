@@ -57,13 +57,13 @@ static ArgsOrErr parse_args (int argc, char** argv)
 
 
   static constexpr std::string_view CLI_DESC =
-      "A command line tool for analysing spatial properties"
-      "and reference complexity of putative variants. Useful"
-      "for identifying variants likely to be the result of"
-      "sequencing and alignment events rather than true"
-      "sample variation.";
+      " A command line tool for analysing spatial properties\n"
+      " and reference complexity of putative variants. Useful\n"
+      " for identifying variants likely to be the result of\n"
+      " sequencing and alignment events rather than true\n"
+      " sample variation.";
   static constexpr std::string_view CLI_EPILOG =
-      "See expos GitHub repo for further documentation.";
+      " See expos GitHub repo for further documentation.";
 
   auto cli = argparse::ArgumentParser ("expos", EXPOS_VERSION);
   cli.add_description (
