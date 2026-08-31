@@ -55,7 +55,21 @@ static ArgsOrErr parse_args (int argc, char** argv)
   }
   std::replace (invocation.begin(), invocation.end(), '"', '\'');
 
-  auto cli = argparse::ArgumentParser ("expos");
+
+  static constexpr std::string_view CLI_DESC =
+      "A command line tool for analysing spatial properties"
+      "and reference complexity of putative variants. Useful"
+      "for identifying variants likely to be the result of"
+      "sequencing and alignment events rather than true"
+      "sample variation.";
+  static constexpr std::string_view CLI_EPILOG =
+      "See expos GitHub repo for further documentation.";
+
+  auto cli = argparse::ArgumentParser ("expos", EXPOS_VERSION);
+  cli.add_description (
+      std::string{CLI_DESC}
+  );  // unfortunately won't take string_view
+  cli.add_epilog (std::string{CLI_EPILOG});
   static constexpr uint8_t USAGE_WIDTH = 80;
   cli.set_usage_max_line_width (USAGE_WIDTH);
   cli.add_argument ("VCF").help (
