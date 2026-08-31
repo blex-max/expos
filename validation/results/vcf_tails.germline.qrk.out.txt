@@ -1,0 +1,30 @@
+# vcf_tails.py, QRK. Same run as vcf_tails.germline.tjac.out.txt; see that
+# file for the full command and data provenance.
+#
+# ./vcf_tails.py annotated.germline.vcf --stat QRK --region 21:9000000-12000000
+
+records: 131,711   QRK computed: 47,465 (36.0%)
+   QRK:insufficient_background                 74,862  (56.8%)
+   TJAC:insufficient_background                74,783  (56.8%)
+   TJAC:insufficient_support                    9,387  (7.1%)
+   QRK:insufficient_support                     9,384  (7.1%)
+   RCMPLX:reference_has_n                          54  (0.0%)
+
+median z 0.12; upper tail:
+   z > 1.95  10.74%  (5,097)   null 5.0%
+   z > 2.7    6.06%  (2,877)   null -
+   z > 3.0    5.00%  (2,373)   null 1.0%
+
+         z bin       n  in region  RCMPLX
+    (baseline)   47465      11.3%
+       min - 0   21618       9.6%  26.000
+      0 - 1.95   20750      10.7%  26.000
+      1.95 - 3    2724      15.3%  25.000
+         3 - 4    1077      19.6%  24.000
+         4 - 8    1002      29.4%  22.000
+       8 - max     294      59.9%  17.000
+
+                subset       n z>1.95  z>2.7   z>3.0
+              all loci   47465  10.7%   6.1%   5.0%
+      excluding region   42080   9.5%   5.0%   4.0%
+           region only    5385  20.4%  14.4%  12.7%

@@ -1,0 +1,24 @@
+records: 4,645   RCMPLX computed (SNVs): 4,607 (99.2%)
+RCMPLX < 20.0: 1,284 (27.9%)  vs >= 20.0: 3,323
+
+Alignment score at the locus, read directly from the BAM's AS tag
+(higher is better -- a real effect means flagged is worse on both):
+  AS[supporting]   : flagged median=0.6887 (n=1284)   unflagged median=0.8079 (n=3323)
+  AS[all covering] : flagged median=0.8013 (n=1284)   unflagged median=0.9338 (n=3323)
+
+Region membership (21:9000000-12000000):
+  baseline (all)    22.4%
+  flagged           16.5%
+  unflagged         24.6%
+
+RCMPLX decile breakdown (n, region%, median AS[supporting]/AS[all]):
+  Q1 [5.000-12.000] n= 460 region= 14.3%  AS[support]=0.604 AS[all]=0.669
+  Q2 [12.000-16.000] n= 460 region= 20.9%  AS[support]=0.714 AS[all]=0.834
+  Q3 [16.000-20.000] n= 460 region= 12.8%  AS[support]=0.752 AS[all]=0.891
+  Q4 [20.000-23.000] n= 460 region= 19.3%  AS[support]=0.788 AS[all]=0.901
+  Q5 [23.000-24.000] n= 460 region= 11.5%  AS[support]=0.755 AS[all]=0.899
+  Q6 [25.000-25.000] n= 460 region= 24.1%  AS[support]=0.788 AS[all]=0.914
+  Q7 [25.000-26.000] n= 460 region= 38.5%  AS[support]=0.828 AS[all]=0.935
+  Q8 [26.000-27.000] n= 460 region= 33.0%  AS[support]=0.816 AS[all]=0.934
+  Q9 [27.000-27.000] n= 460 region= 11.7%  AS[support]=0.823 AS[all]=0.967
+  Q10 [27.000-30.000] n= 467 region= 37.0%  AS[support]=0.868 AS[all]=0.967

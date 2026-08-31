@@ -1,0 +1,25 @@
+records: 131,711   TJAC computed: 47,541 (36.1%)
+   QRK:insufficient_background                 74,862  (56.8%)
+   TJAC:insufficient_background                74,783  (56.8%)
+   TJAC:insufficient_support                    9,387  (7.1%)
+   QRK:insufficient_support                     9,384  (7.1%)
+   RCMPLX:reference_has_n                          54  (0.0%)
+
+median z 0.08; upper tail:
+   z > 1.95   9.52%  (4,525)   null 5.0%
+   z > 2.7    5.43%  (2,583)   null -
+   z > 3.0    4.47%  (2,125)   null 1.0%
+
+         z bin       n  in region  RCMPLX
+    (baseline)   47541      11.4%
+       min - 0   22311       8.9%  26.000
+      0 - 1.95   20705      11.3%  26.000
+      1.95 - 3    2400      17.5%  26.000
+         3 - 4     862      25.9%  26.000
+         4 - 8     983      34.2%  26.000
+       8 - max     280      39.6%  26.000
+
+                subset       n z>1.95  z>2.7   z>3.0
+              all loci   47541   9.5%   5.4%   4.5%
+      excluding region   42114   8.2%   4.3%   3.5%
+           region only    5427  20.1%  14.1%  12.3%

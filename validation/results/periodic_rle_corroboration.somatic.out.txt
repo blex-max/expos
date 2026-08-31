@@ -1,0 +1,24 @@
+# periodic_rle_corroboration.py. Real annotated somatic VCF from the current binary.
+# 4,645 CaVEMan calls (GRCh37, chr21+22, all SNVs), annotated against
+# the sample BAM and reference FASTA with the current build (default flank=250).
+#
+# ./periodic_rle_corroboration.py annotated.somatic.vcf ref.fa --flank 250 --bins 10
+
+RCMPLX-computed records: 4,607   fetching reference...
+periodic_rle computed: 4,607
+
+Spearman(RCMPLX, periodic top10-mean run) = -0.516
+Spearman(RCMPLX, periodic run_max)        = -0.274  (noisy -- one repeat
+                                              anywhere in the flank counts)
+
+RCMPLX decile breakdown (n, median top10-mean run, median run_max):
+  Q1  [5.000-12.000] n= 460  run_top10_mean= 10.41  run_max=  21.0
+  Q2  [12.000-16.000] n= 460  run_top10_mean=  6.44  run_max=  10.0
+  Q3  [16.000-20.000] n= 460  run_top10_mean=  5.55  run_max=  10.0
+  Q4  [20.000-23.000] n= 460  run_top10_mean=  5.40  run_max=  15.0
+  Q5  [23.000-24.000] n= 460  run_top10_mean=  5.29  run_max=  15.0
+  Q6  [25.000-25.000] n= 460  run_top10_mean=  5.17  run_max=  14.0
+  Q7  [25.000-26.000] n= 460  run_top10_mean=  5.00  run_max=  11.0
+  Q8  [26.000-27.000] n= 460  run_top10_mean=  4.93  run_max=  10.0
+  Q9  [27.000-27.000] n= 460  run_top10_mean=  4.87  run_max=  10.0
+  Q10 [27.000-30.000] n= 467  run_top10_mean=  4.69  run_max=   9.0
