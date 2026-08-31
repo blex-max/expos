@@ -55,7 +55,8 @@ struct McState {
 
 // Uniform sample of size n drawn without replacement from obs, via a partial
 // Fisher-Yates shuffle of scratch's persistent index permutation. The returned
-// span views scratch.sampleBuf and is valid until the next draw from the same
+// span views scratch.subsampleBuf and is valid until the next draw from the
+// same scratch.
 // Precondition: n <= obs.size.
 template <class T>
 std::span<T> subsample_wo_replace (

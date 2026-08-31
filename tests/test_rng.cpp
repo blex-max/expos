@@ -5,14 +5,11 @@
 
 #include "shared/rng.hpp"
 
-TEST_CASE ("Mwc192 matches the reference stream")
+TEST_CASE ("Mwc192 matches the reference implementation")
 {
-  // Mwc192 transcribes prng.di.unimi.it/MWC192.c by hand, because the
-  // reference keeps its state in file-scope globals and cannot be
-  // instantiated. A wrong shift or a swapped state word would still produce
-  // plausible-looking noise, so these are the reference's own first outputs,
-  // captured by seeding its globals exactly as the constructor seeds its
-  // members. If the transcription ever drifts, this is what says so.
+  // Mwc192 implements prng.di.unimi.it/MWC192.c.
+  // If the implementation is correct, this test should
+  // pass.
   Mwc192 rng (20260810);
 
   const std::uint64_t expected[] = {
@@ -31,8 +28,6 @@ TEST_CASE ("bounded stays inside its range")
 {
   Mwc192 rng (7);
 
-  // Loops tally and assert once; a REQUIRE per draw would put a hundred
-  // thousand assertions on the counter and say nothing more.
   std::size_t violations = 0;
   for (std::size_t k = 0; k < 1000; ++k) {
     violations += (bounded (rng, 1) != 0) ? 1 : 0;
@@ -52,11 +47,6 @@ TEST_CASE ("bounded stays inside its range")
 
 TEST_CASE ("the half-open range maps onto an inclusive draw")
 {
-  // subsample_wo_replace wants a value in [i, nObs - 1] inclusive, which is
-  // what std::uniform_int_distribution (i, nObs - 1) gave it. Lemire is
-  // half-open, so the range is nObs - i. Off by one in either direction is a
-  // biased Fisher-Yates that still passes every determinism test, which is
-  // why this checks the distribution and not just the bounds.
   constexpr std::size_t nObs = 12;
   Mwc192 rng (3);
 

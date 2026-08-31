@@ -4,7 +4,6 @@
 #include <catch2/catch_test_macros.hpp>
 #include <cstdint>
 #include <optional>
-#include <random>
 
 #include "expos/compute_info_field.hpp"
 #include "expos/guards.hpp"
@@ -32,7 +31,7 @@ PileupFeatures make_uniform (
 TEST_CASE ("set_qrk_guard (Guard A)")
 {
   Mwc192 rng (1);
-  McState mc{std::move (rng), {}, {}};
+  McState mc{rng, {}, {}};
 
   SECTION ("homogeneous reads leave QRK enabled")
   {
@@ -42,8 +41,7 @@ TEST_CASE ("set_qrk_guard (Guard A)")
     REQUIRE_FALSE (ctx.readLenSuppression.has_value());
   }
 
-  // Each of the sections below seeds ctx with an unrelated reason, so a
-  // guard that never wrote to it would fail rather than pass by accident.
+  // Each of the sections below seeds ctx with an unrelated reason.
 
   SECTION ("heterogeneous reads suppress QRK as such")
   {
@@ -60,10 +58,7 @@ TEST_CASE ("set_qrk_guard (Guard A)")
   }
 
   // Too few reads to judge the spread at all, so fail closed and suppress
-  // QRK. The fixture is internally uniform on purpose: the spread check
-  // would call it homogeneous, so this only passes if the guard returns
-  // before reaching it. The reason must distinguish it from the section
-  // above -- these reads are not uneven, there are just too few of them.
+  // QRK.
   SECTION ("insufficient data suppresses QRK as unverified")
   {
     PileupFeatures primary;
@@ -76,8 +71,6 @@ TEST_CASE ("set_qrk_guard (Guard A)")
     );
   }
 
-  // read_lens_within_tol indexes unconditionally, so the early return is
-  // also what keeps an empty primary out of it.
   SECTION ("no reads at all suppresses QRK as unverified")
   {
     const PileupFeatures primary;
@@ -167,8 +160,6 @@ TEST_CASE ("verify_bg_sample (Guards B + C)")
     );
   }
 
-  // A thin primary excludes every candidate: Guards B and C compare against
-  // the primary's median, so there is no usable reference to compare to.
   SECTION ("a thin primary excludes an otherwise-good candidate")
   {
     PileupFeatures thinPrimary;

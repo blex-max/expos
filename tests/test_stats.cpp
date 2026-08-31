@@ -1,8 +1,3 @@
-// Unit tests for the pure statistical primitives in shared/stats.hpp.
-// Standard-library-only, so they need no expos types. The clustering and
-// Monte-Carlo primitives live in tests/test_variant_stats.cpp alongside the
-// statistics that consume them.
-
 #include <catch2/catch_approx.hpp>
 #include <catch2/catch_test_macros.hpp>
 #include <cstdint>
@@ -45,7 +40,7 @@ TEST_CASE ("percentile")
 
 TEST_CASE ("lz76")
 {
-  // exact LZ76 phrase counts
+  // exact LZ76 motif counts
   REQUIRE (lz76 ("AAAA") == 2);
   REQUIRE (lz76 ("ABAB") == 3);
   REQUIRE (lz76 ("ABCD") == 4);

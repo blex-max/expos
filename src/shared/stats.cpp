@@ -18,7 +18,7 @@ uint16_t lz76 (std::string_view s)
   }
 
   uint16_t i = 0;           // index into prefix substring
-  uint16_t lzCmplx = 1;     // phrase count
+  uint16_t lzCmplx = 1;  // motif count
   uint16_t prefixLen =
       1;  // length of substring which has been assessed and is now memory
   uint16_t compLen =
@@ -47,7 +47,7 @@ uint16_t lz76 (std::string_view s)
     }
   }
 
-  // final phrase on loop exit
+  // final motif on loop exit
   if (compLen != 1) {
     ++lzCmplx;
   }

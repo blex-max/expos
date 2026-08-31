@@ -6,7 +6,7 @@
 
 // Per-read / per-template features extracted from a pileup column. Pure
 // data with no htslib dependency — the interface between pileup extraction
-// (extract_pileup) and the variant statistics (variant_stats).
+// (extract_pileup) and the variant statistics (compute_info_field).
 
 // Leftmost/rightmost genomic coordinates of a sequenced template.
 using TemplateEndpoints = std::pair<int64_t, int64_t>;

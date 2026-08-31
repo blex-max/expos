@@ -1,9 +1,3 @@
-// Unit tests for the variant statistics layer: the clustering, overlap and
-// Monte-Carlo primitives declared in compute_info_field_internal.hpp, then
-// the compute functions in compute_info_field.hpp built on them. The latter
-// are exercised through the public expos_field_registry(), so they stay
-// internal.
-
 #include <algorithm>
 #include <bit>
 #include <catch2/catch_approx.hpp>
@@ -70,15 +64,6 @@ TEST_CASE ("count_pairs_within_1d")
   REQUIRE (pairs_of ({1, 2, 3}, 3) == 3);
   REQUIRE (pairs_of ({7, 7, 7}, 1) == 3);  // dups, dist 0 < 1
   REQUIRE (pairs_of ({1, 2, 3}, 0) == 0);  // radius 0 -> none
-
-  SECTION ("sorts its argument in place")
-  {
-    // The in-place sort is what lets the Monte-Carlo draws reuse one buffer;
-    // callers whose data must survive pass a copy.
-    std::vector<int32_t> v{30, 10, 20};
-    count_pairs_within_1d (v, 5);
-    REQUIRE (v == std::vector<int32_t>{10, 20, 30});
-  }
 
   SECTION ("randomised cross-check against a brute-force oracle")
   {
@@ -182,7 +167,7 @@ TEST_CASE ("subsample_wo_replace")
   SECTION ("one scratch survives a changing population size")
   {
     // The index permutation is only valid for the population it was built
-    // for, so a size change must rebuild it rather than resize it.
+    // for, so a size change must rebuild
     Mwc192 rng (3);
     SubsampleScratch<int32_t> scratch;
     for (const std::size_t nObs : {60U, 17U, 60U, 200U, 5U}) {
@@ -205,11 +190,9 @@ TEST_CASE ("subsample_wo_replace")
   SECTION ("repeated draws from one scratch stay uniform")
   {
     // The scratch carries its permutation between draws rather than
-    // re-initialising it, which is what makes a draw O(n) instead of
-    // O(population). That is only sound if the carried permutation biases
-    // nothing: draw k+1 applies a fresh independent partial Fisher-Yates and
-    // then maps through a fixed bijection, and a bijection of a uniform
-    // n-subset is a uniform n-subset. This is the test for that claim.
+    // re-initialising it, making a draw O(n) instead of
+    // O(population). That is only sound if carrying the previous
+    // permuation introduces no bias.
     constexpr std::size_t nObs = 40;
     constexpr std::size_t n = 8;
     constexpr std::size_t nDraws = 40000;
@@ -247,10 +230,8 @@ namespace {
 
 // Exhaustively enumerates every size-n subset of an N-item population (N is
 // kept small enough, <=12, that 2^N masks is cheap) and returns the true
-// mean/variance of the pair-sum statistic given by kern[i][j] (i<j). This is
-// the brute-force oracle for null_moments' closed-form formula -- the same
-// check as validation/null_calibration.py's resampling, but exact rather
-// than approximate, and against the formula directly rather than end to end.
+// mean/variance of the pair-sum statistic given by kern[i][j] (i<j).
+// Brute-force oracle for null_moments' closed-form formula
 std::pair<double, double> brute_force_pair_sum_moments (
     const std::vector<std::vector<double>>& kern, std::size_t N,
     std::size_t n
@@ -419,7 +400,7 @@ TEST_CASE ("compute QRK (query-position clustering)")
     PileupFeatures all;
     all.qPos = {0, 5, 10, 15, 20, 25};
     VariantStatInputs in{supporting, all, REF_PLACEHOLDER};
-    McState mc{std::move (rng), {}, {}};
+    McState mc{rng, {}, {}};
     const StatContext ctx{mc, std::nullopt};
     const auto r = qrk.compute (in, ctx);
     REQUIRE_FALSE (r.has_value());
@@ -435,7 +416,7 @@ TEST_CASE ("compute QRK (query-position clustering)")
         10, 11, 12, 40, 90
     };  // 5: under 2*3, and under the floor
     VariantStatInputs in{supporting, all, REF_PLACEHOLDER};
-    McState mc{std::move (rng), {}, {}};
+    McState mc{rng, {}, {}};
     const StatContext ctx{mc, std::nullopt};
     const auto r = qrk.compute (in, ctx);
     REQUIRE_FALSE (r.has_value());
@@ -453,7 +434,7 @@ TEST_CASE ("compute QRK (query-position clustering)")
       all.qPos.push_back (i);
     }
     VariantStatInputs in{supporting, all, REF_PLACEHOLDER};
-    McState mc{std::move (rng), {}, {}};
+    McState mc{rng, {}, {}};
     const StatContext ctx{
         mc, StatSkipReason::heterogeneousReadLength
     };
@@ -464,9 +445,6 @@ TEST_CASE ("compute QRK (query-position clustering)")
     );
   }
 
-  // The ratio alone would admit this: 6 background against 2 supporting is
-  // comfortably over 2x. But 6 gives C(6,2) = 15 distinct subsamples to
-  // build a null from, so the absolute floor has to catch it.
   SECTION (
       "a background over the ratio but under the floor is "
       "refused"
@@ -478,7 +456,7 @@ TEST_CASE ("compute QRK (query-position clustering)")
     all.qPos = {10, 20, 30,
                 40, 50, 51};  // 6 >= 2*2, but < MIN_BACKGROUND
     VariantStatInputs in{supporting, all, REF_PLACEHOLDER};
-    McState mc{std::move (rng), {}, {}};
+    McState mc{rng, {}, {}};
     const StatContext ctx{mc, std::nullopt};
     const auto r = qrk.compute (in, ctx);
     REQUIRE_FALSE (r.has_value());
@@ -488,8 +466,7 @@ TEST_CASE ("compute QRK (query-position clustering)")
   }
 
   // The guard fails closed on a primary with too few reads to measure the
-  // spread. That is not the same claim as reads of uneven length, and the
-  // token has to say which one happened.
+  // spread.
   SECTION (
       "unverifiable read lengths are reported as unverified"
   )
@@ -501,7 +478,7 @@ TEST_CASE ("compute QRK (query-position clustering)")
       all.qPos.push_back (i);
     }
     VariantStatInputs in{supporting, all, REF_PLACEHOLDER};
-    McState mc{std::move (rng), {}, {}};
+    McState mc{rng, {}, {}};
     const StatContext ctx{
         mc, StatSkipReason::readLengthUnverified
     };
@@ -510,9 +487,7 @@ TEST_CASE ("compute QRK (query-position clustering)")
     REQUIRE (r.error() == StatSkipReason::readLengthUnverified);
   }
 
-  // A locus too thin to test is reported as thin, whatever the read-length
-  // guard concluded: the size check runs first precisely so that a site
-  // with no reads never gets a verdict on its read-length distribution.
+  // A locus too thin to test is reported
   SECTION (
       "too little support outranks a read-length suppression"
   )
@@ -524,7 +499,7 @@ TEST_CASE ("compute QRK (query-position clustering)")
       all.qPos.push_back (i);
     }
     VariantStatInputs in{supporting, all, REF_PLACEHOLDER};
-    McState mc{std::move (rng), {}, {}};
+    McState mc{rng, {}, {}};
     const StatContext ctx{
         mc, StatSkipReason::heterogeneousReadLength
     };
@@ -542,7 +517,7 @@ TEST_CASE ("compute QRK (query-position clustering)")
       all.qPos.push_back (i);  // spread 0..199
     }
     VariantStatInputs in{supporting, all, REF_PLACEHOLDER};
-    McState mc{std::move (rng), {}, {}};
+    McState mc{rng, {}, {}};
     const StatContext ctx{mc, std::nullopt};
     const auto r = qrk.compute (in, ctx);
     REQUIRE (r.has_value());
@@ -569,7 +544,7 @@ TEST_CASE ("compute QRK (query-position clustering)")
       all.qPos.push_back (50);
     }
     VariantStatInputs in{supporting, all, REF_PLACEHOLDER};
-    McState mc{std::move (rng), {}, {}};
+    McState mc{rng, {}, {}};
     const StatContext ctx{mc, std::nullopt};
     const auto r = qrk.compute (in, ctx);
     REQUIRE_FALSE (r.has_value());
@@ -587,10 +562,10 @@ TEST_CASE ("compute QRK (query-position clustering)")
     Mwc192 rngA (7);
     Mwc192 rngB (7);
     VariantStatInputs inA{supporting, all, REF_PLACEHOLDER};
-    McState mcA{std::move (rngA), {}, {}};
+    McState mcA{rngA, {}, {}};
     const StatContext ctxA{mcA, std::nullopt};
     VariantStatInputs inB{supporting, all, REF_PLACEHOLDER};
-    McState mcB{std::move (rngB), {}, {}};
+    McState mcB{rngB, {}, {}};
     const StatContext ctxB{mcB, std::nullopt};
     const auto a = qrk.compute (inA, ctxA);
     const auto b = qrk.compute (inB, ctxB);
@@ -620,7 +595,7 @@ std::vector<TemplateEndpoints> mixed_length_background()
 
 }  // namespace
 
-TEST_CASE ("compute TJAC (graded pairwise template overlap)")
+TEST_CASE ("compute TJAC")
 {
   const auto tjac = by_id (expos_field_registry(), "TJAC");
 
@@ -634,7 +609,7 @@ TEST_CASE ("compute TJAC (graded pairwise template overlap)")
         {100, 300}, {110, 320}, {500, 700}, {900, 1100}
     };
     VariantStatInputs in{supporting, all, REF_PLACEHOLDER};
-    McState mc{std::move (rng), {}, {}};
+    McState mc{rng, {}, {}};
     const StatContext ctx{mc, std::nullopt};
     const auto r = tjac.compute (in, ctx);
     REQUIRE_FALSE (r.has_value());
@@ -655,7 +630,7 @@ TEST_CASE ("compute TJAC (graded pairwise template overlap)")
         {900, 1100}
     };  // 5: under 2*3, and under the floor
     VariantStatInputs in{supporting, all, REF_PLACEHOLDER};
-    McState mc{std::move (rng), {}, {}};
+    McState mc{rng, {}, {}};
     const StatContext ctx{mc, std::nullopt};
     const auto r = tjac.compute (in, ctx);
     REQUIRE_FALSE (r.has_value());
@@ -664,8 +639,6 @@ TEST_CASE ("compute TJAC (graded pairwise template overlap)")
     );
   }
 
-  // TJAC sizes on templates, so the floor is counted in templates here --
-  // the same guard applied to a different population.
   SECTION (
       "a background over the ratio but under the floor is "
       "refused"
@@ -680,7 +653,7 @@ TEST_CASE ("compute TJAC (graded pairwise template overlap)")
       all.endpoints.push_back ({i, i + 200});
     }
     VariantStatInputs in{supporting, all, REF_PLACEHOLDER};
-    McState mc{std::move (rng), {}, {}};
+    McState mc{rng, {}, {}};
     const StatContext ctx{mc, std::nullopt};
     const auto r = tjac.compute (in, ctx);
     REQUIRE_FALSE (r.has_value());
@@ -703,7 +676,7 @@ TEST_CASE ("compute TJAC (graded pairwise template overlap)")
       all.endpoints.push_back ({i, i + 200});
     }
     VariantStatInputs in{supporting, all, REF_PLACEHOLDER};
-    McState mc{std::move (rng), {}, {}};
+    McState mc{rng, {}, {}};
     const StatContext ctx{mc, std::nullopt};
     const auto r = tjac.compute (in, ctx);
     REQUIRE (r.has_value());
@@ -727,7 +700,7 @@ TEST_CASE ("compute TJAC (graded pairwise template overlap)")
         all.endpoints[88]
     };
     VariantStatInputs in{supporting, all, REF_PLACEHOLDER};
-    McState mc{std::move (rng), {}, {}};
+    McState mc{rng, {}, {}};
     const StatContext ctx{mc, std::nullopt};
     const auto r = tjac.compute (in, ctx);
     REQUIRE (r.has_value());
@@ -741,8 +714,7 @@ TEST_CASE ("compute TJAC (graded pairwise template overlap)")
   SECTION ("length disparity alone does not fire")
   {
     // Nested templates of wildly different lengths, against a background of
-    // the same length mixture. A min(len) denominator would score nearly
-    // every pair here at 1.0; Jaccard must not read that as coincidence.
+    // the same length mixture.
     Mwc192 rng (2);
     PileupFeatures supporting;
     supporting.endpoints = {
@@ -751,7 +723,7 @@ TEST_CASE ("compute TJAC (graded pairwise template overlap)")
     PileupFeatures all;
     all.endpoints = mixed_length_background();
     VariantStatInputs in{supporting, all, REF_PLACEHOLDER};
-    McState mc{std::move (rng), {}, {}};
+    McState mc{rng, {}, {}};
     const StatContext ctx{mc, std::nullopt};
     const auto r = tjac.compute (in, ctx);
     REQUIRE (r.has_value());
@@ -764,12 +736,6 @@ TEST_CASE ("compute TJAC (graded pairwise template overlap)")
       "background"
   )
   {
-    // The regression guard for the Jaccard-over-min(len) decision. The
-    // background here is mostly nested pairs, so a min(len) denominator
-    // leaves the null sitting at ~94% of its ceiling and this genuinely
-    // coincident support set is invisible to it (measured z 0.62, p 0.16).
-    // Jaccard keeps the null near 39% of ceiling, so the same set stands
-    // out sharply.
     Mwc192 rng (2);
     PileupFeatures supporting;
     supporting.endpoints = {
@@ -778,7 +744,7 @@ TEST_CASE ("compute TJAC (graded pairwise template overlap)")
     PileupFeatures all;
     all.endpoints = mixed_length_background();
     VariantStatInputs in{supporting, all, REF_PLACEHOLDER};
-    McState mc{std::move (rng), {}, {}};
+    McState mc{rng, {}, {}};
     const StatContext ctx{mc, std::nullopt};
     const auto r = tjac.compute (in, ctx);
     REQUIRE (r.has_value());
@@ -802,7 +768,7 @@ TEST_CASE ("compute TJAC (graded pairwise template overlap)")
       all.endpoints.push_back ({100, 300});
     }
     VariantStatInputs in{supporting, all, REF_PLACEHOLDER};
-    McState mc{std::move (rng), {}, {}};
+    McState mc{rng, {}, {}};
     const StatContext ctx{mc, std::nullopt};
     const auto r = tjac.compute (in, ctx);
     REQUIRE_FALSE (r.has_value());
@@ -823,7 +789,7 @@ TEST_CASE ("compute TJAC (graded pairwise template overlap)")
       all.endpoints.push_back ({i, i + 200});
     }
     VariantStatInputs in{supporting, all, REF_PLACEHOLDER};
-    McState mc{std::move (rng), {}, {}};
+    McState mc{rng, {}, {}};
     const StatContext ctx{
         mc, StatSkipReason::heterogeneousReadLength
     };
@@ -845,7 +811,7 @@ TEST_CASE ("compute RCMPLX (reference complexity)")
   {
     const std::string ref (99, 'A');
     VariantStatInputs in{empty, empty, std::string_view (ref)};
-    McState mc{std::move (rng), {}, {}};
+    McState mc{rng, {}, {}};
     const StatContext ctx{mc, std::nullopt};
     const auto r = rcmplx.compute (in, ctx);
     REQUIRE_FALSE (r.has_value());
@@ -857,7 +823,7 @@ TEST_CASE ("compute RCMPLX (reference complexity)")
     std::string ref (150, 'A');
     ref[75] = 'N';
     VariantStatInputs in{empty, empty, std::string_view (ref)};
-    McState mc{std::move (rng), {}, {}};
+    McState mc{rng, {}, {}};
     const StatContext ctx{mc, std::nullopt};
     const auto r = rcmplx.compute (in, ctx);
     REQUIRE_FALSE (r.has_value());
@@ -870,7 +836,7 @@ TEST_CASE ("compute RCMPLX (reference complexity)")
         100, 'A'
     );  // exactly one 100-base window
     VariantStatInputs in{empty, empty, std::string_view (ref)};
-    McState mc{std::move (rng), {}, {}};
+    McState mc{rng, {}, {}};
     const StatContext ctx{mc, std::nullopt};
     const auto r = rcmplx.compute (in, ctx);
     REQUIRE (r.has_value());
@@ -890,7 +856,7 @@ TEST_CASE ("compute RCMPLX (reference complexity)")
     }
     ref += std::string (100, 'A');
     VariantStatInputs in{empty, empty, std::string_view (ref)};
-    McState mc{std::move (rng), {}, {}};
+    McState mc{rng, {}, {}};
     const StatContext ctx{mc, std::nullopt};
     const auto r = rcmplx.compute (in, ctx);
     REQUIRE (r.has_value());

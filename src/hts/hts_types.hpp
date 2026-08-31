@@ -7,7 +7,6 @@
 
 #include <cstdint>
 #include <expected>
-#include <functional>
 #include <optional>
 #include <span>
 #include <string>
@@ -29,9 +28,6 @@ inline bool operator== (
 {
   return a.tid == b.tid && a.pos == b.pos;
 }
-
-// resolve tid to name
-using Tid2StrFn = std::function<const char*(int)>;
 
 struct AlnFile {
   htsFile* fh = NULL;

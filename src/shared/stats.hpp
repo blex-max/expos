@@ -6,6 +6,7 @@
 #include <concepts>
 #include <cstdint>
 #include <optional>
+#include <ranges>
 #include <string_view>
 #include <vector>
 

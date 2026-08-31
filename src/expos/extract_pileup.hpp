@@ -14,7 +14,7 @@ VoidOrErr extract_features (
     PileupView plp, uint16_t maxFragLen, PileupFeatures& _out
 );
 
-// extract features to pileup, apppending to outAll,
+// extract features to pileup, appending to outAll,
 // and, when a read supports rec, also appending to
 // outSupport
 VoidOrErr extract_partition_features (

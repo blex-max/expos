@@ -12,14 +12,16 @@ number of PCR cycles. Builds on Ellis et al. 2021, GATK ReadPosRankSum, bcftools
 
 Applicable to SNVs, small MNVs, and small indels.
 
+High-performance implementation, adding minimal overhead to existing workflows.
+
 ---
 
 ## **Quick Start**
 
 ```bash
 # clone and build
-git clone https://github.com/blex-max/expos-repo.git
-cd expos-repo
+git clone https://github.com/blex-max/expos.git
+cd expos
 mkdir build && cd build
 cmake .. -DCMAKE_BUILD_TYPE=Release
 cmake --build .

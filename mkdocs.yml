@@ -1,8 +1,8 @@
 site_name: expos
 site_description: Statistically-backed VCF flagging for spatial properties of somatic mutations
-site_url: https://blex-max.github.io/expos-repo/
-repo_url: https://github.com/blex-max/expos-repo
-repo_name: blex-max/expos-repo
+site_url: https://blex-max.github.io/expos/
+repo_url: https://github.com/blex-max/expos
+repo_name: blex-max/expos
 
 theme:
   name: material

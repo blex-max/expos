@@ -222,7 +222,7 @@ bcftools filter -Oz \
 ## Thresholding on Complexity (`RCMPLX`)
 
 Since it is a property of the reference sequence alone, `RCMPLX` has no resampling
-null against which to calibrate. `RCMPLX` reports the *minimum* LZ76 phrase count
+null against which to calibrate. `RCMPLX` reports the *minimum* LZ76 motif count
 over 100-base windows tiling the flank. `RCMPLX < 20` is justified by real-data
 corroboration, checked two independent ways:
 

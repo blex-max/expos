@@ -16,7 +16,7 @@
 
 // --- helpers --- //
 
-// Builders keeping the compute_* functions readable.
+// Builder keeping the compute_* functions readable.
 static StatValue stat_value (double v)
 {
   return {v, std::nullopt};
@@ -256,7 +256,7 @@ static ValuesOrSkip compute_qrk (
   }
 
   // Query position is an offset within the read, so a heterogeneous read
-  // population would confound
+  // population would confound.
   if (ctx.readLenSuppression) {
     return std::unexpected (*ctx.readLenSuppression);
   }
@@ -385,7 +385,7 @@ constexpr std::string_view TJAC_HEADER =
 constexpr std::string_view RCMPLX_HEADER =
     "##INFO=<ID=RCMPLX,Number=1,Type=Float,Description="
     "\"Minimum "
-    "LZ76 phrase count over 100-base windows of the reference "
+    "LZ76 motif count over 100-base windows of the reference "
     "within a flank either side of the REF allele (lower means "
     "more repetitive; default 250 bases, see --flank; consult "
     "the expos_command header line for the value used this "

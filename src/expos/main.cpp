@@ -45,7 +45,7 @@ struct ExposArgs {
 using ArgsOrErr = std::expected<ExposArgs, Err>;
 static ArgsOrErr parse_args (int argc, char** argv)
 {
-  // Command line for the provenance header; handling single quotes
+  // Command line for the provenance header
   std::string invocation;
   for (int i = 0; i < argc; ++i) {
     if (i != 0) {
@@ -178,7 +178,6 @@ static VcfOrErr create_output_vcf (
     );
   }
 
-  // Register INFO fields, write header
   for (const auto& stat : expos_field_registry()) {
     auto regRet = register_variant_stat_header (out.hdr, stat);
     if (!regRet) {

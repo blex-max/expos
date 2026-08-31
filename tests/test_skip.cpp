@@ -1,8 +1,3 @@
-// Unit tests for the EXPOS_SKIP vocabulary. These strings are user-facing —
-// they are the reason half of every EXPOS_SKIP token and are promised by that
-// field's header description — so they are pinned here against silent
-// rewording by a refactor.
-
 #include <catch2/catch_test_macros.hpp>
 #include <set>
 #include <string>
@@ -13,8 +8,6 @@
 
 namespace {
 
-// Every enumerator, so a new one added without a string fails here as well
-// as at the -Wswitch in to_string.
 const std::vector<RecordSkipReason> ALL_RECORD_REASONS{
     RecordSkipReason::notBiallelic,
     RecordSkipReason::complex,
@@ -57,7 +50,6 @@ TEST_CASE (
 
 TEST_CASE ("skip reason strings are stable")
 {
-  // Reword only with a deliberate decision: downstream consumers parse these.
   REQUIRE (
       to_string (RecordSkipReason::notBiallelic) ==
       "not_biallelic"

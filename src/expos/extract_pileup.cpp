@@ -49,7 +49,7 @@ static std::expected<TemplateEndpoints, Err> extract_endpoints (
     ))));
   }
 
-    // get template region
+  // get template region
   endpointArr[0] = b1->core.pos;
   endpointArr[1] =
       endpointArr[0] +

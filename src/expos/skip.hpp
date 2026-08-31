@@ -24,7 +24,9 @@ enum class StatSkipReason : uint8_t {
 };
 
 // These strings are user-facing: they are the reason half of every
-// EXPOS_SKIP token, and are promised by that field's header description.
+// EXPOS_SKIP token. Reword only with a deliberate decision: downstream
+// consumers parse them, and the full vocabulary is documented in
+// docs/usage.md rather than in the EXPOS_SKIP header itself.
 std::string_view to_string (RecordSkipReason reason);
 std::string_view to_string (StatSkipReason reason);
 
