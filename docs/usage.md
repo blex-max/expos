@@ -6,8 +6,9 @@
 Usage of the tool is best described by the helptext:
 
 ```
-Usage: expos [--help] [--version] [--seed SEED] [--flank SIZE] [--quiet]
-             [--skip-filtered] [--background-sample PATH]...
+Usage: expos [--help] [--version] [--seed SEED] [--flank SIZE]
+             [--max-frag-len LEN] [--quiet] [--skip-filtered]
+             [--background-sample PATH]...
              VCF REF ALN
 
 Positional arguments:
@@ -21,9 +22,14 @@ Optional arguments:
   --seed SEED         random seed for the Monte-Carlo simulation [default: 24601]
   --flank SIZE        Size of reference sequence flanks to retrieve from
                       either side of variant, for use in calcuating
-                      reference complexity. It is suggested to set to
-                      approximately the average template size for the
-                      sequencing protocol used. [default: 400]
+                      reference complexity. It is only necessary to modify
+                      from the default value if low complexity windows more
+                      distant from variant loci are likely to correlate with
+                      artefacts given the sequencing protocol. [default: 250]
+  --max-frag-len LEN  Upper bound on fragment size for a fragment to be
+                      included in analysis. Useful to avoid confounding
+                      template TJAC statistic with ambiguously mapped
+                      fragments with improbable length. [default: 2000]
   -q, --quiet         suppress per-record warnings to stderr
   --skip-filtered     only analyse records where FILTER is PASS or . (unset)
   -b, --background-sample PATH
@@ -113,10 +119,10 @@ These are the header lines from an output VCF describing the INFO fields added. 
   Number=1,
   Type=Float,
   Description="""
-  Mean 100-base window complexity (Lempel-Ziv 76 entropy rate) of the
-  reference within a flank either side of the REF allele (default 400
-  bases, see --flank; consult the expos_command header line for the
-  value used this run).
+  Minimum LZ76 motif count over 100-base windows of the reference
+  within a flank either side of the REF allele (lower means more
+  repetitive; default 250 bases, see --flank; consult the
+  expos_command header line for the value used this run).
   """>
 
 ##INFO=<
@@ -132,9 +138,9 @@ These are the header lines from an output VCF describing the INFO fields added. 
   """>
 ```
 
-Effect size is a standardised z-score relative to the null distribution: 0.0 indicates no difference from background, positive values indicate tighter clustering than background, and the value is expressed directly in standard deviations of that null. The null here is the distribution of the statistic over every equally-sized subsample of the background, and its mean and standard deviation are computed exactly rather than estimated from draws. Effect size is therefore deterministic and does not move with `--seed`. The p-value is one-sided, giving the probability that a random subsample of the background would produce a statistic at least as extreme as the observed value. *p*-values are estimated by Monte-Carlo sampling; resolution is bounded by the draw count to 0.005. A large effect size combined with a small p-value, especially if found in a low complexity region as indicated by `RCMPLX`, may indicate a spurious variant call. A z-score of 3.0 is approximately the 1% false-positive point for each. It is not constant across support sizes; with only five supporting reads the true rate at 3.0 is nearer 2%, and low support is common in somatic calling.
+Effect size is a standardised z-score relative to the null distribution. 0.0 indicates no difference from background, positive values indicate tighter clustering than background, in standard deviations away from the null. The null here is the distribution of the statistic over every equally-sized subsample of the background. Effect size is deterministic and does not move with `--seed`. The p-value is one-sided, giving the probability that a random subsample of the background would produce a statistic at least as extreme as the observed value. *p*-values are estimated by Monte-Carlo sampling; resolution is bounded by the draw count to 0.005. A large effect size combined with a small p-value, especially if found in a low complexity region as indicated by `RCMPLX`, may indicate a spurious variant call. A z-score of 3.0 is approximately the 1% false-positive point for each. It is not constant across support sizes; with only five supporting reads the true false-positive rate at 3.0 is nearer 2%, and low support is common in somatic calling.
 
-Every output VCF also carries provenance in its header: a `##source` line (program, version and UTC timestamp) and an `##expos_command` line recording the invocation.
+Every output VCF is also tagged with metadata in the header: a `##source` line (program, version and UTC timestamp) and an `##expos_command` line recording the invocation.
 
 !!! note "MLAS"
     `MLAS[0]` is equivalent to ASRD as may be familiar to some users - thresholding on this value may be inadvisable for indels since a decrease in alignment score is confounded with the presence of the indel itself.
@@ -152,10 +158,7 @@ Every output VCF also carries provenance in its header: a `##source` line (progr
 !!! note "insufficent power"
   A locus with fewer than two supporting observations records `insufficient_support`; one whose background pool is smaller than ten, or smaller than twice the support, records `insufficient_background`.
 
-  The absolute floor of ten is about p-value granularity. Both statistics are sums over pairs within the supporting set, so at the minimum support of two the observed value is a single pair and the null is the distribution over every pair the background can supply. Ten background observations give 45 such pairs and a p-value granular to about 0.02; five would give 10 pairs and a granularity of 0.1. Larger supporting sets draw from correspondingly more distinct subsamples, so ten is the worst case rather than the typical one.
-
-  Each statistic counts this on its own population, so the two can disagree at the same locus. `QRK` counts reads with a usable query position, which excludes those deleted or ref-skipped at the site; `TJAC` counts templates, which is roughly half the read count for paired data and zero for unpaired data or reads whose mate is unmapped.
-
+  The absolute floor of ten total observation is to preserve p-value granularity. Both spatial statistics are sums over pairs within the supporting set, so at the minimum support of two the observed value is a single pair and the null is the distribution over every pair the background can supply. Ten background observations give 45 such pairs and a p-value granular to about 0.02; five would give 10 pairs and a granularity of 0.1.
 
 ## Filtering Pipeline Examples
 
@@ -197,7 +200,7 @@ bcftools filter -Ov \
 bcftools filter -Ov \
   --mode + \
   -s POOR_ALN_REG \
-  -e'(INFO/MLAS[1] < 0.93 & INFO/RCMPLX < 1.5)' |
+  -e'(INFO/MLAS[1] < 0.93 & INFO/RCMPLX < 20)' |
 bcftools filter -Oz \
   --mode + \
   -s LOW_SUPPORTING_AS \
@@ -215,7 +218,7 @@ looks specifically for clustered variants in low complexity regions
 bcftools filter -Oz \
   --mode + \
   -s LOW_CMPLX_CLUSTER \
-  -e'INFO/QRK[0] >= 3.0 & INFO/QRK[1] < 0.05 & INFO/RCMPLX < 1.5' > my.flagged.vcf.gz
+  -e'INFO/QRK[0] >= 3.0 & INFO/QRK[1] < 0.05 & INFO/RCMPLX < 20' > my.flagged.vcf.gz
 ```
 
 At the cost of missing more generic variants with spurious looking spatial properties.
@@ -236,19 +239,35 @@ bcftools filter -Oz \
 
 ## Thresholding on Complexity (`RCMPLX`)
 
-`RCMPLX` is only meaningful relative to what "low complexity" looks like across the genome as a whole. To calibrate a sensible cutoff, `estimate-entropy` was run genome-wide against GRCh38, and separately on the low-complexity regions identified by the GIAB v3.1 genome stratifications (the same homopolymer and tandem-repeat region sets GIAB itself uses to stratify benchmarking performance):
+Unlike `QRK`/`TJAC`, `RCMPLX` has no resampling null to calibrate against: it
+is a property of the reference sequence alone, not of the read data, so
+there is no false-positive rate to derive a cutoff from. `RCMPLX` reports
+the *minimum* LZ76 phrase count over the 100-base windows tiling the flank,
+not a mean — a single genuinely repetitive window near the variant is real,
+actionable signal on its own, and a mean over many windows across a wide
+flank dilutes exactly that signal almost to invisibility. `RCMPLX < 20` is a
+practical operating point rather than a calibrated threshold, justified
+instead by real-data corroboration, checked two independent ways:
 
-| Region                                              | Min   | Median | Mean  | SD    |
-|------------------------------------------------------|------:|-------:|------:|------:|
-| Whole genome (100bp windows)                          | 0.199 | 1.927  | 1.919 | 0.150 |
-| Homopolymers (&gt;6bp, imperfect &gt;10bp, 5bp slop)   | 0.567 | 1.472  | 1.497 | 0.266 |
-| Tandem repeats (&gt;100bp, 5bp slop)                   | 0.185 | 1.472  | 1.447 | 0.424 |
-| Homopolymers + tandem repeats (union)                  | 0.250 | 1.466  | 1.464 | 0.294 |
-| Outside homopolymers                                   | 0.380 | 1.898  | 1.874 | 0.159 |
-| Outside homopolymers + tandem repeats                  | 0.862 | 1.905  | 1.898 | 0.121 |
+1. **Downstream alignment quality.** On a real annotated somatic call set,
+   binning calls by `RCMPLX` and comparing against markers `RCMPLX` never
+   sees (the read-alignment-based `CLPM`/`ASRD`/`ASMD` fields from the
+   calling pipeline, and expos's own `MLAS`) shows a real, monotonic
+   degradation in `ASRD`/`ASMD`/`MLAS` as `RCMPLX` falls, steepest in the
+   bottom two or three deciles of real calls, which is where 20 sits.
+   `CLPM` shows no discriminating power either way in this call set.
+2. **Independent sequence-structure confirmation.** A separate, purely
+   reference-sequence-based tandem-repeat detector (no read data, no LZ76)
+   run over the same window agrees: the length of the longest periodic
+   repeats found correlates with `RCMPLX` (Spearman ≈ -0.5, monotonic
+   across deciles), confirming low `RCMPLX` reflects genuine local
+   repetitiveness rather than being an artefact correlated with something
+   else.
 
-GIAB's difficult regions cluster tightly around a median of ~1.47, over half a bit below the rest of the genome (median ~1.9-1.93) and with roughly double the spread. This is the basis for the `RCMPLX < 1.5` heuristic used in the filtering examples above: it sits almost exactly at the median of GIAB's difficult-region strata, and comfortably below the bulk of the rest of the genome.
+This threshold was also checked at flank sizes from 200 to 400 bases before
+the default settled at 250; the degradation pattern barely moved across
+that range, so the cutoff isn't sensitive to the exact flank chosen.
 
 !!! note "Caveat"
-    The two distributions overlap substantially (the "outside" regions still have a minimum as low as 0.38-0.86), so `RCMPLX` is best treated as a continuous risk factor to combine with other statistics, not a clean binary classifier of "difficult" vs "normal" sequence.
+    Treat as a continuous risk factor to combine with other statistics, not a clean binary classifier of "difficult" vs "normal" sequence.
 

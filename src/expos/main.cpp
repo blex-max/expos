@@ -35,6 +35,7 @@ struct ExposArgs {
   std::string refPath;
   uint32_t seed = DEFAULT_SEED;
   uint16_t flankSize = DEFAULT_FLANK;
+  uint16_t maxFragLen = DEFAULT_MAX_FRAG_LEN;
   bool quiet = false;
   bool skipFiltered = false;
   std::vector<std::string> bgPaths;
@@ -55,7 +56,8 @@ static ArgsOrErr parse_args (int argc, char** argv)
   std::replace (invocation.begin(), invocation.end(), '"', '\'');
 
   auto cli = argparse::ArgumentParser ("expos");
-  cli.set_usage_max_line_width (80);
+  static constexpr uint8_t USAGE_WIDTH = 80;
+  cli.set_usage_max_line_width (USAGE_WIDTH);
   cli.add_argument ("VCF").help (
       "input VCF/BCF of variants to annotate"
   );
@@ -79,9 +81,24 @@ static ArgsOrErr parse_args (int argc, char** argv)
       .help (
           "Size of reference sequence flanks to retrieve from\n"
           "either side of variant, for use in calcuating\n"
-          "reference complexity. It is suggested to set to\n"
-          "approximately the average template size for the\n"
-          "sequencing protocol used."
+          "reference complexity. It is only necessary to "
+          "modify\n"
+          "from the default value if low complexity windows "
+          "more\n"
+          "distant from variant loci are likley to correlate "
+          "with\n"
+          "artefacts given the sequencing protocol."
+      );
+  cli.add_argument ("--max-frag-len")
+      .default_value (DEFAULT_MAX_FRAG_LEN)
+      .nargs (1)
+      .metavar ("LEN")
+      .scan<'u', uint16_t>()
+      .help (
+          "Upper bound on fragment size for a fragment to be\n"
+          "included in analysis. Useful to avoid confounding\n"
+          "template TJAC statistic with ambiguously mapped\n"
+          "fragments with improbable length."
       );
   cli.add_argument ("-q", "--quiet")
       .flag()
@@ -119,6 +136,7 @@ static ArgsOrErr parse_args (int argc, char** argv)
       .refPath = cli.get<std::string> ("REF"),
       .seed = cli.get<uint32_t> ("--seed"),
       .flankSize = cli.get<uint16_t> ("--flank"),
+      .maxFragLen = cli.get<uint16_t> ("--max-frag-len"),
       .quiet = cli.get<bool> ("--quiet"),
       .skipFiltered = cli.get<bool> ("--skip-filtered"),
       .bgPaths = cli.get<std::vector<std::string>> (
@@ -242,6 +260,7 @@ static CtxOrErr init_ctx (const ExposArgs& args)
 
   out.seed = args.seed;
   out.flankSize = args.flankSize;
+  out.maxFragLen = args.maxFragLen;
   out.quiet = args.quiet;
   out.skipFiltered = args.skipFiltered;
 

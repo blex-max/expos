@@ -136,49 +136,36 @@ static double pairwise_jaccard_sum (
 
 // Because each statistic is a pair-sum, the null's mean and variance
 // under a uniform size-n draw without replacement are available in
-// closed form from three sums over the background pool. No
-// simulation needed for the effect size. This is SRSWOR
-// for a pair-sum.
-struct KernelTerms {
-  double t1;  // kernel summed over every background pair
-  double t2;  // kernel value squaring each pair's value first
-  double q;  // sum of the squared per-observation row sums
-};
-
-struct NullMoments {
-  double mean;
-  double var;
-};
-
-// The three kernel terms are weighted by the probability that a given pair,
-// triple or quadruple of background observations all land in one draw
-// -- the three ways two pairs can overlap: identical, sharing one
-// observation, disjoint.
-static NullMoments null_moments (
+// closed form and no simulation is needed for effect size.
+NullMoments null_moments (
     uint64_t nObs, const KernelTerms& k, uint64_t nBackground
 )
 {
+  assert (nObs >= MIN_OBS);
+  assert (
+      nBackground >= MIN_BACKGROUND
+  );  // else div by zero possible
+
   const auto n = static_cast<double> (nObs);
   const auto bgN = static_cast<double> (nBackground);
-  // No division by zero: size_guard puts nBackground at MIN_BACKGROUND
-  // or above. A support below four zeroes p3/p4 through their own
-  // numerators, which is right -- a draw of three cannot contain four
-  // distinct observations.
+
+  // inclusion probabilities of any pair, trio,
+  // or quartet of observations in a draw of size n
   const double p2 = (n * (n - 1)) / (bgN * (bgN - 1));
   const double p3 = p2 * ((n - 2) / (bgN - 2));
   const double p4 = p3 * ((n - 3) / (bgN - 3));
 
   const double sqT1 = k.t1 * k.t1;
   return {
-      p2 * k.t1, (p2 * k.t2) + (p3 * (k.q - (2 * k.t2))) +
-                     (p4 * (sqT1 + k.t2 - k.q)) -
-                     ((p2 * p2) * sqT1)
+      .mean = p2 * k.t1,
+      .var = (p2 * k.t2) + (p3 * (k.q - (2 * k.t2))) +
+             (p4 * (sqT1 + k.t2 - k.q)) - ((p2 * p2) * sqT1)
   };
 }
 
 // Sorts pts in place. The kernel is an indicator, so every pair value
 // is 0 or 1 and squaring changes nothing: t2 == t1.
-static KernelTerms qpos_null_terms (
+KernelTerms qpos_null_terms (
     std::span<int32_t> pts, uint64_t radius
 )
 {
@@ -211,7 +198,7 @@ static KernelTerms qpos_null_terms (
   return {t1, t1, static_cast<double> (rowSqSum)};
 }
 
-static KernelTerms jaccard_null_terms (
+KernelTerms jaccard_null_terms (
     std::span<const TemplateEndpoints> bg
 )
 {
@@ -387,7 +374,7 @@ static ValuesOrSkip compute_rcmplx (
 )
 {
   constexpr uint16_t WIN_SZ = 100;
-  constexpr uint16_t WIN_STEP = 10;
+  constexpr uint16_t WIN_STEP = 50;
 
   const std::string_view ref = in.refSlice;
   // too-short spans have no full window; masked/ambiguous bases make the
@@ -399,16 +386,16 @@ static ValuesOrSkip compute_rcmplx (
     return std::unexpected (StatSkipReason::referenceHasN);
   }
 
-  double entropySum = 0.0;
-  uint64_t nWin = 0;
-  for (uint64_t winStart = 0; winStart + WIN_SZ <= ref.size();
+  uint16_t minWindowCmplx = UINT16_MAX;
+  for (uint16_t winStart = 0; winStart + WIN_SZ <= ref.size();
        winStart += WIN_STEP) {
-    entropySum += entropy_lz76 (ref.substr (winStart, WIN_SZ));
-    ++nWin;
+    const auto windowCmplx =
+        lz76 (ref.substr (winStart, WIN_SZ));
+    minWindowCmplx = std::min (windowCmplx, minWindowCmplx);
   }
-  const double meanWindowEntropy =
-      entropySum / static_cast<double> (nWin);
-  return std::vector<StatValue>{stat_value (meanWindowEntropy)};
+  return std::vector<StatValue>{
+      stat_value (static_cast<double> (minWindowCmplx))
+  };
 }
 
 // --- INFO header definitions --- //
@@ -433,13 +420,13 @@ constexpr std::string_view MLAS_HEADER =
     "supporting the "
     "variant; [1] of all reads covering the variant site.\">";
 constexpr std::string_view RCMPLX_HEADER =
-    "##INFO=<ID=RCMPLX,Number=1,Type=Float,Description=\"Mean "
-    "100-base "
-    "window complexity (Lempel-Ziv 76 entropy rate) of the "
-    "reference "
-    "within a flank either side of the REF allele (default 400 "
-    "bases, see --flank; consult the expos_command header "
-    "line for the value used this run).\">";
+    "##INFO=<ID=RCMPLX,Number=1,Type=Float,Description="
+    "\"Minimum "
+    "LZ76 phrase count over 100-base windows of the reference "
+    "within a flank either side of the REF allele (lower means "
+    "more repetitive; default 250 bases, see --flank; consult "
+    "the expos_command header line for the value used this "
+    "run).\">";
 
 // --- registry --- //
 constexpr std::array<VariantStat, 4> VARIANT_STATS = {{

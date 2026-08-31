@@ -1,11 +1,10 @@
 #include "stats.hpp"
 
 #include <algorithm>
-#include <cmath>
 #include <cstdint>
 #include <string_view>
 
-double entropy_lz76 (std::string_view s)
+uint16_t lz76 (std::string_view s)
 {
   const auto nChar = s.size();
   if (nChar == 0) {
@@ -14,14 +13,17 @@ double entropy_lz76 (std::string_view s)
   if (nChar == 1) {
     return 1;
   }
+  if (nChar > UINT16_MAX) {
+    return UINT16_MAX;
+  }
 
-  uint64_t i = 0;           // index into prefix substring
-  uint64_t lzCmplx = 1;     // phrase count
-  uint64_t prefixLen =
+  uint16_t i = 0;           // index into prefix substring
+  uint16_t lzCmplx = 1;     // phrase count
+  uint16_t prefixLen =
       1;  // length of substring which has been assessed and is now memory
-  uint64_t compLen =
+  uint16_t compLen =
       1;  // length of the candidate substring component
-  uint64_t cycleMax = compLen;  // longest match for a cycle
+  uint16_t cycleMax = compLen;  // longest match for a cycle
   while (prefixLen + compLen <= nChar) {
     if (s[i + compLen - 1] ==
         s[prefixLen + compLen -
@@ -50,8 +52,5 @@ double entropy_lz76 (std::string_view s)
     ++lzCmplx;
   }
 
-  // length normalise
-  // result is bits (entropy) per character
-  return (static_cast<double> (lzCmplx) * log2 (nChar)) /
-         static_cast<double> (nChar);
+  return lzCmplx;
 }

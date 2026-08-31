@@ -5,6 +5,7 @@
 // internal.
 
 #include <algorithm>
+#include <bit>
 #include <catch2/catch_approx.hpp>
 #include <catch2/catch_test_macros.hpp>
 #include <cstddef>
@@ -241,6 +242,143 @@ TEST_CASE ("subsample_wo_replace")
 }
 
 // --- compute layer (compute_info_field.hpp) --- //
+
+namespace {
+
+// Exhaustively enumerates every size-n subset of an N-item population (N is
+// kept small enough, <=12, that 2^N masks is cheap) and returns the true
+// mean/variance of the pair-sum statistic given by kern[i][j] (i<j). This is
+// the brute-force oracle for null_moments' closed-form formula -- the same
+// check as validation/null_calibration.py's resampling, but exact rather
+// than approximate, and against the formula directly rather than end to end.
+std::pair<double, double> brute_force_pair_sum_moments (
+    const std::vector<std::vector<double>>& kern, std::size_t N,
+    std::size_t n
+)
+{
+  std::vector<double> stats;
+  for (uint32_t mask = 0; mask < (1U << N); ++mask) {
+    if (static_cast<std::size_t> (std::popcount (mask)) != n) {
+      continue;
+    }
+    double s = 0.0;
+    for (std::size_t i = 0; i < N; ++i) {
+      if (((mask >> i) & 1U) == 0U) {
+        continue;
+      }
+      for (std::size_t j = i + 1; j < N; ++j) {
+        if (((mask >> j) & 1U) != 0U) {
+          s += kern[i][j];
+        }
+      }
+    }
+    stats.push_back (s);
+  }
+  double mean = 0.0;
+  for (const double s : stats) {
+    mean += s;
+  }
+  mean /= static_cast<double> (stats.size());
+  double var = 0.0;
+  for (const double s : stats) {
+    var += (s - mean) * (s - mean);
+  }
+  var /=
+      static_cast<double> (stats.size());  // population variance
+  return {mean, var};
+}
+
+}  // namespace
+
+TEST_CASE (
+    "null_moments (QRK exact null-moment formula vs brute force)"
+)
+{
+  Mwc192 rng (55);
+  std::uniform_int_distribution<int32_t> posDist (0, 200);
+  constexpr std::size_t N = 12;
+  constexpr uint64_t radius = 5;
+
+  for (int trial = 0; trial < 8; ++trial) {
+    std::vector<int32_t> pos (N);
+    for (auto& p : pos) {
+      p = posDist (rng);
+    }
+    std::sort (
+        pos.begin(), pos.end()
+    );  // qpos_null_terms sorts in place; brute force uses the same order
+
+    std::vector<std::vector<double>> kern (
+        N, std::vector<double> (N, 0.0)
+    );
+    for (std::size_t i = 0; i < N; ++i) {
+      for (std::size_t j = i + 1; j < N; ++j) {
+        const int32_t d =
+            pos[i] > pos[j] ? pos[i] - pos[j] : pos[j] - pos[i];
+        kern[i][j] =
+            (static_cast<uint64_t> (d) < radius) ? 1.0 : 0.0;
+      }
+    }
+
+    std::vector<int32_t> posCopy = pos;
+    const KernelTerms kt = qpos_null_terms (posCopy, radius);
+
+    for (const std::size_t n : {3UL, 4UL, 5UL, 6UL}) {
+      const auto [bfMean, bfVar] =
+          brute_force_pair_sum_moments (kern, N, n);
+      const NullMoments nm = null_moments (n, kt, N);
+      REQUIRE (nm.mean == Approx (bfMean).margin (1e-9));
+      REQUIRE (nm.var == Approx (bfVar).margin (1e-9));
+    }
+  }
+}
+
+TEST_CASE (
+    "null_moments (TJAC exact null-moment formula vs brute "
+    "force)"
+)
+{
+  Mwc192 rng (56);
+  std::uniform_int_distribution<int64_t> startDist (0, 500);
+  std::uniform_int_distribution<int64_t> lenDist (50, 400);
+  constexpr std::size_t N = 11;
+
+  for (int trial = 0; trial < 8; ++trial) {
+    std::vector<TemplateEndpoints> eps (N);
+    for (auto& e : eps) {
+      const int64_t a = startDist (rng);
+      e = {a, a + lenDist (rng)};
+    }
+
+    std::vector<std::vector<double>> kern (
+        N, std::vector<double> (N, 0.0)
+    );
+    for (std::size_t i = 0; i < N; ++i) {
+      for (std::size_t j = i + 1; j < N; ++j) {
+        const int64_t ov = std::max<int64_t> (
+            0, std::min (eps[i].second, eps[j].second) -
+                   std::max (eps[i].first, eps[j].first)
+        );
+        const double lenSum = static_cast<double> (
+            (eps[i].second - eps[i].first) +
+            (eps[j].second - eps[j].first)
+        );
+        kern[i][j] = static_cast<double> (ov) /
+                     (lenSum - static_cast<double> (ov));
+      }
+    }
+
+    const KernelTerms kt = jaccard_null_terms (eps);
+
+    for (const std::size_t n : {3UL, 4UL, 5UL, 6UL}) {
+      const auto [bfMean, bfVar] =
+          brute_force_pair_sum_moments (kern, N, n);
+      const NullMoments nm = null_moments (n, kt, N);
+      REQUIRE (nm.mean == Approx (bfMean).margin (1e-9));
+      REQUIRE (nm.var == Approx (bfVar).margin (1e-9));
+    }
+  }
+}
 
 namespace {
 
@@ -780,8 +918,27 @@ TEST_CASE ("compute RCMPLX (reference complexity)")
     const auto r = rcmplx.compute (in, ctx);
     REQUIRE (r.has_value());
     REQUIRE ((*r)[0].value.has_value());
-    // entropy_lz76 of 100 identical chars = 2*log2(100)/100 ~= 0.1329
-    REQUIRE (*(*r)[0].value == Approx (0.13287712));
+    REQUIRE (*(*r)[0].value == Approx (2.0));
+  }
+
+  SECTION (
+      "minimum picks out a locally low-complexity window among "
+      "diverse ones"
+  )
+  {
+    Mwc192 diverseRng (42);
+    std::string ref;
+    for (int i = 0; i < 100; ++i) {
+      ref += "ACGT"[diverseRng() % 4];
+    }
+    ref += std::string (100, 'A');
+    VariantStatInputs in{empty, empty, std::string_view (ref)};
+    McState mc{std::move (rng), {}, {}};
+    const StatContext ctx{mc, std::nullopt};
+    const auto r = rcmplx.compute (in, ctx);
+    REQUIRE (r.has_value());
+    REQUIRE ((*r)[0].value.has_value());
+    REQUIRE (*(*r)[0].value == Approx (2.0));
   }
 }
 

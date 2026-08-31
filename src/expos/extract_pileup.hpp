@@ -11,13 +11,13 @@
 
 // extract features from pileup, appending to out.
 VoidOrErr extract_features (
-    PileupView plp, PileupFeatures& _out
+    PileupView plp, uint16_t maxFragLen, PileupFeatures& _out
 );
 
 // extract features to pileup, apppending to outAll,
 // and, when a read supports rec, also appending to
 // outSupport
 VoidOrErr extract_partition_features (
-    PileupView plp, const VcfRec& rec,
+    PileupView plp, const VcfRec& rec, uint16_t maxFragLen,
     PileupFeatures& _outSupport, PileupFeatures& _outAll
 );

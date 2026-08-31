@@ -9,6 +9,15 @@
 #include "expos/pileup_features.hpp"
 #include "expos/skip.hpp"
 
+// guard thresholds
+constexpr uint8_t MIN_OBS = 2;
+constexpr uint16_t MIN_READS = 10;
+constexpr uint16_t MIN_TEMPLATES = 10;
+constexpr uint16_t MIN_BACKGROUND = 10;
+constexpr double READ_LEN_REL_IQR_TOL = 0.10;
+constexpr double MEDIAN_REL_TOL = 0.10;
+
+
 bool sufficient_reads (uint64_t nReads);
 
 bool read_lens_within_tol (const std::vector<int32_t>& readLen);

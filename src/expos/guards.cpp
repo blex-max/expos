@@ -9,13 +9,6 @@
 
 #include "shared/stats.hpp"
 
-// guard thresholds
-static constexpr uint16_t MIN_READS = 10;
-static constexpr uint16_t MIN_TEMPLATES = 10;
-static constexpr uint16_t MIN_BACKGROUND = 10;
-static constexpr double READ_LEN_REL_IQR_TOL = 0.10;
-static constexpr double MEDIAN_REL_TOL = 0.10;
-
 bool sufficient_reads (uint64_t nReads)
 {
   return nReads >= MIN_READS;
@@ -25,20 +18,15 @@ bool sufficient_reads (uint64_t nReads)
 // both at least twice the support (very, very liberal) and no smaller than
 // MIN_BACKGROUND in absolute terms.
 //
-// The floor is about p-value granularity. Both statistics sum over pairs
-// within the supporting set, so at the minimum support of 2 the null is the
-// distribution over every pair the background can supply: C(10,2) = 45
-// pairs, granular to ~0.02. C(5,2) = 10 pairs would give 0.1.
+// min_background ensures that there are enough pairs in the
+// background set to ensure a sufficiently granular p-val
 //
-// The >= 2 is a definedness bound, not a quality one: below it there are no
-// pairs at all, so every draw scores 0 and the null has no spread (which
-// zero_variance would catch anyway). It is not a claim that 2 observations
-// are enough to mean anything
+// Below min_obs at 2 there are no pairs at all
 std::optional<StatSkipReason> size_guard (
     uint64_t nObs, uint64_t nBackground
 )
 {
-  if (nObs < 2) {
+  if (nObs < MIN_OBS) {
     return StatSkipReason::insufficientSupport;
   }
   if (nBackground < MIN_BACKGROUND || nBackground < (2 * nObs)) {

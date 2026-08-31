@@ -12,12 +12,6 @@
 
 namespace {
 
-// Mirrors the guard thresholds in guards.cpp, which are private to that
-// translation unit. Only used to size the fixtures either side of the
-// "can we evaluate this at all?" cutoffs.
-constexpr std::size_t MIN_READS = 10;
-constexpr std::size_t MIN_TEMPLATES = 10;
-
 PileupFeatures make_uniform (
     int32_t readLen, int64_t fragLen, std::size_t n
 )

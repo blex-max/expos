@@ -9,7 +9,11 @@
 // Default Monte-Carlo seed.
 inline constexpr uint32_t DEFAULT_SEED = 24601;
 // Default reference flank size for complexity analysis.
-inline constexpr uint16_t DEFAULT_FLANK = 400;
+inline constexpr uint16_t DEFAULT_FLANK = 250;
+// Default maximum fragment length to be considered valid,
+// to avoid inclusion of ambiguously mapped fragments with
+// huge fragment lengths.
+inline constexpr uint16_t DEFAULT_MAX_FRAG_LEN = 2000;
 
 struct AlnBundle {
   AlnFile handle;  // manages alignment lifetime
@@ -42,6 +46,7 @@ struct ExposCtx {
   bool quiet = false;
   bool skipFiltered = false;
   uint16_t flankSize = DEFAULT_FLANK;
+  uint16_t maxFragLen = DEFAULT_MAX_FRAG_LEN;
 };
 
 // Annotate every analysable record from ctx.vcfIn into ctx.vcfOut in place;

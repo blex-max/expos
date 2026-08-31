@@ -95,7 +95,9 @@ static std::expected<double, Err> extract_normalised_as (
          static_cast<double> (b1->core.l_qseq);
 }
 
-VoidOrErr extract_features (PileupView plp, PileupFeatures& _out)
+VoidOrErr extract_features (
+    PileupView plp, uint16_t maxFragLen, PileupFeatures& _out
+)
 {
   std::unordered_set<std::string> qnamesSeen;
   auto* ru_bCigBuf = bam_init1();
@@ -116,7 +118,10 @@ VoidOrErr extract_features (PileupView plp, PileupFeatures& _out)
           bam_destroy1 (ru_bCigBuf);
           return std::unexpected (epRet.error());
         }
-        _out.endpoints.emplace_back (*epRet);
+        const auto endpoints1 = *epRet;
+        if (endpoints1.second - endpoints1.first < maxFragLen) {
+          _out.endpoints.emplace_back (*epRet);
+        }
       }
     }
 
@@ -139,7 +144,7 @@ VoidOrErr extract_features (PileupView plp, PileupFeatures& _out)
 }
 
 VoidOrErr extract_partition_features (
-    PileupView plp, const VcfRec& rec,
+    PileupView plp, const VcfRec& rec, uint16_t maxFragLen,
     PileupFeatures& _outSupport, PileupFeatures& _outAll
 )
 {
@@ -171,7 +176,10 @@ VoidOrErr extract_partition_features (
           bam_destroy1 (ru_bCigBuf);
           return std::unexpected (epRet.error());
         }
-        ru_endpoints = *epRet;
+        const auto endpoints1 = *epRet;
+        if (endpoints1.second - endpoints1.first < maxFragLen) {
+          ru_endpoints = *epRet;
+        }
       }
     }
 

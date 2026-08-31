@@ -19,6 +19,13 @@ static bool is_ascii_printable (const std::string& s)
   });
 }
 
+static double entropy_per_char (uint16_t lzCmplx, uint16_t nChar)
+{
+  return static_cast<double> (lzCmplx * log2 (nChar)) /
+         static_cast<double> (nChar);
+}
+
+
 int main (int argc, char** argv)
 {
   argparse::ArgumentParser cli ("estimate-entropy");
@@ -31,6 +38,12 @@ int main (int argc, char** argv)
   cli.add_argument ("-l", "--show-input")
       .flag()
       .help ("prefix each output line with the input string");
+  cli.add_argument ("-n", "--normalise")
+      .flag()
+      .help (
+          "normalise to estimated entropy per character by\n"
+          "((complexity * log2(N)) / N )"
+      );
 
   try {
     cli.parse_args (argc, argv);
@@ -41,6 +54,7 @@ int main (int argc, char** argv)
   }
 
   const bool showInput = cli.get<bool> ("--show-input");
+  const bool normalise = cli.get<bool> ("--normalise");
 
   bool inputFound = false;
   std::string line;
@@ -65,7 +79,12 @@ int main (int argc, char** argv)
     if (showInput) {
       std::cout << line << "\t";
     }
-    std::cout << std::to_string (entropy_lz76 (line))
+    const auto result = lz76 (line);
+    std::cout << std::to_string (
+                     (normalise)
+                         ? entropy_per_char (result, line.size())
+                         : result
+                 )
               << std::endl;
     inputFound = true;
   }

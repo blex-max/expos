@@ -43,19 +43,18 @@ TEST_CASE ("percentile")
   );
 }
 
-TEST_CASE ("entropy_lz76")
+TEST_CASE ("lz76")
 {
-  // exact LZ76 values (n=4: entropy = phrases * log2(4)/4 = phrases * 0.5)
-  REQUIRE (entropy_lz76 ("AAAA") == Approx (1.0));  // 2 phrases
-  REQUIRE (entropy_lz76 ("ABAB") == Approx (1.5));  // 3 phrases
-  REQUIRE (entropy_lz76 ("ABCD") == Approx (2.0));  // 4 phrases
+  // exact LZ76 phrase counts
+  REQUIRE (lz76 ("AAAA") == 2);
+  REQUIRE (lz76 ("ABAB") == 3);
+  REQUIRE (lz76 ("ABCD") == 4);
 
-  REQUIRE (entropy_lz76 ("") == Approx (0.0));
-  REQUIRE (entropy_lz76 ("A") == Approx (1.0));
+  REQUIRE (lz76 ("") == 0);
+  REQUIRE (lz76 ("A") == 1);
 
-  // repetitive is less complex per char than diverse
+  // repetitive is less complex than diverse, at equal length
   REQUIRE (
-      entropy_lz76 ("AAAAAAAAAAAAAAAA") <
-      entropy_lz76 ("ACGTACGATCGGATCA")
+      lz76 ("AAAAAAAAAAAAAAAA") < lz76 ("ACGTACGATCGGATCA")
   );
 }

@@ -11,9 +11,9 @@
 
 // --- reference complexity --- //
 
-// Lempel-Ziv 76 entropy rate (bits per char). Used as a reference
+// Lempel-Ziv 76 motif count. Used as a reference
 // sequence-complexity measure.
-double entropy_lz76 (std::string_view s);
+uint16_t lz76 (std::string_view s);
 
 // --- summary statistics --- //
 

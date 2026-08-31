@@ -32,12 +32,12 @@ static RefSliceOrErr get_variant_ref_slice (
 {
   const int64_t sliceStart =
       std::max<int64_t> (0, r.ptr->pos - flankSize);
-  const int64_t sliceEnd =
-      r.ptr->pos + r.ptr->rlen +
-      flankSize;  // faidx clamps to contig end
 
-  auto sliceRet =
-      fetch_region (ref, r.contig, sliceStart, sliceEnd);
+  // faidx clamps to contig end
+  auto sliceRet = fetch_region (
+      ref, r.contig, sliceStart,
+      sliceStart + flankSize + flankSize
+  );
   if (!sliceRet) {
     return std::unexpected (sliceRet.error());
   }
@@ -103,7 +103,7 @@ static VoidOrErr extract_bg_samples (
     }
     if (*bgAdvRet == PileupAdvResCode::success) {
       const auto bgExtractRet = extract_features (
-          *read (bgSamp.plpIt, bgLocus), ru_bg
+          *read (bgSamp.plpIt, bgLocus), ctx.maxFragLen, ru_bg
       );
       if (!bgExtractRet) {
         return std::unexpected (bgExtractRet.error());
@@ -172,7 +172,8 @@ static VoidOrErr annotate_record (
   }
   if (*advRet == PileupAdvResCode::success) {
     const auto extractRet = extract_partition_features (
-        *read (ctx.aln.plpIt, locus), r, supporting, all
+        *read (ctx.aln.plpIt, locus), r, ctx.maxFragLen,
+        supporting, all
     );
     if (!extractRet) {
       return std::unexpected (extractRet.error());
