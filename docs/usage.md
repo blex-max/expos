@@ -3,7 +3,6 @@
 ## CLI
 
 `expos` takes a VCF and annotates variants using the INFO field.
-Usage of the tool is best described by the helptext:
 
 ```
 Usage: expos [--help] [--version] [--seed SEED] [--flank SIZE]
@@ -11,31 +10,33 @@ Usage: expos [--help] [--version] [--seed SEED] [--flank SIZE]
              [--background-sample PATH]...
              VCF REF ALN
 
+...
+
 Positional arguments:
-  VCF                 input VCF/BCF of variants to annotate
-  REF                 indexed reference genome FASTA
-  ALN                 indexed alignment (BAM/CRAM) of the sample
+  VCF                           input VCF/BCF of variants to annotate
+  REF                           indexed reference genome FASTA
+  ALN                           indexed alignment (BAM/CRAM) of the sample
 
 Optional arguments:
-  -h, --help          shows help message and exits
-  -v, --version       prints version information and exits
-  --seed SEED         random seed for the Monte-Carlo simulation [default: 24601]
-  --flank SIZE        Size of reference sequence flanks to retrieve from
-                      either side of variant, for use in calcuating
-                      reference complexity. It is only necessary to modify
-                      from the default value if low complexity windows more
-                      distant from variant loci are likely to correlate with
-                      artefacts given the sequencing protocol. [default: 250]
-  --max-frag-len LEN  Upper bound on fragment size for a fragment to be
-                      included in analysis. Useful to avoid confounding
-                      template TJAC statistic with ambiguously mapped
-                      fragments with improbable length. [default: 2000]
-  -q, --quiet         suppress per-record warnings to stderr
-  --skip-filtered     only analyse records where FILTER is PASS or . (unset)
-  -b, --background-sample PATH
-                      additional indexed alignment file/s from which to
-                      merge data into Monte-Carlo background. Supporting
-                      reads are always taken from the primary ALN only.
+  -h, --help                    shows help message and exits
+  -v, --version                 prints version information and exits
+  --seed SEED                   random seed for the Monte-Carlo simulation [default: 24601]
+  --flank SIZE                  Size of reference sequence flanks to retrieve from
+                                either side of variant, for use in calcuating
+                                reference complexity. It is only necessary to modify
+                                from the default value if low complexity windows more
+                                distant from variant loci are likley to correlate with
+                                artefacts given the sequencing protocol. [default: 250]
+  --max-frag-len LEN            Upper bound on fragment size for a fragment to be
+                                included in analysis. Useful to avoid confounding
+                                template TJAC statistic with ambiguously mapped
+                                fragments with improbable length. [default: 2000]
+  -q, --quiet                   suppress per-record warnings to stderr
+  --skip-filtered               Only analyse records where FILTER is PASS or . (unset)
+  -b, --background-sample PATH  additional indexed alignment file/s from which
+                                to merge data into Monte-Carlo background.
+                                Supporting reads are always taken from the
+                                primary ALN only. [default: {}] [may be repeated]
 ```
 
 `VCF` may be `-` to read from stdin. The reference FASTA and
@@ -77,8 +78,6 @@ the risk of an inappropriate background rather than eliminating it.
 
 ## Annotations Made
 
-For a full guide to the theory behind these annotations see [Concepts](concepts.md).
-
 These are the header lines from an output VCF describing the INFO fields added. The `[]` notation indicates which element of the array holds the data in question where the INFO field added is an array. Arrays are 0-indexed, matching how `bcftools` addresses them (so `INFO/QRK[0]` is the effect size and `INFO/QRK[1]` the p-value).
 
 ```
@@ -105,16 +104,6 @@ These are the header lines from an output VCF describing the INFO fields added. 
   """>
 
 ##INFO=<
-  ID=MLAS,
-  Number=2,
-  Type=Float,
-  Description="""
-  Median read-length-normalised alignment scores:
-  [0]of reads supporting the variant;
-  [1]of all reads covering the variant site.
-  """>
-
-##INFO=<
   ID=RCMPLX,
   Number=1,
   Type=Float,
@@ -134,16 +123,15 @@ These are the header lines from an output VCF describing the INFO fields added. 
   Scope is 'record' (whole record skipped) or a statistic ID.
   Reasons: not_biallelic, complex, insufficient_support, insufficient_background,
   heterogeneous_read_length, insufficient_reads_for_test, zero_variance,
-  no_support, no_background, reference_too_short, reference_has_n.
+  reference_too_short, reference_has_n.
   """>
 ```
 
-Effect size is a standardised z-score relative to the null distribution. 0.0 indicates no difference from background, positive values indicate tighter clustering than background, in standard deviations away from the null. The null here is the distribution of the statistic over every equally-sized subsample of the background. Effect size is deterministic and does not move with `--seed`. The p-value is one-sided, giving the probability that a random subsample of the background would produce a statistic at least as extreme as the observed value. *p*-values are estimated by Monte-Carlo sampling; resolution is bounded by the draw count to 0.005. A large effect size combined with a small p-value, especially if found in a low complexity region as indicated by `RCMPLX`, may indicate a spurious variant call. A z-score of 3.0 is approximately the 1% false-positive point for each. It is not constant across support sizes; with only five supporting reads the true false-positive rate at 3.0 is nearer 2%, and low support is common in somatic calling.
+Effect size is a standardised z-score relative to the null distribution. 0.0 indicates no difference from background, positive values indicate tighter clustering than background, in standard deviations away from the null. The null here is the distribution of the statistic over every equally-sized subsample of the background. Effect size is deterministic and does not move with `--seed`. The p-value is one-sided, giving the probability that a random subsample of the background would produce a statistic at least as extreme as the observed value. *p*-values are estimated by Monte-Carlo sampling; resolution is bounded by the draw count to 0.005. A large effect size combined with a small p-value, especially if found in a low complexity region as indicated by `RCMPLX`, may indicate a spurious variant call. A z-score of 3.0 is approximately the 1% false-positive point for each. It is not constant across support sizes; with only five supporting reads the true false-positive rate at 3.0 is nearer 2%.
 
 Every output VCF is also tagged with metadata in the header: a `##source` line (program, version and UTC timestamp) and an `##expos_command` line recording the invocation.
 
-!!! note "MLAS"
-    `MLAS[0]` is equivalent to ASRD as may be familiar to some users - thresholding on this value may be inadvisable for indels since a decrease in alignment score is confounded with the presence of the indel itself.
+For a guide to the theory behind the spatial annotations made see [Concepts](concepts.md).
 
 ## Missing Values
 
@@ -158,7 +146,7 @@ Every output VCF is also tagged with metadata in the header: a `##source` line (
 !!! note "insufficent power"
   A locus with fewer than two supporting observations records `insufficient_support`; one whose background pool is smaller than ten, or smaller than twice the support, records `insufficient_background`.
 
-  The absolute floor of ten total observation is to preserve p-value granularity. Both spatial statistics are sums over pairs within the supporting set, so at the minimum support of two the observed value is a single pair and the null is the distribution over every pair the background can supply. Ten background observations give 45 such pairs and a p-value granular to about 0.02; five would give 10 pairs and a granularity of 0.1.
+  The floor of ten total observation is to preserve p-value granularity. Both spatial statistics are sums over pairs within the supporting set, so at the minimum support of two the observed value is a single pair and the null is the distribution over every pair the background can supply. Ten background observations give 45 such pairs and a p-value granular to about 0.02; five would give 10 pairs and a granularity of 0.1.
 
 ## Filtering Pipeline Examples
 
@@ -184,9 +172,7 @@ strictly a recommendation, though it is statistically defensible.
 # 3, 4: statisically-backed flagging on distribution/clustering stats;
 # flagging variants whose clustering sits about three standard deviations above
 # the background and is statistically significant (P <= 0.05).
-# 6: heuristic/rule-of-thumb on poor alignment score on supporting reads in regions
-# of low reference complexity;
-# 7: heuristic/rule-of-thumb flagging on poor alignment score
+# 5: heuristic/rule-of-thumb flagging on low reference complexity
 # and > write to disk.
 ./path/to/expos my.vcf ref.fa my.bam |
 bcftools filter -Ov \
@@ -197,14 +183,10 @@ bcftools filter -Ov \
   --mode + \
   -s TEMPLATE_OVERLAP \
   -e'(INFO/TJAC[0] >= 3.0 & INFO/TJAC[1] < 0.05)' |
-bcftools filter -Ov \
-  --mode + \
-  -s POOR_ALN_REG \
-  -e'(INFO/MLAS[1] < 0.93 & INFO/RCMPLX < 20)' |
 bcftools filter -Oz \
   --mode + \
-  -s LOW_SUPPORTING_AS \
-  -e'(INFO/MLAS[0] < 0.93)' > my.flagged.vcf.gz
+  -s LOW_CMPLX_REGION \
+  -e'INFO/RCMPLX < 20' > my.flagged.vcf.gz
 ```
 
 ### **Targeted Approach**
@@ -239,34 +221,23 @@ bcftools filter -Oz \
 
 ## Thresholding on Complexity (`RCMPLX`)
 
-Unlike `QRK`/`TJAC`, `RCMPLX` has no resampling null to calibrate against: it
-is a property of the reference sequence alone, not of the read data, so
-there is no false-positive rate to derive a cutoff from. `RCMPLX` reports
-the *minimum* LZ76 phrase count over the 100-base windows tiling the flank,
-not a mean — a single genuinely repetitive window near the variant is real,
-actionable signal on its own, and a mean over many windows across a wide
-flank dilutes exactly that signal almost to invisibility. `RCMPLX < 20` is a
-practical operating point rather than a calibrated threshold, justified
-instead by real-data corroboration, checked two independent ways:
+Since it is a property of the reference sequence alone, `RCMPLX` has no resampling
+null against which to calibrate. `RCMPLX` reports the *minimum* LZ76 phrase count
+over 100-base windows tiling the flank. `RCMPLX < 20` is justified by real-data
+corroboration, checked two independent ways:
 
 1. **Downstream alignment quality.** On a real annotated somatic call set,
-   binning calls by `RCMPLX` and comparing against markers `RCMPLX` never
-   sees (the read-alignment-based `CLPM`/`ASRD`/`ASMD` fields from the
-   calling pipeline, and expos's own `MLAS`) shows a real, monotonic
-   degradation in `ASRD`/`ASMD`/`MLAS` as `RCMPLX` falls, steepest in the
-   bottom two or three deciles of real calls, which is where 20 sits.
-   `CLPM` shows no discriminating power either way in this call set.
-2. **Independent sequence-structure confirmation.** A separate, purely
-   reference-sequence-based tandem-repeat detector (no read data, no LZ76)
+   binning calls by `RCMPLX` and comparing against alignment score read
+   directly from the BAM's `AS` tag shows a monotonic degradation in
+   alignment score as `RCMPLX` falls, steepest in the bottom two or three
+   deciles of real calls, where 20 sits.
+2. **Independent sequence-structure confirmation.** A separate
+   tandem-repeat detector
    run over the same window agrees: the length of the longest periodic
    repeats found correlates with `RCMPLX` (Spearman ≈ -0.5, monotonic
    across deciles), confirming low `RCMPLX` reflects genuine local
    repetitiveness rather than being an artefact correlated with something
    else.
-
-This threshold was also checked at flank sizes from 200 to 400 bases before
-the default settled at 250; the degradation pattern barely moved across
-that range, so the cutoff isn't sensitive to the exact flank chosen.
 
 !!! note "Caveat"
     Treat as a continuous risk factor to combine with other statistics, not a clean binary classifier of "difficult" vs "normal" sequence.

@@ -2,17 +2,15 @@
 
 Statistically-backed VCF flagging calculating effect sizes
 and p-values for spatial properties of somatic mutations via
-Monte Carlo simulation. Compares mutant reads (supporting observations)
-with the set of all reads (background), including reads
-from one or more "normal" samples.
+Monte Carlo simulation and local reference complexity via Lempel-Ziv 76 method.
+Compares mutant reads with the set of all reads, including reads
+from one or more background-only samples.
 
 Useful for inspecting and flagging false positive variants caused
 by a variety of processes most commonly associated with a high
 number of PCR cycles. Builds on Ellis et al. 2021, GATK ReadPosRankSum, bcftools RPBZ, amongst others.
 
 Applicable to SNVs, small MNVs, and small indels.
-
-For a full introduction see [Concepts & Theory](concepts.md)
 
 ---
 
