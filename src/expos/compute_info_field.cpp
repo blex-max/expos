@@ -22,18 +22,6 @@ static StatValue stat_value (double v)
   return {v, std::nullopt};
 }
 
-static StatValue stat_missing (StatSkipReason reason)
-{
-  return {std::nullopt, reason};
-}
-
-static StatValue stat_or (
-    std::optional<double> v, StatSkipReason reasonIfMissing
-)
-{
-  return v ? stat_value (*v) : stat_missing (reasonIfMissing);
-}
-
 // --- kernels --- //
 
 // Both Monte-Carlo statistics are a sum, over unordered pairs of the
@@ -349,26 +337,6 @@ static ValuesOrSkip compute_tjac (
   };
 }
 
-// The only statistic with independently-missing subfields: two unrelated
-// medians, either of which can be absent while the other is reportable.
-static ValuesOrSkip compute_mlas (
-    const VariantStatInputs& in, const StatContext&
-)
-{
-  return std::vector<StatValue>{
-      stat_or (
-          percentile (
-              in.supporting.normalisedAs, PERCENTILE_MEDIAN
-          ),
-          StatSkipReason::noSupport
-      ),
-      stat_or (
-          percentile (in.all.normalisedAs, PERCENTILE_MEDIAN),
-          StatSkipReason::noBackground
-      )
-  };
-}
-
 static ValuesOrSkip compute_rcmplx (
     const VariantStatInputs& in, const StatContext&
 )
@@ -414,11 +382,6 @@ constexpr std::string_view TJAC_HEADER =
     "null; [1] one-sided Monte-Carlo p-value. Effect sizes "
     "greater than ~3.0 with a significant p-value may indicate "
     "a spurious variant.\">";
-constexpr std::string_view MLAS_HEADER =
-    "##INFO=<ID=MLAS,Number=2,Type=Float,Description=\"Median "
-    "read-length-normalised alignment scores: [0] of reads "
-    "supporting the "
-    "variant; [1] of all reads covering the variant site.\">";
 constexpr std::string_view RCMPLX_HEADER =
     "##INFO=<ID=RCMPLX,Number=1,Type=Float,Description="
     "\"Minimum "
@@ -429,10 +392,9 @@ constexpr std::string_view RCMPLX_HEADER =
     "run).\">";
 
 // --- registry --- //
-constexpr std::array<VariantStat, 4> VARIANT_STATS = {{
+constexpr std::array<VariantStat, 3> VARIANT_STATS = {{
     {{"QRK", QRK_HEADER, 2}, &compute_qrk},
     {{"TJAC", TJAC_HEADER, 2}, &compute_tjac},
-    {{"MLAS", MLAS_HEADER, 2}, &compute_mlas},
     {{"RCMPLX", RCMPLX_HEADER, 1}, &compute_rcmplx},
 }};
 

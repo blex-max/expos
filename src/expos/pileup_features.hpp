@@ -16,7 +16,6 @@ struct PileupFeatures {
   std::vector<TemplateEndpoints>
       endpoints;  // per template (deduplicated)
   std::vector<int32_t> readLen;  // per read
-  std::vector<double> normalisedAs;  // per read: AS tag / l_qseq
 };
 
 void reset (PileupFeatures& pf) noexcept;

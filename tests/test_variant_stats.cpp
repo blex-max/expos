@@ -401,12 +401,9 @@ constexpr std::string_view REF_PLACEHOLDER{};
 TEST_CASE ("variant_stats registry")
 {
   const auto stats = expos_field_registry();
-  REQUIRE (
-      stats.size() == 4
-  );  // QRK, TJAC, MLAS, RCMPLX — the full package
+  REQUIRE (stats.size() == 3);  // QRK, TJAC, RCMPLX
   REQUIRE (by_id (stats, "QRK").field.nValues == 2);
   REQUIRE (by_id (stats, "TJAC").field.nValues == 2);
-  REQUIRE (by_id (stats, "MLAS").field.nValues == 2);
   REQUIRE (by_id (stats, "RCMPLX").field.nValues == 1);
 }
 
@@ -838,46 +835,6 @@ TEST_CASE ("compute TJAC (graded pairwise template overlap)")
   }
 }
 
-TEST_CASE ("compute MLAS (median normalised alignment score)")
-{
-  const auto mlas = by_id (expos_field_registry(), "MLAS");
-  Mwc192 rng (1);
-
-  SECTION ("medians of supporting and all")
-  {
-    PileupFeatures supporting;
-    supporting.normalisedAs = {0.5, 0.7, 0.9};  // median 0.7
-    PileupFeatures all;
-    all.normalisedAs = {0.2, 0.4, 0.6, 0.8};  // median 0.5
-    VariantStatInputs in{supporting, all, REF_PLACEHOLDER};
-    McState mc{std::move (rng), {}, {}};
-    const StatContext ctx{mc, std::nullopt};
-    const auto r = mlas.compute (in, ctx);
-    REQUIRE (r.has_value());
-    REQUIRE (r->size() == 2);
-    REQUIRE (*(*r)[0].value == Approx (0.7));
-    REQUIRE (*(*r)[1].value == Approx (0.5));
-  }
-
-  SECTION ("missing when the supporting group is empty")
-  {
-    // MLAS's subfields are independent summaries, not one inference, so this
-    // is a per-subfield skip and not a whole-statistic one: the background
-    // median stays reportable.
-    PileupFeatures supporting;  // no reads
-    PileupFeatures all;
-    all.normalisedAs = {0.3, 0.6};
-    VariantStatInputs in{supporting, all, REF_PLACEHOLDER};
-    McState mc{std::move (rng), {}, {}};
-    const StatContext ctx{mc, std::nullopt};
-    const auto r = mlas.compute (in, ctx);
-    REQUIRE (r.has_value());
-    REQUIRE_FALSE ((*r)[0].value.has_value());
-    REQUIRE ((*r)[0].reason == StatSkipReason::noSupport);
-    REQUIRE ((*r)[1].value.has_value());
-  }
-}
-
 TEST_CASE ("compute RCMPLX (reference complexity)")
 {
   const auto rcmplx = by_id (expos_field_registry(), "RCMPLX");
@@ -965,16 +922,22 @@ TEST_CASE ("stat_skips deduplicates within a statistic")
 
   SECTION ("only the missing subfield contributes a skip")
   {
-    // MLAS, since it is the only statistic that can reach a partially-missing
-    // result: the joint-inference statistics skip whole or not at all.
-    const VariantStatField mlasField{"MLAS", "", 2};
+    // A hypothetical statistic with independently-missing subfields: the
+    // registry's real statistics currently skip whole or not at all, but
+    // stat_skips must still handle a per-subfield skip correctly.
+    const VariantStatField independentField{"INDEP", "", 2};
     const std::vector<StatValue> oneMissing{
         StatValue{0.7, std::nullopt},
-        StatValue{std::nullopt, StatSkipReason::noBackground}
+        StatValue{
+            std::nullopt, StatSkipReason::insufficientBackground
+        }
     };
-    const auto skips = stat_skips (mlasField, oneMissing);
+    const auto skips = stat_skips (independentField, oneMissing);
     REQUIRE (skips.size() == 1);
-    REQUIRE (to_info_format (skips[0]) == "MLAS:no_background");
+    REQUIRE (
+        to_info_format (skips[0]) ==
+        "INDEP:insufficient_background"
+    );
   }
 
   SECTION ("no missing subfields -> no skips")

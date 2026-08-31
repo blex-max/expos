@@ -71,30 +71,6 @@ static std::expected<TemplateEndpoints, Err> extract_endpoints (
   return std::pair{*endpoints.first, *endpoints.second};
 }
 
-// Read-length-normalised alignment score (AS tag / l_qseq).
-static std::expected<double, Err> extract_normalised_as (
-    const bam1_t* b1
-)
-{
-  const auto* qname = bam_get_qname (b1);
-  auto* const rawAs = bam_aux_get (b1, "AS");
-  if (rawAs == NULL) {
-    return std::unexpected (
-        make_err (fmt::format ("no AS tag for read {}", qname))
-    );
-  }
-  const auto intAs = bam_aux2i (rawAs);
-  if (intAs == 0 && errno == EINVAL) {
-    return std::unexpected (make_err (
-        fmt::format (
-            "AS tag is not an integer type for read {}", qname
-        )
-    ));
-  }
-  return static_cast<double> (intAs) /
-         static_cast<double> (b1->core.l_qseq);
-}
-
 VoidOrErr extract_features (
     PileupView plp, uint16_t maxFragLen, PileupFeatures& _out
 )
@@ -129,13 +105,6 @@ VoidOrErr extract_features (
       _out.qPos.emplace_back (p1.qpos);
     }
     _out.readLen.emplace_back (b1->core.l_qseq);
-
-    const auto nasRet = extract_normalised_as (b1);
-    if (!nasRet) {
-      bam_destroy1 (ru_bCigBuf);
-      return std::unexpected (nasRet.error());
-    }
-    _out.normalisedAs.emplace_back (*nasRet);
   }
 
   bam_destroy1 (ru_bCigBuf);
@@ -186,13 +155,6 @@ VoidOrErr extract_partition_features (
     const auto qPosAln =
         !p1.is_del && !p1.is_refskip && p1.qpos >= 0;
 
-    const auto nasRet = extract_normalised_as (b1);
-    if (!nasRet) {
-      bam_destroy1 (ru_bCigBuf);
-      return std::unexpected (nasRet.error());
-    }
-    const double normalisedAs = *nasRet;
-
     if (qPosAln) {
       _outAll.qPos.emplace_back (p1.qpos);
     }
@@ -201,7 +163,6 @@ VoidOrErr extract_partition_features (
       qnamesSeenAll.insert (qname);
     }
     _outAll.readLen.emplace_back (b1->core.l_qseq);
-    _outAll.normalisedAs.emplace_back (normalisedAs);
 
     if (rec.eval_read_support (rec, p1)) {
       if (qPosAln) {
@@ -212,7 +173,6 @@ VoidOrErr extract_partition_features (
         qnamesSeenSupporting.insert (qname);
       }
       _outSupport.readLen.emplace_back (b1->core.l_qseq);
-      _outSupport.normalisedAs.emplace_back (normalisedAs);
     }
   }
 

@@ -26,10 +26,6 @@ std::string_view to_string (StatSkipReason reason)
       return "insufficient_reads_for_test";
     case StatSkipReason::zeroVariance:
       return "zero_variance";
-    case StatSkipReason::noSupport:
-      return "no_support";
-    case StatSkipReason::noBackground:
-      return "no_background";
     case StatSkipReason::referenceTooShort:
       return "reference_too_short";
     case StatSkipReason::referenceHasN:

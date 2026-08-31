@@ -19,8 +19,6 @@ enum class StatSkipReason : uint8_t {
   heterogeneousReadLength,
   readLengthUnverified,
   zeroVariance,
-  noSupport,
-  noBackground,
   referenceTooShort,
   referenceHasN
 };

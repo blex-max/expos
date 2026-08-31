@@ -26,8 +26,6 @@ const std::vector<StatSkipReason> ALL_STAT_REASONS{
     StatSkipReason::heterogeneousReadLength,
     StatSkipReason::readLengthUnverified,
     StatSkipReason::zeroVariance,
-    StatSkipReason::noSupport,
-    StatSkipReason::noBackground,
     StatSkipReason::referenceTooShort,
     StatSkipReason::referenceHasN,
 };
@@ -86,12 +84,6 @@ TEST_CASE ("skip reason strings are stable")
       to_string (StatSkipReason::zeroVariance) == "zero_variance"
   );
   REQUIRE (
-      to_string (StatSkipReason::noSupport) == "no_support"
-  );
-  REQUIRE (
-      to_string (StatSkipReason::noBackground) == "no_background"
-  );
-  REQUIRE (
       to_string (StatSkipReason::referenceTooShort) ==
       "reference_too_short"
   );
@@ -127,8 +119,9 @@ TEST_CASE ("Skip renders as <scope>:<reason>")
         make_stat_skip ("QRK", StatSkipReason::zeroVariance);
     const auto differentScope =
         make_stat_skip ("TJAC", StatSkipReason::zeroVariance);
-    const auto differentReason =
-        make_stat_skip ("QRK", StatSkipReason::noSupport);
+    const auto differentReason = make_stat_skip (
+        "QRK", StatSkipReason::insufficientSupport
+    );
     REQUIRE (a == b);
     REQUIRE_FALSE (a == differentScope);
     REQUIRE_FALSE (a == differentReason);
