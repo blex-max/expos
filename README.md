@@ -22,18 +22,42 @@ Applicable to SNVs, small MNVs, and small indels.
 
 ## Installation
 
-From source:
+### Requirements
+
+- C++23-capable compiler (tested with gcc 12 and clang 21)
+- CMake 3.22+
+- [htslib](https://github.com/samtools/htslib) ≥ 1.14
+
+[argparse](https://github.com/p-ranav/argparse) and [fmt](https://github.com/fmtlib/fmt) are vendored directly under `vendor/`. Tests additionally fetch [Catch2](https://github.com/catchorg/Catch2) via CMake FetchContent when `MAKE_TEST=ON` - making the test binary therefore requires network access for at least the configure step.
+
+## Build from Source
 
 ```bash
- # from the cloned repo
- mkdir build
- cd build
- cmake .. -DCMAKE_BUILD_TYPE=Release
- cmake --build .
- ./expos --help
+# from the cloned repo
+mkdir build
+cd build
+cmake .. -DCMAKE_BUILD_TYPE=Release
+cmake --build .
+./expos --help
+```
+
+If htslib is not discoverable via `pkg-config`, point CMake to it directly:
+
+```bash
+cmake .. \
+  -DCMAKE_BUILD_TYPE=Release \
+  -DHTSLIB_INCLUDE_DIR=/path/to/htslib/include \
+  -DHTSLIB_LIBRARY=/path/to/libhts.so
 ```
 
 Prebuilt docker images for linux/arm64 and linux/amd64 are also provided via the GitHub container registry. They can be found in the `packages` section of the GitHub page for the repo.
+
+To also compile `estimate-entropy`, a daughter tool for complexity estimation of (genomic) strings:
+
+```bash
+cmake .. -DMAKE_DAUGHTER=ON -DCMAKE_BUILD_TYPE=Release
+cmake --build .
+```
 
 ## Usage
 
@@ -87,3 +111,7 @@ time), run this once after cloning:
 ```bash
 git config core.hooksPath .githooks
 ```
+
+## Acknowledgements
+
+High-performance PRNG implementation follows [Vigna](https://prng.di.unimi.it/MWC192.c) and [Lemire](https://lemire.me/blog/2019/06/06/nearly-divisionless-random-integer-generation-on-various-systems/).

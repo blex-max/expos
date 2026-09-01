@@ -19,8 +19,6 @@ cmake --build .
 ./expos --help
 ```
 
-## **Non-Standard htslib Location**
-
 If htslib is not discoverable via `pkg-config`, point CMake to it directly:
 
 ```bash
@@ -29,6 +27,14 @@ cmake .. \
   -DHTSLIB_INCLUDE_DIR=/path/to/htslib/include \
   -DHTSLIB_LIBRARY=/path/to/libhts.so
 ```
+
+## **Containers**
+
+A Dockerfile is provided with the repository. No user is set; the image produced is therefore compatible with
+`singularity pull`.  
+
+Prebuilt docker images for linux/arm64 and linux/amd64 are also provided via the GitHub container registry.
+They can be found in the `packages` section of the GitHub page for the repo.
 
 ## **Optional: Build Daughter Tool**
 
