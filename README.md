@@ -22,6 +22,8 @@ Applicable to SNVs, small MNVs, and small indels.
 
 ## Installation
 
+From source:
+
 ```bash
  # from the cloned repo
  mkdir build
@@ -30,6 +32,8 @@ Applicable to SNVs, small MNVs, and small indels.
  cmake --build .
  ./expos --help
 ```
+
+Prebuilt docker images for linux/arm64 and linux/amd64 are also provided via the GitHub container registry. They can be found in the `packages` section of the GitHub page for the repo.
 
 ## Usage
 
