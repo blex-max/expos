@@ -22,15 +22,13 @@ Applicable to SNVs, small MNVs, and small indels.
 
 ## Installation
 
-### Requirements
+**Requirements:**
 
 - C++23-capable compiler (tested with gcc 12 and clang 21)
 - CMake 3.22+
 - [htslib](https://github.com/samtools/htslib) ≥ 1.14
 
 [argparse](https://github.com/p-ranav/argparse) and [fmt](https://github.com/fmtlib/fmt) are vendored directly under `vendor/`. Tests additionally fetch [Catch2](https://github.com/catchorg/Catch2) via CMake FetchContent when `MAKE_TEST=ON` - making the test binary therefore requires network access for at least the configure step.
-
-## Build from Source
 
 ```bash
 # from the cloned repo
